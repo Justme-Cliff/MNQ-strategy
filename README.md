@@ -1,4 +1,4 @@
-# TJR Enhanced — Automated MNQ Futures Trading System
+# TJR Enhanced: Automated MNQ Futures Trading System
 
 > An institutional-grade signal detection and risk management system for trading Micro E-mini Nasdaq-100 (MNQ) futures on the Tradeify $25k evaluation challenge. Built on the TJR Asia Session Sweep methodology, enhanced with data-driven confluence scoring, adaptive smart filters, and real-time execution guidance.
 
@@ -28,7 +28,7 @@
 
 This project is a complete trading assistant built for day trading MNQ futures during the New York morning session (9:30 AM to 11:30 AM EST). It detects high-probability reversal setups using the TJR Asia Session Sweep model, scores them with a 5-point confluence system, manages risk automatically, and outputs clear actionable signals directly to your terminal.
 
-The system does not place trades automatically in its current form. It acts as an intelligent co-pilot — detecting setups faster than any human can, calculating exact entry, stop loss, and take profit levels, and alerting you with sound and macOS notifications so you never miss a signal.
+The system does not place trades automatically in its current form. It acts as an intelligent co-pilot. It detects setups faster than any human can, calculating exact entry, stop loss, and take profit levels, and alerting you with sound and macOS notifications so you never miss a signal.
 
 The entire automation layer (bracket orders, stop management, break-even moves) is already coded and will activate when Tradovate API access becomes available on a funded account.
 
@@ -36,9 +36,9 @@ The entire automation layer (bracket orders, stop management, break-even moves) 
 
 ## The Strategy Explained
 
-### Background — Why This Works
+### Background: Why This Works
 
-Professional traders and institutions operate differently from retail traders. Retail traders place stop losses at obvious levels — just above resistance, just below support, just outside key session highs and lows. Institutions know exactly where these stops cluster. They deliberately push price through those levels to trigger the stops, collect the liquidity, and then reverse in the opposite direction at a better price.
+Professional traders and institutions operate differently from retail traders. Retail traders place stop losses at obvious levels: just above resistance, just below support, just outside key session highs and lows. Institutions know exactly where these stops cluster. They deliberately push price through those levels to trigger the stops, collect the liquidity, and then reverse in the opposite direction at a better price.
 
 This is called a liquidity sweep or stop hunt. The TJR strategy is built entirely around identifying these moments and trading the reversal.
 
@@ -53,36 +53,36 @@ These stops are the target. When New York opens at 9:30 AM, institutions have a 
 
 ### The Four Step Setup
 
-**Step 1 — Asia Range Formation**
+**Step 1: Asia Range Formation**
 
 Between 8:00 PM and midnight EST, the bot records every price bar and builds the high and low of that session. These become the two orange horizontal lines on your TradingView chart. No action is taken during this phase.
 
-**Step 2 — The Sweep**
+**Step 2: The Sweep**
 
 After 9:30 AM EST, the bot watches for price to pierce through one of the orange lines:
 
 * Price drops below the Asia Low → Bullish setup forming (institutions swept buy stops, will reverse up)
 * Price rises above the Asia High → Bearish setup forming (institutions swept sell stops, will reverse down)
 
-The moment this happens, the bot fires a yellow warning: SWEEP DETECTED — GET READY.
+The moment this happens, the bot fires a yellow warning: SWEEP DETECTED, GET READY.
 
 The sweep itself is not the entry signal. It is the precondition. Many sweeps are false. You need confirmation before entering.
 
-**Step 3 — Market Structure Shift (MSS)**
+**Step 3: Market Structure Shift (MSS)**
 
 After the sweep, the bot watches for a Market Structure Shift. This is the confirmation that the institutional reversal has begun. For a bullish setup:
 
 * After sweeping the Asia Low, price must create a local low (a swing point)
 * Price then breaks back above a prior swing high
-* This break above structure is the MSS — it confirms the reversal is real
+* This break above structure is the MSS. It confirms the reversal is real
 
-For a bearish setup, the inverse applies — price must break below a prior swing low after the sweep.
+For a bearish setup, the inverse applies. Price must break below a prior swing low after the sweep.
 
 The bot detects MSS in real time by tracking swing pivots and monitoring when price breaks through them with a closing candle.
 
-**Step 4 — Fair Value Gap Entry**
+**Step 4: Fair Value Gap Entry**
 
-When institutions move price aggressively, they often leave an imbalance — a range of prices that were skipped over entirely. This is called a Fair Value Gap (FVG). It appears as a gap between the high of a candle two bars ago and the low of the current bar (for bullish), or the low of a candle two bars ago and the high of the current bar (for bearish).
+When institutions move price aggressively, they often leave an imbalance, a range of prices that were skipped over entirely. This is called a Fair Value Gap (FVG). It appears as a gap between the high of a candle two bars ago and the low of the current bar (for bullish), or the low of a candle two bars ago and the high of the current bar (for bearish).
 
 Price frequently returns to fill these gaps before continuing in the original direction. This retracement is the entry point. The bot identifies these zones and the entry price is calculated to be within the zone, keeping risk within the $50 maximum per trade.
 
@@ -104,15 +104,15 @@ Requiring 4 out of 5 points means the bot rejects the majority of setups. This i
 
 ### Entry, Stop Loss, and Take Profit
 
-**Entry** — A limit order placed at a level within 25 points of the stop. For a long trade after a sweep, entry is placed at stop + 25 points. Price must pull back to this level after the MSS for the order to fill. If price never pulls back, the trade is skipped — no loss, no stress.
+**Entry:** A limit order placed at a level within 25 points of the stop. For a long trade after a sweep, entry is placed at stop + 25 points. Price must pull back to this level after the MSS for the order to fill. If price never pulls back, the trade is skipped. No loss, no stress.
 
-**Stop Loss** — Placed beyond the sweep wick. For a long, the stop goes 1 point below the lowest low since the sweep bar. This protects against the trade invalidating by taking out the sweep level again.
+**Stop Loss:** Placed beyond the sweep wick. For a long, the stop goes 1 point below the lowest low since the sweep bar. This protects against the trade invalidating by taking out the sweep level again.
 
-**Take Profit 1** — At 1.5 times the stop distance. When hit, the stop moves to break-even (entry price). The trade becomes risk-free.
+**Take Profit 1:** At 1.5 times the stop distance. When hit, the stop moves to break-even (entry price). The trade becomes risk-free.
 
-**Take Profit 2** — At 3.0 times the stop distance. This is the full target. On 1 MNQ contract with a 25-point stop, TP2 yields $150.
+**Take Profit 2:** At 3.0 times the stop distance. This is the full target. On 1 MNQ contract with a 25-point stop, TP2 yields $150.
 
-**Risk/Reward** — Every trade targets at minimum 3:1. With a $50 risk, the minimum reward is $150. Even at a 40% win rate, this strategy is profitable in the long run.
+**Risk/Reward:** Every trade targets at minimum 3:1. With a $50 risk, the minimum reward is $150. Even at a 40% win rate, this strategy is profitable in the long run.
 
 ---
 
@@ -133,7 +133,7 @@ When you run `python3 live_detector.py`, the bot executes the following sequence
 
 Every 0.5 seconds:
 
-1. Read the cached live price (instant — no network wait)
+1. Read the cached live price (instant, no network wait)
 2. Check if current time is inside the trade window (9:30 to 11:30 AM)
 3. Check if price has crossed the Asia High or Asia Low (sweep detection)
 4. If a sweep was detected on a prior tick, check for MSS formation
@@ -215,7 +215,7 @@ Live Price Feed (yfinance fast_info, 0.5s)
 ```
 trading-strategy/
 |
-|-- live_detector.py          Main entry point — run this every morning
+|-- live_detector.py          Main entry point, run this every morning
 |-- backtest_run.py           Run strategy on 60 days of historical data
 |-- config.py                 All settings and constants
 |-- fast_feed.py              Background price cache (0.5s updates)
@@ -271,7 +271,7 @@ trading-strategy/
 
 * Python 3.9 or higher
 * macOS (for sound and notification features)
-* TradingView account (any plan — used for chart reference only)
+* TradingView account (any plan, used for chart reference only)
 * Tradeify evaluation account on Tradovate
 
 **Setup**
@@ -362,11 +362,11 @@ When a valid signal fires, the terminal displays:
 
 ```
 ╔══════════════════════════════════════════════════════════╗
-║   SHORT MNQ — PLACE THIS TRADE NOW   10:23:47 EST       ║
+║   SHORT MNQ: PLACE THIS TRADE NOW   10:23:47 EST        ║
 ║                                                          ║
-║  Step 1 — Click SELL on TradingView                     ║
-║  Step 2 — Set order type to LIMIT                       ║
-║  Step 3 — Enter these exact numbers:                    ║
+║  Step 1: Click SELL on TradingView                      ║
+║  Step 2: Set order type to LIMIT                        ║
+║  Step 3: Enter these exact numbers:                     ║
 ║                                                          ║
 ║  Entry (Limit price):  29,643.75                        ║
 ║  Stop Loss:            29,668.75    max loss $50        ║
@@ -434,7 +434,7 @@ The 9:30 to 10:00 AM window has the highest probability for setups because the i
 
 ### Sweep Quality Validation
 
-Not all sweeps are equal. A sweep of only 2 to 3 points is likely noise — price briefly crossed the level without real institutional intent. A sweep of 90 points means the entry zone will be too far from the stop to manage risk within $50. Both extremes are filtered:
+Not all sweeps are equal. A sweep of only 2 to 3 points is likely noise. Price briefly crossed the level without real institutional intent. A sweep of 90 points means the entry zone will be too far from the stop to manage risk within $50. Both extremes are filtered:
 
 * Sweeps under 3 points: rejected as noise
 * Sweeps over 80 points: rejected as unmanageable risk
@@ -495,7 +495,7 @@ At a 43% win rate with 3:1 reward to risk, the expected value per trade is posit
 EV = (0.43 * $150) + (0.57 * -$35.71) = $64.50 - $20.35 = $44.15 per trade
 ```
 
-Over 37 trades that projects to $1,633 — sufficient to pass the $1,500 challenge.
+Over 37 trades that projects to $1,633, sufficient to pass the $1,500 challenge.
 
 ---
 
