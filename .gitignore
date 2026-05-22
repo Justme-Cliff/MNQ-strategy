@@ -1,0 +1,57 @@
+# Secrets — never commit these
+.env
+*.env
+!.env.example
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pycache
+.Python
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Trade journal database (personal data)
+journal/trades.db
+journal/*.db
+
+# Logs
+*.log
+logs/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary chart files from PDF generator
+/tmp/tjr_charts/
+
+# Old PDFs
+*.pdf
+
+# Jupyter
+.ipynb_checkpoints/
+
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+

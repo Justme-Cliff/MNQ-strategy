@@ -1,0 +1,129 @@
+//@version=5
+indicator("TJR Enhanced - MNQ Asia Sweep", overlay=true, max_boxes_count=50, max_labels_count=100)
+
+// ── INPUTS ────────────────────────────────────────────────────────────────────
+min_score = input.int(4,     "Min Score to Alert", minval=1, maxval=5)
+pivot_str = input.int(2,     "MSS Pivot Strength", minval=1, maxval=5)
+fvg_min   = input.float(2.0, "Min FVG Size (pts)")
+show_asia = input.bool(true, "Show Asia Range")
+show_fvg  = input.bool(true, "Show FVG Zones")
+show_vwap = input.bool(true, "Show VWAP")
+show_lbl  = input.bool(true, "Show Labels")
+
+// ── SESSIONS ──────────────────────────────────────────────────────────────────
+in_asia  = not na(time("", "2000-0000", "America/New_York"))
+in_trade = not na(time("", "0930-1130", "America/New_York"))
+new_day  = ta.change(dayofmonth) != 0
+
+// ── ASIA RANGE ────────────────────────────────────────────────────────────────
+var float asia_hi  = na
+var float asia_lo  = na
+var float today_hi = na
+var float today_lo = na
+
+if new_day
+    today_hi := asia_hi
+    today_lo := asia_lo
+    asia_hi  := na
+    asia_lo  := na
+
+if in_asia
+    asia_hi := na(asia_hi) ? high : math.max(asia_hi, high)
+    asia_lo := na(asia_lo) ? low  : math.min(asia_lo, low)
+
+// Show Asia H/L all day long (not just trade window) so they always move with chart
+plot(show_asia and not na(today_hi) ? today_hi : na, "Asia High", color=color.orange, linewidth=2, style=plot.style_linebr)
+plot(show_asia and not na(today_lo) ? today_lo : na, "Asia Low",  color=color.orange, linewidth=2, style=plot.style_linebr)
+
+// ── VWAP ──────────────────────────────────────────────────────────────────────
+[vwap_val, _, _] = ta.vwap(high, low, close)
+plot(show_vwap ? vwap_val : na, "VWAP", color=color.yellow, linewidth=2)
+
+// ── SWEEP ─────────────────────────────────────────────────────────────────────
+var bool bull_sweep = false
+var bool bear_sweep = false
+
+if new_day
+    bull_sweep := false
+    bear_sweep := false
+
+if in_trade and not na(today_lo) and low < today_lo and not bull_sweep
+    bull_sweep := true
+    if show_lbl
+        label.new(bar_index, low, "SWEEP LOW", color=color.green, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+if in_trade and not na(today_hi) and high > today_hi and not bear_sweep
+    bear_sweep := true
+    if show_lbl
+        label.new(bar_index, high, "SWEEP HIGH", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// ── MSS ───────────────────────────────────────────────────────────────────────
+swing_hi = ta.pivothigh(high, pivot_str, pivot_str)
+swing_lo = ta.pivotlow(low,  pivot_str, pivot_str)
+
+var float track_hi = na
+var float track_lo = na
+var bool  bull_mss = false
+var bool  bear_mss = false
+
+if new_day
+    track_hi := na
+    track_lo := na
+    bull_mss := false
+    bear_mss := false
+
+if not na(swing_hi)
+    track_hi := na(track_hi) ? swing_hi : math.max(track_hi, swing_hi)
+if not na(swing_lo)
+    track_lo := na(track_lo) ? swing_lo : math.min(track_lo, swing_lo)
+
+if bull_sweep and not bull_mss and not na(track_hi) and close > track_hi
+    bull_mss := true
+    if show_lbl
+        label.new(bar_index, low, "MSS ▲", color=color.lime, textcolor=color.black, style=label.style_label_up, size=size.normal)
+
+if bear_sweep and not bear_mss and not na(track_lo) and close < track_lo
+    bear_mss := true
+    if show_lbl
+        label.new(bar_index, high, "MSS ▼", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.normal)
+
+// ── FVG ───────────────────────────────────────────────────────────────────────
+bull_fvg = bull_sweep and high[2] < low and (low - high[2]) >= fvg_min
+bear_fvg = bear_sweep and low[2]  > high and (low[2] - high) >= fvg_min
+
+var float bfvg_top = na
+var float bfvg_bot = na
+var float sfvg_top = na
+var float sfvg_bot = na
+
+if bull_fvg
+    bfvg_top := low
+    bfvg_bot := high[2]
+    if show_fvg
+        box.new(bar_index - 2, low, bar_index + 10, high[2], border_color=color.new(color.green, 20), bgcolor=color.new(color.green, 80))
+
+if bear_fvg
+    sfvg_top := low[2]
+    sfvg_bot := high
+    if show_fvg
+        box.new(bar_index - 2, low[2], bar_index + 10, high, border_color=color.new(color.red, 20), bgcolor=color.new(color.red, 80))
+
+in_bfvg = not na(bfvg_bot) and close >= bfvg_bot and close <= bfvg_top
+in_sfvg = not na(sfvg_bot) and close >= sfvg_bot and close <= sfvg_top
+
+// ── SCORE ─────────────────────────────────────────────────────────────────────
+long_score  = (bull_sweep?1:0) + (bull_mss?1:0) + (in_bfvg?1:0) + (close>vwap_val?1:0) + (in_trade?1:0)
+short_score = (bear_sweep?1:0) + (bear_mss?1:0) + (in_sfvg?1:0) + (close<vwap_val?1:0) + (in_trade?1:0)
+
+if show_lbl and in_trade and bull_mss and long_score >= min_score
+    label.new(bar_index, low - ta.atr(14), str.tostring(long_score) + "/5 ▲", color=color.green, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+if show_lbl and in_trade and bear_mss and short_score >= min_score
+    label.new(bar_index, high + ta.atr(14), str.tostring(short_score) + "/5 ▼", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// ── ALERTS ────────────────────────────────────────────────────────────────────
+alertcondition(bull_mss and long_score  >= min_score and in_trade, "TJR Long Signal",  "LONG")
+alertcondition(bear_mss and short_score >= min_score and in_trade, "TJR Short Signal", "SHORT")
+
+// ── BACKGROUND: trade window ──────────────────────────────────────────────────
+bgcolor(in_trade ? color.new(color.blue, 96) : na, title="Trade Window")
