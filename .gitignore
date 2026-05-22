@@ -47,6 +47,7 @@ env/
 
 # Old PDFs
 *.pdf
+!Asia_Sweep_System_Research.pdf
 
 # Jupyter
 .ipynb_checkpoints/
