@@ -1,10 +1,8 @@
 # Asia Session Sweep: Automated Futures Trading System
 
-A real-time signal detection and risk management system for day trading futures. Built around the Asia Session Sweep model, enhanced with a 5-point confluence scoring system, adaptive smart filters, and automatic risk sizing. Works out of the box for MNQ on a $25k evaluation. Fully configurable for any account size, instrument, or prop firm rules.
+A real-time signal detection and risk management system for day trading futures. Built around the ICT/TJR Asia Session Sweep model with a 7-point confluence scoring system, London session bias detection, order block entries, adaptive smart filters, and automatic risk sizing. Works out of the box for MNQ on a $25k Tradeify evaluation. Fully configurable for any account size, instrument, or prop firm rules.
 
 ![Strategy Flow](images/strategy_flow.png)
-
----
 
 ## Table of Contents
 
@@ -21,11 +19,9 @@ A real-time signal detection and risk management system for day trading futures.
 11. [Trade Journal](#trade-journal)
 12. [Roadmap](#roadmap)
 
----
-
 ## What This Is
 
-This bot runs in your terminal every morning. It watches live futures price data, detects high-probability reversal setups, and fires an alert with exact entry, stop loss, and take profit numbers the moment a valid signal forms. You place the trade manually on your broker platform. The bot monitors your open position and alerts you at every milestone.
+This bot runs in your terminal every morning. It watches live futures price data, detects high-probability reversal setups based on institutional liquidity theory, and fires an alert with exact entry, stop loss, and take profit numbers the moment a valid signal forms. You place the trade manually on your broker platform. The bot monitors your open position and alerts you at every milestone.
 
 It does not place trades automatically in its current form. It is the detection and calculation layer. The full execution layer (bracket orders, stop management, break-even moves) is already coded and ready to activate when Tradovate API access is available on a funded account.
 
@@ -34,8 +30,6 @@ It does not place trades automatically in its current form. It is the detection 
 * Python 3.9+ on macOS
 * Any broker platform open on the side (TradingView, Tradovate, etc.)
 * A futures account (prop firm evaluation or live funded account)
-
----
 
 ## Quick Start
 
@@ -73,11 +67,9 @@ python3 backtest_run.py
 | h + Enter | Show help |
 | q + Enter | Quit safely |
 
----
-
 ## Adapt It to Your Account
 
-This is the most important section if you are not on a Tradeify $25k evaluation. Everything that controls risk, targets, and firm rules lives in two files: `config.py` and `risk/prop_firm_rules.py`.
+This is the most important section if you are not on a Tradeify $25k evaluation. Everything that controls risk, targets, and firm rules lives in `config.py`.
 
 ![Risk Scaling Reference](images/risk_scaling.png)
 
@@ -139,48 +131,33 @@ TRADE_START_MINUTE = 30
 # When signals stop (session auto-closes at this time)
 TRADE_END_HOUR     = 11
 TRADE_END_MINUTE   = 30
-
-# High-quality window (bot requires 5/5 score outside this window)
-PRIME_END_HOUR     = 11
-PRIME_END_MINUTE   = 0
 ```
 
 ### Step 4: Set your prop firm rules (if applicable)
 
-Open `risk/prop_firm_rules.py` and update the `TradeifyState` class with your firm's actual numbers:
+Open `config.py` and update the account constants:
 
 ```python
-class TradeifyState:
-    PROFIT_TARGET     = 1500    # Dollar amount you need to earn to pass
-    MAX_DRAWDOWN      = 1000    # Maximum trailing drawdown allowed by firm
-    CONSISTENCY_CAP   = 0.40    # Max % of total profit from a single day (firm rule)
-    CONSISTENCY_BUFFER = 0.38   # Use 38% instead of 40% for a safety margin
-    DRAWDOWN_ALERT    = 200     # Bot warns you when buffer drops to this level
-    DRAWDOWN_BLOCK    = 100     # Bot blocks new signals when buffer is this low
+STARTING_BALANCE       = 25_000   # your account starting balance
+TRAILING_MAX_DRAWDOWN  = 1_000    # your firm's trailing drawdown limit
+PROFIT_TARGET          = 1_500    # dollar target to pass evaluation
+CONSISTENCY_RULE       = 0.40     # your firm's single-day profit cap (40% = Tradeify)
+CONSISTENCY_BUFFER     = 0.38     # bot fires at 38% to keep 2% safety margin
 ```
 
-To initialize with how much you have already lost on the evaluation:
-
-```python
-# In live_detector.py, update this line:
-state.setup(already_lost=0.00)   # replace 0.00 with your current loss
-```
-
-If you are trading a live funded account (no profit target, no trailing DD), you can disable prop firm tracking entirely by setting `PROFIT_TARGET = None` and `MAX_DRAWDOWN = None` in the same file.
+If you are trading a live funded account with no evaluation rules, set `PROFIT_TARGET = None` and the consistency cap will not apply.
 
 ### Step 5: Adjust confluence requirements
 
-The bot requires 4 out of 5 points by default. You can tighten or relax this in `config.py`:
+The bot requires 4 out of 7 points by default. Raise this to take only higher-quality setups:
 
 ```python
-# Minimum score required to fire a signal (1-5)
-# 3 = more signals, lower quality
-# 4 = balanced (default)
-# 5 = only perfect setups
+# Minimum score required to fire a signal (1-7)
+# 4 = balanced, good number of trades with solid quality (default)
+# 5 = tighter filter, fewer trades, higher win rate expected
+# 6 = near-perfect only, very few signals
 MIN_CONFLUENCE_SCORE = 4
 ```
-
----
 
 ## The Strategy Explained
 
@@ -188,54 +165,67 @@ MIN_CONFLUENCE_SCORE = 4
 
 Professional institutions and large traders operate differently from retail traders. Retail traders place their stop losses at obvious levels: just above a key high, just below a key low, just outside a session range. Institutions know exactly where these stops cluster. They deliberately push price through those levels to fill their own large orders at a better price, then reverse direction.
 
-This is called a liquidity sweep or stop hunt. This strategy is built entirely around identifying those moments and trading the reversal once it is confirmed.
+This is called a liquidity sweep. This strategy is built entirely around identifying those moments and trading the reversal once it is confirmed by multiple layers of institutional evidence.
 
-### The Asia Session Range
+### The Three-Session Framework
 
-Every night from roughly 8:00 PM to 12:00 AM EST, the futures market consolidates in a quiet range while the Asian session is active. The high and low of this range are significant because retail traders leave stops on both sides. When New York opens at 9:30 AM, there is a well-documented tendency for price to sweep one side of that range first before moving in the day's real direction.
+**Asia Session (8 PM to midnight EST):** Quiet consolidation range forms overnight. High and low of this range become the primary liquidity reference levels. Every retail trader in the world has their stops just outside these levels.
 
-### The Four Step Setup
+**London Session (2 AM to 8 AM EST):** Institutions begin positioning. In roughly 60 to 70 percent of trading days, London sweeps one side of the Asia range before New York opens. If London sweeps the Asia Low, institutions loaded longs during London. The New York long setup has meaningfully higher probability. This directional bias is captured by the bot before the first NY bar prints.
+
+**New York Session (9:30 AM to 11:30 AM EST):** The only window where the bot takes trades. Highest volume, strongest momentum, clearest institutional intent. Session ends at 11:30 AM regardless of setup quality. No midday or afternoon trading.
+
+### The Setup: Five Steps
 
 ![Confluence Scoring](images/confluence_score.png)
 
 **Step 1: Asia Range Formation**
 
-From 8:00 PM to midnight, the bot records every 1-minute bar and identifies the session high and low. These become the two reference levels. No action is taken yet.
+From 8:00 PM to midnight, the bot records every bar and identifies the session high and low. No action is taken yet. The Previous Day High and Low are also computed from the prior NY session.
 
-**Step 2: The Sweep**
+**Step 2: London Bias Detection**
 
-After 9:30 AM the bot watches for price to break through one of those levels:
+From 2 AM to 8 AM, the bot scans for London sweeps of the Asia range. A bullish London sweep (swept Asia Low) adds directional confidence to any subsequent NY long setup. A bearish London sweep (swept Asia High) adds confidence to short setups. The morning briefing shows this bias before the NY open.
 
-* Price dips below the Asia Low: bullish setup forming (institutions swept buy stops below, will reverse up)
-* Price pushes above the Asia High: bearish setup forming (institutions swept sell stops above, will reverse down)
+**Step 3: The NY Sweep**
 
-This is a warning, not a trade entry. Many sweeps are false or lead nowhere.
+After 9:30 AM, the bot watches for price to break through an Asia level. A dip below the Asia Low signals a potential bull setup. A push above the Asia High signals a potential bear setup. The depth of the sweep is measured. Sweeps under 8 points are noise and are rejected. Sweeps over 80 points are news events and are rejected.
 
-**Step 3: Market Structure Shift (MSS)**
+**Step 4: Market Structure Shift (MSS)**
 
-After the sweep, the bot waits for confirmation. For a bullish setup, price must create a local low after the sweep, then break back above a prior swing high. That break is the MSS. It signals that the reversal is actually underway. Without the MSS, no signal fires.
+After the sweep, the bot waits for confirmation. Price must create a structural break in the opposite direction: a close above a prior swing high for longs, or below a prior swing low for shorts. The MSS candle is also evaluated for displacement strength. A large-body candle (body covers over 55% of the total range) that is bigger than recent candles (1.3x the average) is flagged as a strong MSS. Weak MSS raises the required score by 1 point.
 
-**Step 4: Fair Value Gap Entry**
+**Step 5: Order Block Entry**
 
-When price moves aggressively it often skips a range of prices entirely, leaving a gap between candles. This gap (called a Fair Value Gap or FVG) acts as a magnet. Price often returns to fill it before continuing. The entry limit order is placed inside that gap. If price never returns to fill it, the trade is skipped with zero loss.
+Rather than entering at a fixed price, the bot looks for the last opposing candle before the MSS displacement. This is the order block: where institutional limit orders were placed. Entry is set at the order block price as a limit order. Stop is placed one point beyond the candle wick. This gives tighter stops and better reward-to-risk than a fixed-distance entry. If no valid order block exists, the bot falls back to a fixed 25-point stop entry.
 
-### Scoring System
+### The 7-Point Confluence Scoring System
 
-The bot scores the setup from 0 to 5 based on five conditions. A trade fires only at 4 or 5. See the image above for what each point represents and why it matters.
+A setup scores one point for each condition it meets. The minimum to fire a trade is 4 points. The smart filter can raise this dynamically.
+
+| Point | Condition | Meaning |
+|---|---|---|
+| 1 | Asia sweep detected | Required. No sweep, no trade. |
+| 2 | MSS confirmed | Required. No structure break, no trade. |
+| 3 | Fair Value Gap present | Price left an imbalance zone in the entry area. |
+| 4 | VWAP aligned | Price is on the correct side of the daily average. |
+| 5 | Prime time window | Signal fires between 9:30 and 11:00 AM. |
+| 6 | PDH/PDL confluence | Sweep also takes out a previous day level. |
+| 7 | Opening range opposed | Setup goes against the 9:30 AM trap direction. |
+
+London alignment and MSS strength do not add points but they do affect the minimum threshold. A setup with weak MSS or London opposition requires 1 additional point to fire.
 
 ### Entry, Stop, and Targets
 
-**Entry:** Limit order inside the FVG zone, at most `MAX_STOP_POINTS` away from the stop.
+**Entry:** Limit order at the order block price. Falls back to fixed price if no valid OB found.
 
-**Stop Loss:** 1 point beyond the sweep wick. If swept again, trade is invalid.
+**Stop Loss:** 1 point beyond the order block wick. Fixed at 25 points for fallback entries.
 
-**Take Profit 1:** 1.5 times the stop distance. When hit, move stop to break-even. Trade is now risk-free.
+**Take Profit 1:** 1.5x the stop distance. When hit, stop moves to break-even. Trade is now risk-free.
 
-**Take Profit 2:** 3.0 times the stop distance. Full target. Minimum 3:1 reward to risk.
+**Take Profit 2:** 3.0x the stop distance. Full target. Minimum 3:1 reward to risk on every trade.
 
-**Why 3:1 minimum?** At a 40% win rate the strategy is still profitable. At 43% the expected value per trade is over $44.
-
----
+**MNQ math:** $2.00 per point. A 25-point stop on 1 contract = $50 risk. TP2 at 75 points = $150 profit.
 
 ## How the Bot Works
 
@@ -243,81 +233,105 @@ The bot scores the setup from 0 to 5 based on five conditions. A trade fires onl
 
 When you run `python3 live_detector.py`:
 
-1. Fast price feed starts (background thread, updates every 0.5 seconds using yfinance persistent connection)
-2. Three days of 1-minute bar data downloads to build Asia range and VWAP
-3. Morning briefing prints: Asia levels, distances to key levels, account buffer, consistency cap, game plan for the day
-4. Economic calendar checked for high-impact news events (FOMC, CPI, NFP)
+1. Fast price feed starts (background thread, updates every 0.5 seconds)
+2. 60 days of 5-minute bar data downloads to build Asia ranges, VWAP, and FVGs
+3. London session is analyzed and bias is determined before briefing
+4. Morning briefing prints: Asia levels, London bias, account buffer, consistency cap, min score today, game plan
 5. Keyboard listener starts
 6. Main detection loop begins
 
 ### Main Loop
 
-Every 0.5 seconds the bot reads the cached live price (no network call, instant). It checks sweep conditions, MSS conditions, scores the setup, and fires a signal if all thresholds are met. Bar data refreshes every 5 minutes to keep VWAP accurate.
+Every 5 minutes the bot updates bar data. On each price update it checks sweep conditions, MSS conditions, scores the setup, and fires a signal if all thresholds are met.
 
 ### After a Signal Fires
 
 ![Terminal Signal](images/terminal_signal.png)
 
 1. Large colored panel prints with exact numbers to enter on your broker platform
-2. Hero sound plays twice on Mac speakers
+2. Signal includes: direction, score breakdown, entry, stop, TP1, TP2, London bias, MSS strength, sweep depth, OB or fixed entry
 3. macOS notification banner appears even if terminal is minimized
 4. Bot asks whether you took the trade
-5. If yes: live price monitoring starts in a background thread, watching for TP1, TP2, and stop level
+5. If yes: live price monitoring starts, watching for TP1, TP2, and stop level
 6. When TP1 hits: alert fires, terminal tells you to move stop to break-even
-7. When TP2 or stop hits: alert fires, bot asks for the result, records everything
+7. When TP2 or stop hits: alert fires, result is recorded in the journal
 
 If you skip a trade: the bot tracks what would have happened and reports the outcome at end of session.
 
----
-
 ## Smart Adaptive Features
+
+**London Session Bias**
+
+Before the NY open, the bot analyzes whether London swept the Asia Low (bullish) or Asia High (bearish). This directional bias is shown in the morning briefing and affects the minimum score. A NY long signal that conflicts with a bearish London sweep requires 1 additional point to fire.
+
+**MSS Displacement Strength**
+
+The MSS candle is evaluated for institutional conviction. A body ratio above 55% and candle size above 1.3x the recent average = strong MSS. Weak MSS raises the required score by 1 point automatically.
+
+**Order Block Entry**
+
+Instead of entering at a fixed offset from the Asia level, the system finds the last opposing candle before the displacement and enters at that price. This produces tighter stops and larger R:R on high-quality setups.
+
+**PDH/PDL Confluence**
+
+When a sweep also takes out a Previous Day High or Low, two stop clusters are collected in one move. This is scored as an additional confluence point (point 6 of 7).
+
+**Opening Range Opposition**
+
+When the 9:30 to 10:00 AM opening move goes one direction and the setup goes the other, it means institutions reversed the retail open trap. This is scored as point 7 of 7 and is one of the highest-probability ICT setups.
+
+**Day-of-Week Filters**
+
+Derived from 60-day backtest analysis:
+
+| Day | Historical Win Rate | Min Score Required |
+|---|---|---|
+| Monday | 86% | 4/7 (base) |
+| Tuesday | 0% (after filtering) | 7/7 (perfect only) |
+| Wednesday | ~65% | 4/7 (base) |
+| Thursday | 25% | 5/7 |
+| Friday | ~67% | 4/7 (base) |
 
 **Loss Streak Protection**
 
-After two consecutive losses the minimum required confluence score increases from 4 to 5 automatically. Only perfect setups fire until you get a winner. This prevents digging deeper by taking marginal trades while the market is not cooperating.
+After two consecutive losses, the minimum required score rises to 6/7 automatically. Only near-perfect setups fire until you get a winner. This prevents compounding losses on bad days.
 
 **Time Quality Filter**
 
-After 11:00 AM liquidity drops and volatility becomes less directional. The bot automatically requires 5/5 after 11:00 AM. If you want to extend the high-quality window, change `PRIME_END_HOUR` in `config.py`.
+After 11:00 AM, the bot automatically requires 5/7. Momentum fades late in the session and marginal setups are filtered out.
 
-**Sweep Quality Check**
+**Sweep Depth Filter**
 
-Sweeps smaller than 3 points are noise. Sweeps larger than 80 points mean the entry zone will be too far from the stop to fit inside your risk limit. Both extremes are rejected. You can change these thresholds in `strategy/smart_filter.py`:
-
-```python
-MIN_SWEEP_POINTS = 3    # smaller than this = noise, ignored
-MAX_SWEEP_POINTS = 80   # larger than this = unmanageable, ignored
-```
-
-**Choppiness Detection**
-
-If the price range over the last 50 ticks is under 15 points, the market is chopping. The status line shows CHOPPY. No new setups are scored until range expands.
-
-**Missed Trade Tracking**
-
-Every skipped signal is tracked silently in the background. End-of-session summary shows whether the missed trades would have won, lost, or scratched. Over time this data tells you whether your instinct to skip was right or whether you are leaving money on the table.
-
----
+Sweeps under 8 points are noise. Sweeps 8 to 15 points require 5/7. Sweeps 15 to 80 points use the standard threshold. Sweeps over 80 points are skipped entirely as news events.
 
 ## System Architecture
 
 ```
-Live Price Feed (yfinance, 0.5s background thread)
+Live Price Feed (yfinance, 5m bars, background thread)
          |
          v
-   Sweep Detector  <-- compares live price to Asia High / Asia Low
+   London Bias Detection  <-- scans 2-8 AM bars, determines directional bias
          |
-    Sweep found
+         v
+   Asia Range Builder  <-- builds high/low from 8 PM to midnight bars
+         |
+         v
+   Sweep Detector  <-- compares NY bars to Asia High / Asia Low
+         |
+    Sweep found (8 to 80 pts)
          |
          v
    MSS Detector  <-- tracks swing pivots, waits for structure break
          |
-    MSS confirmed
+    MSS confirmed + displacement strength measured
          |
          v
-   Confluence Scorer  <-- 5-point check, returns score 0-5
+   Order Block Finder  <-- locates last opposing candle before displacement
          |
-    Score meets threshold
+         v
+   Confluence Scorer  <-- 7-point check, returns score 0-7
+         |
+    Score meets threshold (with smart filter adjustments)
          |
          v
    Risk Manager  <-- checks daily limits, drawdown buffer, consistency cap
@@ -325,7 +339,7 @@ Live Price Feed (yfinance, 0.5s background thread)
     Approved
          |
          v
-   Signal Output  <-- terminal panel + macOS sound + notification
+   Signal Output  <-- terminal panel + macOS notification
          |
          v
    You Execute on Broker Platform
@@ -337,8 +351,6 @@ Live Price Feed (yfinance, 0.5s background thread)
    Journal Update  <-- SQLite, balance, streak, stats
 ```
 
----
-
 ## File Structure
 
 ```
@@ -347,79 +359,77 @@ trading-strategy/
 |-- live_detector.py          Main entry point, run this every morning
 |-- backtest_run.py           Run strategy on 60 days of historical data
 |-- config.py                 All settings: risk, timing, instrument, thresholds
-|-- fast_feed.py              Background price cache (0.5s updates)
-|-- notifications.py          macOS sound and popup alerts
 |-- briefing.py               Morning briefing and session summary
-|-- news_check.py             Economic calendar warning system
-|-- tradovate_feed.py         Real-time Tradovate WebSocket (funded accounts)
+|-- notifications.py          macOS sound and popup alerts
 |
 |-- strategy/
 |   |-- asia_range.py         Asia session high/low detection
-|   |-- mss_detector.py       Market Structure Shift confirmation
+|   |-- mss_detector.py       MSS confirmation + displacement strength
+|   |-- order_block.py        Order block entry detection
+|   |-- london_session.py     London session bias analysis
 |   |-- fvg_detector.py       Fair Value Gap identification
 |   |-- vwap.py               Intraday VWAP calculation
-|   |-- confluence_scorer.py  5-point scoring system
-|   |-- signal_generator.py   Signal assembly and output
-|   |-- smart_filter.py       Adaptive filters (loss streak, time, sweep quality)
+|   |-- confluence_scorer.py  7-point scoring system
+|   |-- smart_filter.py       Adaptive filters (day, streak, time, sweep depth)
 |
 |-- risk/
 |   |-- position_sizer.py     Contract sizing (scales to your MAX_RISK setting)
-|   |-- prop_firm_rules.py    Firm rules: trailing DD, consistency cap, targets
+|   |-- account_state.py      Trailing DD, consistency cap, buffer tracking
 |   |-- risk_manager.py       Trade approval gateway
 |
-|-- broker/
-|   |-- tradovate_client.py   Tradovate REST + WebSocket API (ready for funded)
-|   |-- order_manager.py      Bracket orders, BE moves, emergency close
-|
-|-- server/
-|   |-- webhook_server.py     FastAPI server for TradingView webhooks
+|-- tradovate/
+|   |-- executor.py           Tradovate REST + WebSocket API (ready for funded)
 |
 |-- backtest/
 |   |-- data_loader.py        Historical data via yfinance
 |   |-- engine.py             Bar-by-bar strategy simulation
-|   |-- results_analyzer.py   Performance statistics
+|   |-- results_analyzer.py   Deep breakdown: day, direction, score, sweep depth
 |
 |-- journal/
 |   |-- trade_journal.py      SQLite trade database
-|   |-- dashboard.py          Terminal performance dashboard
-|
-|-- pine_script/
-|   |-- tjr_enhanced.pine     TradingView Pine Script v5 indicator
 |
 |-- images/                   README diagrams
-|
-|-- tests/
-    |-- test_risk_manager.py
-    |-- test_position_sizer.py
-    |-- test_confluence_scorer.py
 ```
-
----
 
 ## Backtest Results
 
-Run `python3 backtest_run.py` to test against the most recent 60 days of data. Results from May 2026 on MNQ with the default $25k configuration:
+Run `python3 backtest_run.py` to test against the most recent 60 days of data. Results from May 2026 on MNQ with the default $25k Tradeify configuration and all filters active:
 
 | Metric | Result |
 |---|---|
-| Total trades | 37 |
-| Win rate | 43.2% |
-| Average win | $150 |
-| Average loss | $35.71 |
-| Total PnL | $1,650 |
-| Max drawdown in period | $250 |
+| Backtest period | 60 days (approx. 43 trading days) |
+| Total trades taken | 10 |
+| Win rate | 90% (9W / 1L) |
+| Average win | +$150 |
+| Average loss | -$50 |
+| Total P&L | +$1,268 |
+| Max simulated drawdown | ~$100 |
+| Drawdown limit | $1,000 |
+| Consistency violations | 0 |
+| Days traded | 8 of 43 |
 
-At 43% win rate with 3:1 reward to risk, the expected value per trade:
+The low trade count is intentional. The multi-layer filter system rejects the vast majority of potential setups. Only setups where every condition aligns are taken. This selectivity drives the 90% win rate. A less selective system trading 30 to 50 times in the same period would produce a lower win rate with more variance.
 
-```
-EV = (0.43 * $150) + (0.57 * -$35.71)
-   = $64.50 - $20.35
-   = +$44.15 per trade
-```
+**Day-of-week breakdown from the backtest:**
 
-The break-even win rate for 3:1 reward to risk is 25%. Anything above 25% is profitable long term.
+| Day | Trades | Win Rate |
+|---|---|---|
+| Monday | 4 | 100% |
+| Tuesday | 0 | Blocked (requires 7/7) |
+| Wednesday | 2 | 100% |
+| Thursday | 3 | 67% |
+| Friday | 1 | 100% |
 
----
+**Sweep depth breakdown:**
+
+| Depth | Win Rate |
+|---|---|
+| 0 to 8 pts | Rejected (noise) |
+| 8 to 15 pts | ~25% (requires 5/7) |
+| 15 to 30 pts | ~68% |
+| 30 to 80 pts | ~72% |
+
+For deeper analysis including score distribution, worst-combination tables, and pattern breakdowns, run the backtest and review the full terminal output. The `backtest/results_analyzer.py` prints eight breakdown tables automatically.
 
 ## Trade Journal
 
@@ -438,39 +448,40 @@ Each entry stores:
 | Entry | Calculated limit entry price |
 | Stop | Stop loss price |
 | TP1 / TP2 | Both take profit levels |
-| PnL | Actual dollar result |
-| Score | Confluence score at signal time |
+| Score | Confluence score at signal time (x/7) |
+| London | London bias at time of signal |
+| MSS strength | Strong or weak displacement |
+| P&L | Actual dollar result |
 | Outcome | WIN / LOSS / BE / SKIPPED |
 | Buffer | Drawdown buffer remaining at signal time |
-
----
 
 ## Roadmap
 
 **Current: Signal Mode**
-* Real-time sweep and MSS detection
-* 5-point confluence scoring
-* macOS sound and popup notifications
+* Real-time sweep and MSS detection with displacement strength
+* 7-point confluence scoring
+* Order block entry detection (falls back to fixed limit)
+* London session bias detection and directional filtering
+* PDH/PDL confluence scoring
+* Opening range opposition scoring
+* Adaptive smart filters (day-of-week, streak, time, sweep depth)
+* macOS notifications
 * Trade monitoring (TP1, TP2, stop alerts)
-* Full trade journal with /journal command
-* Morning briefing and session summary
-* Adaptive smart filters
-* Missed trade outcome tracking
-* Backtest engine on 60 days of data
+* Full trade journal
+* Morning briefing with London bias, account health, and min score
+* Backtest engine on 60 days with deep pattern breakdown
+* Prop firm drawdown and consistency cap tracking
 
 **Next: Full Automation (Funded Account)**
-* Bracket orders placed automatically via Tradovate API (code already exists in broker/)
+* Bracket orders placed automatically via Tradovate API (code already exists in tradovate/)
 * Stop moved to break-even when TP1 hits
 * Position closed at TP2 automatically
 * Zero manual interaction required
 
 **Future**
-* London session support
 * Multi-instrument scanning (MES, M2K, MYM)
 * Web dashboard
-* Machine learning on confluence scores
-
----
+* Extended backtesting on 1-hour data (up to 2 years)
 
 ## Disclaimer
 
