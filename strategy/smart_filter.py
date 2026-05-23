@@ -105,27 +105,32 @@ class SmartFilter:
         london_aligned: bool = True,
         mss_strong: bool = True,
         sweep_depth: float = 999.0,
+        memory=None,
     ) -> int:
         """
         Returns the minimum confluence score required to fire a signal.
-        Now takes additional context from the new detectors.
+        Reads data-driven thresholds from BotMemory when available,
+        falls back to hardcoded baseline when not enough samples exist.
         """
-        base = 4
         mins = bar_hour * 60 + bar_minute
 
-        # Day-of-week rules (from backtest analysis)
-        # Tuesday (1): 0% win rate in filtered backtest — require perfect score to trade
-        # Thursday (3): 25% win rate — require 5/7
-        if day_of_week == 1:
-            base = 7   # Tuesday: only a perfect 7/7 setup passes
-        elif day_of_week == 3:
-            base = 5
+        # Base threshold: use real win-rate-derived value from memory if available
+        if memory is not None:
+            base = memory.min_score_for_dow(day_of_week)
+        else:
+            # Hardcoded baseline (used until memory has enough samples)
+            if day_of_week == 1:
+                base = 7
+            elif day_of_week == 3:
+                base = 5
+            else:
+                base = 4
 
-        # After 2 consecutive losses → require near-perfect setup
+        # After 2 consecutive losses: require near-perfect setup
         if self.consecutive_losses >= 2:
             base = max(base, 6)
 
-        # Late session (11:00-11:30 AM) → require 5/7
+        # Late session (11:00-11:30 AM): require 5/7
         if mins >= 11 * 60:
             base = max(base, 5)
 
@@ -137,16 +142,14 @@ class SmartFilter:
         if not london_aligned:
             base = max(base, base + 1)
 
-        # Shallow sweep (8-15 pts): 25% win rate — require 5/7
+        # Shallow sweep (8-15 pts): require 5/7
         if sweep_depth < 15.0:
             base = max(base, 5)
 
-        # Monday is the best day — no penalty needed
-        # Best window (9:30-10:00 AM) on Monday with win streak: keep at base
+        # Monday with active win streak in prime window: cap at base 4
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
             base = min(base, 4)
 
-        # Cap at 7 (max possible score)
         return min(base, 7)
 
     # ── Sweep quality check ───────────────────────────────────────────────────
