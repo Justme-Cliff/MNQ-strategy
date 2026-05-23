@@ -52,6 +52,10 @@ class BacktestTrade:
     score: int
     outcome: str         # "WIN_TP2", "WIN_TP1_BE", "LOSS", "TIMEOUT"
     reason: str          # confluence breakdown
+    signal_hour: int = 9
+    day_of_week: int = 0  # 0=Mon, 4=Fri
+    sweep_depth: float = 0.0
+    asia_range_width: float = 0.0
 
 
 @dataclass
@@ -87,6 +91,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
     sweep_done = {"bullish": False, "bearish": False}
     mss_confirmed = {"bullish": False, "bearish": False}
     sweep_bar = {"bullish": None, "bearish": None}
+    sweep_depth = {"bullish": 0.0, "bearish": 0.0}
 
     closes = df["Close"]
     highs = df["High"]
@@ -109,6 +114,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             sweep_done = {"bullish": False, "bearish": False}
             mss_confirmed = {"bullish": False, "bearish": False}
             sweep_bar = {"bullish": None, "bearish": None}
+            sweep_depth = {"bullish": 0.0, "bearish": 0.0}
             prev_date = trade_date
 
         # Hard stop: hit floor
@@ -142,10 +148,12 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
         if not sweep_done["bullish"] and low < asia_low:
             sweep_done["bullish"] = True
             sweep_bar["bullish"] = i
+            sweep_depth["bullish"] = round(asia_low - low, 2)
 
         if not sweep_done["bearish"] and high > asia_high:
             sweep_done["bearish"] = True
             sweep_bar["bearish"] = i
+            sweep_depth["bearish"] = round(high - asia_high, 2)
 
         # ── Detect MSS after sweep ─────────────────────────────────────────────
         for direction in ("bullish", "bearish"):
@@ -200,26 +208,29 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                 stop_level = sweep_wick
                 limit_entry = round(stop_level - MAX_STOP_POINTS, 2)
 
-            # Check if price is already AT or BEYOND the limit entry on this bar
-            # (i.e., price is retracing into the entry zone)
+            meta = dict(
+                signal_hour=est_dt.hour,
+                day_of_week=trade_date.weekday(),
+                sweep_depth=sweep_depth[direction],
+                asia_range_width=round(asia_high - asia_low, 2),
+            )
+
             if signal_dir == "long":
-                # Price needs to pull back DOWN to limit_entry after the MSS
-                # If current bar's low touched it, we can fill
                 if low > limit_entry:
-                    # Price hasn't come back yet; simulate waiting for pullback
                     trade = _simulate_limit_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
                         limit_entry=limit_entry, stop=stop_level,
                         trade_date=trade_date, score=confluence.score, reason=confluence.reason,
+                        meta=meta,
                     )
                 else:
-                    # Price is already at or below limit entry — fill now
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
                         entry=limit_entry, stop=stop_level,
                         tp1=round(limit_entry + MAX_STOP_POINTS * 1.5, 2),
                         tp2=round(limit_entry + MAX_STOP_POINTS * 3.0, 2),
                         contracts=1, trade_date=trade_date, score=confluence.score, reason=confluence.reason,
+                        meta=meta,
                     )
             else:
                 if high < limit_entry:
@@ -227,6 +238,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                         df=df, start_idx=i + 1, direction=signal_dir,
                         limit_entry=limit_entry, stop=stop_level,
                         trade_date=trade_date, score=confluence.score, reason=confluence.reason,
+                        meta=meta,
                     )
                 else:
                     trade = _simulate_trade(
@@ -235,6 +247,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                         tp1=round(limit_entry - MAX_STOP_POINTS * 1.5, 2),
                         tp2=round(limit_entry - MAX_STOP_POINTS * 3.0, 2),
                         contracts=1, trade_date=trade_date, score=confluence.score, reason=confluence.reason,
+                        meta=meta,
                     )
 
             if trade is None:
@@ -270,7 +283,9 @@ def _simulate_trade(
     trade_date: date,
     score: int,
     reason: str,
+    meta: dict | None = None,
 ) -> BacktestTrade | None:
+    meta = meta or {}
     closes = df["Close"]
     highs = df["High"]
     lows = df["Low"]
@@ -294,7 +309,7 @@ def _simulate_trade(
             return BacktestTrade(
                 date=trade_date, direction=direction, entry=entry, stop=stop,
                 tp1=tp1, tp2=tp2, exit_price=exit_price, contracts=contracts,
-                pnl=round(pnl, 2), score=score, outcome="TIMEOUT", reason=reason,
+                pnl=round(pnl, 2), score=score, outcome="TIMEOUT", reason=reason, **meta,
             )
 
         bar_low  = float(lows.iloc[j])
@@ -312,13 +327,13 @@ def _simulate_trade(
                 return BacktestTrade(
                     date=trade_date, direction=direction, entry=entry, stop=stop,
                     tp1=tp1, tp2=tp2, exit_price=exit_price, contracts=contracts,
-                    pnl=round(pnl, 2), score=score, outcome=outcome, reason=reason,
+                    pnl=round(pnl, 2), score=score, outcome=outcome, reason=reason, **meta,
                 )
             # TP1 hit
             if not tp1_hit and bar_high >= tp1:
                 tp1_hit = True
                 remaining -= half_contracts
-                be_stop = entry     # move stop to break-even
+                be_stop = entry
             # TP2 hit
             if bar_high >= tp2:
                 exit_price = tp2
@@ -328,7 +343,7 @@ def _simulate_trade(
                 return BacktestTrade(
                     date=trade_date, direction=direction, entry=entry, stop=stop,
                     tp1=tp1, tp2=tp2, exit_price=tp2, contracts=contracts,
-                    pnl=round(pnl, 2), score=score, outcome="WIN_TP2", reason=reason,
+                    pnl=round(pnl, 2), score=score, outcome="WIN_TP2", reason=reason, **meta,
                 )
         else:  # short
             if bar_high >= be_stop:
@@ -340,7 +355,7 @@ def _simulate_trade(
                 return BacktestTrade(
                     date=trade_date, direction=direction, entry=entry, stop=stop,
                     tp1=tp1, tp2=tp2, exit_price=exit_price, contracts=contracts,
-                    pnl=round(pnl, 2), score=score, outcome=outcome, reason=reason,
+                    pnl=round(pnl, 2), score=score, outcome=outcome, reason=reason, **meta,
                 )
             if not tp1_hit and bar_low <= tp1:
                 tp1_hit = True
@@ -354,7 +369,7 @@ def _simulate_trade(
                 return BacktestTrade(
                     date=trade_date, direction=direction, entry=entry, stop=stop,
                     tp1=tp1, tp2=tp2, exit_price=tp2, contracts=contracts,
-                    pnl=round(pnl, 2), score=score, outcome="WIN_TP2", reason=reason,
+                    pnl=round(pnl, 2), score=score, outcome="WIN_TP2", reason=reason, **meta,
                 )
 
     return None
@@ -369,6 +384,7 @@ def _simulate_limit_trade(
     trade_date,
     score: int,
     reason: str,
+    meta: dict | None = None,
 ) -> BacktestTrade | None:
     """
     Simulate waiting for price to pull back to limit_entry after the MSS.
@@ -403,6 +419,7 @@ def _simulate_limit_trade(
                 df=df, start_idx=j + 1, direction=direction,
                 entry=limit_entry, stop=stop, tp1=tp1, tp2=tp2,
                 contracts=1, trade_date=trade_date, score=score, reason=reason,
+                meta=meta,
             )
 
     return None

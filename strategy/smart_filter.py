@@ -50,16 +50,22 @@ class SmartFilter:
 
     # ── Min score required ────────────────────────────────────────────────────
 
-    def min_score_required(self, bar_hour: int, bar_minute: int) -> int:
+    def min_score_required(self, bar_hour: int, bar_minute: int, day_of_week: int = -1) -> int:
         """
         Adapts required score based on:
+        - Day of week (backtest showed Tue/Thu below break-even win rate)
         - Loss streak (gets stricter after losses)
         - Time of day (stricter late in session)
         """
         base = 4
         mins = bar_hour * 60 + bar_minute
 
-        # After 2 consecutive losses → require 5/5 (only perfect setups)
+        # Tuesday (1) and Thursday (3): require 5/5 — backtest 20% and 25% win rates
+        # Break-even for 3:1 RR is 25%. Both days were at or below that threshold.
+        if day_of_week in (1, 3):
+            base = 5
+
+        # After 2 consecutive losses → require 5/5
         if self.consecutive_losses >= 2:
             base = 5
 
@@ -67,9 +73,10 @@ class SmartFilter:
         if mins >= 11 * 60:
             base = 5
 
-        # Best window (9:30-10:00 AM) + on a win streak → allow 4/5
-        if mins < 10 * 60 and self.consecutive_wins >= 2:
-            base = 4
+        # Monday (0) is the best day (86% win rate in backtest).
+        # On Monday with a win streak, 4/5 is fine.
+        if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
+            base = min(base, 4)
 
         return base
 
@@ -88,11 +95,12 @@ class SmartFilter:
         """
         depth = abs(sweep_price - asia_level)
 
-        if depth < 3.0:
-            return False, f"Sweep too shallow ({depth:.1f} pts) — likely noise"
+        # Raised from 3 to 8 pts: backtest showed 0-5 pt sweeps at 0% win rate
+        if depth < 8.0:
+            return False, f"Sweep too shallow ({depth:.1f} pts) — noise, not institutional"
 
         if depth > 80.0:
-            return False, f"Sweep too deep ({depth:.1f} pts) — risk unmanageable"
+            return False, f"Sweep too deep ({depth:.1f} pts) — likely news event, skip"
 
         return True, f"Sweep depth {depth:.1f} pts — valid"
 

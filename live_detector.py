@@ -214,7 +214,7 @@ class LiveDetector:
                 bar_minute=minute,
             )
 
-            min_score = smart.min_score_required(hour, minute)
+            min_score = smart.min_score_required(hour, minute, datetime.now(tz=EST).weekday())
             if confluence.score < min_score:
                 _print_event(
                     f"Score {confluence.score}/5 — need {min_score}/5 "
@@ -724,7 +724,8 @@ def _print_status(detector: LiveDetector):
     table.add_row("Trades today",  f"{s['trades_today']}/2")
     table.add_row("Win streak",    f"[green]{sf['consecutive_wins']}[/green]" if sf['consecutive_wins'] > 0 else "0")
     table.add_row("Loss streak",   f"[red]{sf['consecutive_losses']}[/red]"   if sf['consecutive_losses'] > 0 else "0")
-    table.add_row("Min score now", f"{smart.min_score_required(datetime.now(tz=EST).hour, datetime.now(tz=EST).minute)}/5")
+    now_est = datetime.now(tz=EST)
+    table.add_row("Min score now", f"{smart.min_score_required(now_est.hour, now_est.minute, now_est.weekday())}/5")
     table.add_row("Market",        "[red]CHOPPY — careful[/red]" if sf['choppy'] else "[green]OK[/green]")
     table.add_row("Daily P&L",  f"${s['daily_pnl']:.0f}")
     table.add_row("Buffer",     f"[{buf_color}]${buf:.0f}[/{buf_color}] remaining")
