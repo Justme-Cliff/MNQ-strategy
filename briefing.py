@@ -12,6 +12,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+from strategy.london_session import london_summary_line
+
 EST = ZoneInfo("America/New_York")
 console = Console()
 
@@ -34,6 +36,7 @@ def print_morning_briefing(
     current_price: float | None,
     state,
     smart,
+    london_action: dict | None = None,
 ) -> dict:
     """Print full morning briefing. Returns prev day levels dict."""
     now = datetime.now(tz=EST)
@@ -85,6 +88,15 @@ def print_morning_briefing(
             lvl.add_row("Prev Day Low",  f"[dim]{prev['low']:.2f}[/dim]")
         lvl.add_row("Closer to",    f"[bold yellow]{closer}[/bold yellow]")
         console.print(Panel(lvl, title="[bold]Key Levels[/bold]", border_style="orange1", padding=(0, 1)))
+
+    # ── London session bias ────────────────────────────────────────────────────
+    if london_action:
+        direction = london_action.get("direction", "neutral")
+        border = "green" if direction == "bullish" else ("red" if direction == "bearish" else "dim")
+        console.print(Panel(
+            f"  {london_summary_line(london_action)}",
+            title="[bold]London Session Bias[/bold]", border_style=border, padding=(0, 1)
+        ))
 
     # ── Consistency cap ────────────────────────────────────────────────────────
     total_profit = state.total_profit

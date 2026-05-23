@@ -26,6 +26,8 @@ from strategy.fvg_detector import find_fvgs, get_active_fvg
 from strategy.vwap import compute_vwap
 from strategy.confluence_scorer import score_setup
 from strategy.smart_filter import SmartFilter
+from strategy.london_session import get_london_action, is_london_aligned, london_summary_line
+from strategy.order_block import find_order_block
 from risk.position_sizer import calculate_size, calculate_targets
 from risk.prop_firm_rules import TradeifyState
 from notifications import alert_sweep, alert_signal
@@ -63,8 +65,16 @@ class LiveDetector:
         self.bear_sweep_idx: int | None = None
         self.bull_mss = False
         self.bear_mss = False
+        self.bull_mss_idx: int | None = None
+        self.bear_mss_idx: int | None = None
+        self.bull_mss_strong = False
+        self.bear_mss_strong = False
         self.signal_fired = {"long": False, "short": False}
         self.last_bar_time = None
+        self.london_action: dict = {"direction": "neutral", "swept_high": False,
+                                    "swept_low": False, "sweep_depth_high": 0.0, "sweep_depth_low": 0.0}
+        self.bull_sweep_depth = 0.0
+        self.bear_sweep_depth = 0.0
 
     def fetch(self) -> bool:
         """Load bars for Asia range + VWAP context. Runs once on startup then every 5 min."""
@@ -82,6 +92,11 @@ class LiveDetector:
             self.df = raw
             self.asia_ranges = build_asia_ranges(self.df)
             self.vwap_series = compute_vwap(self.df)
+            # Compute London action for today
+            today = datetime.now(tz=EST).date()
+            ar = self.asia_ranges.get(today)
+            if ar:
+                self.london_action = get_london_action(self.df, today, ar["high"], ar["low"])
             return True
         except Exception as e:
             console.print(f"[yellow]Bar fetch error: {e}[/yellow]")
@@ -96,9 +111,17 @@ class LiveDetector:
         self.bear_sweep = False
         self.bull_sweep_idx = None
         self.bear_sweep_idx = None
+        self.bull_sweep_depth = 0.0
+        self.bear_sweep_depth = 0.0
         self.bull_mss = False
         self.bear_mss = False
+        self.bull_mss_idx = None
+        self.bear_mss_idx = None
+        self.bull_mss_strong = False
+        self.bear_mss_strong = False
         self.signal_fired = {"long": False, "short": False}
+        self.london_action = {"direction": "neutral", "swept_high": False,
+                              "swept_low": False, "sweep_depth_high": 0.0, "sweep_depth_low": 0.0}
         state.daily_pnl = 0.0
         state.trades_today = 0
         smart.reset_day()
@@ -149,26 +172,36 @@ class LiveDetector:
 
         # ── Detect sweeps ──────────────────────────────────────────────────────
         if not self.bull_sweep and low < asia_low:
+            depth = round(asia_low - low, 2)
+            valid, reason = smart.is_sweep_valid(low, asia_low, "long")
             self.bull_sweep = True
             self.bull_sweep_idx = n - 1
+            self.bull_sweep_depth = depth
+            london_note = f"\n  London bias: [green]{self.london_action['direction']}[/green]" if self.london_action["direction"] != "neutral" else ""
             console.print()
             console.print(Panel(
                 f"[bold yellow]⚠  SWEEP LOW — GET READY[/bold yellow]\n\n"
-                f"  Price swept below Asia Low {asia_low:.2f} → hit {low:.2f}\n"
-                f"  Waiting for MSS confirmation...\n\n"
+                f"  Price swept below Asia Low {asia_low:.2f} → hit {low:.2f}  ({depth:.1f} pts)\n"
+                f"  {'[green]Valid sweep[/green]' if valid else f'[red]Weak sweep: {reason}[/red]'}\n"
+                f"  Waiting for MSS confirmation...{london_note}\n\n"
                 f"  [dim]Have TradingView open. Signal coming shortly.[/dim]",
                 border_style="yellow", box=box.HEAVY, padding=(1, 2)
             ))
             console.print()
 
         if not self.bear_sweep and high > asia_high:
+            depth = round(high - asia_high, 2)
+            valid, reason = smart.is_sweep_valid(high, asia_high, "short")
             self.bear_sweep = True
             self.bear_sweep_idx = n - 1
+            self.bear_sweep_depth = depth
+            london_note = f"\n  London bias: [red]{self.london_action['direction']}[/red]" if self.london_action["direction"] != "neutral" else ""
             console.print()
             console.print(Panel(
                 f"[bold yellow]⚠  SWEEP HIGH — GET READY[/bold yellow]\n\n"
-                f"  Price swept above Asia High {asia_high:.2f} → hit {high:.2f}\n"
-                f"  Waiting for MSS confirmation...\n\n"
+                f"  Price swept above Asia High {asia_high:.2f} → hit {high:.2f}  ({depth:.1f} pts)\n"
+                f"  {'[green]Valid sweep[/green]' if valid else f'[red]Weak sweep: {reason}[/red]'}\n"
+                f"  Waiting for MSS confirmation...{london_note}\n\n"
                 f"  [dim]Have TradingView open. Signal coming shortly.[/dim]",
                 border_style="yellow", box=box.HEAVY, padding=(1, 2)
             ))
@@ -190,10 +223,15 @@ class LiveDetector:
 
             if direction == "bullish":
                 self.bull_mss = True
+                self.bull_mss_idx = mss["mss_bar_idx"]
+                self.bull_mss_strong = mss.get("is_strong", False)
             else:
                 self.bear_mss = True
+                self.bear_mss_idx = mss["mss_bar_idx"]
+                self.bear_mss_strong = mss.get("is_strong", False)
 
-            _print_event(f"MSS {'▲' if direction == 'bullish' else '▼'} confirmed at {price:.2f}", "cyan")
+            strength_tag = " [bold green](STRONG)[/bold green]" if mss.get("is_strong") else " [dim](weak)[/dim]"
+            _print_event(f"MSS {'▲' if direction == 'bullish' else '▼'} confirmed at {price:.2f}{strength_tag}", "cyan")
 
             # Already fired a signal this direction today? Skip
             if self.signal_fired[signal_dir]:
@@ -202,6 +240,14 @@ class LiveDetector:
             # ── Score ──────────────────────────────────────────────────────────
             fvgs = find_fvgs(self.df, signal_dir, sweep_idx, n - 1, min_size_points=2.0)
             fvg_active = get_active_fvg(fvgs, price, signal_dir) is not None
+
+            mss_strong   = self.bull_mss_strong if direction == "bullish" else self.bear_mss_strong
+            london_ok    = is_london_aligned(self.london_action, signal_dir)
+            sweep_d      = self.bull_sweep_depth if direction == "bullish" else self.bear_sweep_depth
+            open_opposed = smart.is_opening_range_opposed(signal_dir)
+            pdh = self.prev_day.get("high")
+            pdl = self.prev_day.get("low")
+            sweep_px = float(lows.iloc[sweep_idx]) if signal_dir == "long" else float(highs.iloc[sweep_idx])
 
             confluence = score_setup(
                 asia_sweep=True,
@@ -212,24 +258,45 @@ class LiveDetector:
                 direction=signal_dir,
                 bar_hour=hour,
                 bar_minute=minute,
+                london_aligned=london_ok,
+                opening_range_opposed=open_opposed,
+                mss_strong=mss_strong,
+                prev_day_high=pdh,
+                prev_day_low=pdl,
+                sweep_price=sweep_px,
             )
 
-            min_score = smart.min_score_required(hour, minute, datetime.now(tz=EST).weekday())
+            dow = datetime.now(tz=EST).weekday()
+            min_score = smart.min_score_required(
+                hour, minute, dow,
+                london_aligned=london_ok,
+                mss_strong=mss_strong,
+                sweep_depth=sweep_d,
+            )
             if confluence.score < min_score:
                 _print_event(
-                    f"Score {confluence.score}/5 — need {min_score}/5 "
-                    f"({'loss streak' if smart.consecutive_losses >= 2 else 'late session' if minute >= 11*60 else 'waiting'})",
+                    f"Score {confluence.score}/7 — need {min_score}/7  ({confluence.reason})",
                     "dim"
                 )
                 continue
 
-            # ── Position sizing ────────────────────────────────────────────────
-            if signal_dir == "long":
-                stop_level = round(float(lows.iloc[sweep_idx:n].min()) - 1.0, 2)
-                limit_entry = round(stop_level + MAX_STOP_POINTS, 2)
+            # ── Entry: order block first, fall back to fixed limit ─────────────
+            mss_idx = self.bull_mss_idx if direction == "bullish" else self.bear_mss_idx
+            ob = None
+            if mss_idx is not None:
+                ob = find_order_block(self.df, sweep_idx, mss_idx, signal_dir)
+
+            if ob and ob["stop_distance"] <= MAX_STOP_POINTS:
+                limit_entry = ob["entry"]
+                stop_level  = ob["stop"]
+                _print_event(f"Order block entry: {limit_entry:.2f}  stop: {stop_level:.2f}  ({ob['stop_distance']:.0f} pts)", "cyan")
             else:
-                stop_level = round(float(highs.iloc[sweep_idx:n].max()) + 1.0, 2)
-                limit_entry = round(stop_level - MAX_STOP_POINTS, 2)
+                if signal_dir == "long":
+                    stop_level  = round(float(lows.iloc[sweep_idx:n].min()) - 1.0, 2)
+                    limit_entry = round(stop_level + MAX_STOP_POINTS, 2)
+                else:
+                    stop_level  = round(float(highs.iloc[sweep_idx:n].max()) + 1.0, 2)
+                    limit_entry = round(stop_level - MAX_STOP_POINTS, 2)
 
             size = calculate_size(limit_entry, stop_level)
             if not size["valid"]:
@@ -286,7 +353,7 @@ class LiveDetector:
         asia_low  = ar["low"]
 
         # Sweep detection on live tick
-        smart.update_price(price)
+        smart.update_price(price, now_est=datetime.now(tz=EST))
 
         if not self.bull_sweep and price < asia_low:
             valid, reason = smart.is_sweep_valid(price, asia_low, "bull")
@@ -864,6 +931,7 @@ def main():
         current_price = feed.price,
         state         = state,
         smart         = smart,
+        london_action = detector.london_action,
     )
     print_news_warning()
     console.print()

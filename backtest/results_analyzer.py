@@ -109,7 +109,7 @@ def _print_report(trades, stats, daily):
     console.print()
 
     table = Table(box=box.SIMPLE_HEAD, title="Last 20 Trades")
-    for col in ["Date", "Day", "Dir", "Score", "Hour", "Sweep", "Asia W", "P&L", "Outcome"]:
+    for col in ["Date", "Day", "Dir", "Score", "Hour", "Sweep", "Asia W", "P&L", "Outcome", "London", "OB"]:
         table.add_column(col)
     for t in trades[-20:]:
         pnl_c = "green" if t.pnl > 0 else "red"
@@ -117,12 +117,14 @@ def _print_report(trades, stats, daily):
             str(t.date),
             DAYS[t.day_of_week] if t.day_of_week < 5 else "?",
             "[green]L[/green]" if t.direction == "long" else "[red]S[/red]",
-            f"{t.score}/5",
+            f"{t.score}/7",
             f"{t.signal_hour}h",
             f"{t.sweep_depth:.1f}",
             f"{t.asia_range_width:.0f}",
             f"[{pnl_c}]{t.pnl:+.2f}[/{pnl_c}]",
             t.outcome,
+            "",
+            "",
         )
     console.print(table)
 

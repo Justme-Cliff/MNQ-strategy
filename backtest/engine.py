@@ -24,6 +24,9 @@ from strategy.fvg_detector import find_fvgs, get_active_fvg
 from strategy.mss_detector import detect_mss
 from strategy.vwap import compute_vwap
 from strategy.confluence_scorer import score_setup
+from strategy.london_session import get_london_action, is_london_aligned
+from strategy.order_block import find_order_block
+from strategy.smart_filter import SmartFilter
 from risk.position_sizer import calculate_size, calculate_targets
 from config import (
     MIN_CONFLUENCE_SCORE,
@@ -64,6 +67,25 @@ class BacktestResult:
     daily_pnl: dict = field(default_factory=dict)
 
 
+def _build_prev_day_levels(df: pd.DataFrame) -> dict:
+    """Compute previous trading day H/L keyed by the NEXT trading date."""
+    est_idx = df.index.tz_convert(EST)
+    daily: dict = {}
+    for i, ts in enumerate(est_idx):
+        d = ts.date()
+        h = float(df["High"].iloc[i])
+        l = float(df["Low"].iloc[i])
+        mins = ts.hour * 60 + ts.minute
+        if 9 * 60 + 30 <= mins < 16 * 60:  # NY session bars only
+            if d not in daily:
+                daily[d] = {"high": h, "low": l}
+            else:
+                daily[d]["high"] = max(daily[d]["high"], h)
+                daily[d]["low"]  = min(daily[d]["low"],  l)
+    dates = sorted(daily.keys())
+    return {dates[i]: daily[dates[i - 1]] for i in range(1, len(dates))}
+
+
 def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
     print(f"Loading NQ data ({period} / {interval}) ...")
     df = load_nq(interval=interval, period=period)
@@ -71,51 +93,83 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
 
     print(f"Loaded {len(df)} bars from {df.index[0].date()} to {df.index[-1].date()}")
 
-    # Build Asia ranges
-    asia_ranges = build_asia_ranges(df)
+    asia_ranges   = build_asia_ranges(df)
+    vwap_series   = compute_vwap(df)
+    prev_day_lvls = _build_prev_day_levels(df)
     print(f"Asia ranges built for {len(asia_ranges)} trading days")
 
-    # Compute VWAP
-    vwap_series = compute_vwap(df)
-
     result = BacktestResult()
-    balance = STARTING_BALANCE - 400    # start accounting for the $400 already lost
+    smart = SmartFilter()
+    balance = STARTING_BALANCE - 400
     peak_balance = STARTING_BALANCE
     floor = STARTING_BALANCE - TRAILING_MAX_DRAWDOWN
 
-    trades_today = 0
+    trades_today   = 0
     daily_pnl_today = 0.0
-    prev_date = None
+    prev_date      = None
 
-    # Track sweep/MSS state per day
-    sweep_done = {"bullish": False, "bearish": False}
-    mss_confirmed = {"bullish": False, "bearish": False}
-    sweep_bar = {"bullish": None, "bearish": None}
-    sweep_depth = {"bullish": 0.0, "bearish": 0.0}
+    sweep_done        = {"bullish": False, "bearish": False}
+    mss_confirmed     = {"bullish": False, "bearish": False}
+    sweep_bar         = {"bullish": None, "bearish": None}
+    sweep_depth       = {"bullish": 0.0, "bearish": 0.0}
+    mss_strong_cache  = {"bullish": False, "bearish": False}
+    mss_bar_idx_cache = {"bullish": None, "bearish": None}
+    london_action = {"direction": "neutral", "swept_high": False, "swept_low": False,
+                     "sweep_depth_high": 0.0, "sweep_depth_low": 0.0}
+
+    # Opening range tracking
+    opening_range_open:  float | None = None
+    opening_range_close: float | None = None
+    opening_range_dir:   str = "neutral"
 
     closes = df["Close"]
-    highs = df["High"]
-    lows = df["Low"]
+    highs  = df["High"]
+    lows   = df["Low"]
 
     for i, (ts, row) in enumerate(df.iterrows()):
         est_dt = ts.tz_convert(EST)
         trade_date = est_dt.date()
+        mins = est_dt.hour * 60 + est_dt.minute
 
         # New day reset
         if trade_date != prev_date:
             if prev_date is not None:
-                # Update trailing drawdown floor at EOD
                 peak_balance = max(peak_balance, balance)
                 floor = peak_balance - TRAILING_MAX_DRAWDOWN
                 result.daily_pnl[prev_date] = daily_pnl_today
 
-            trades_today = 0
+            trades_today    = 0
             daily_pnl_today = 0.0
-            sweep_done = {"bullish": False, "bearish": False}
-            mss_confirmed = {"bullish": False, "bearish": False}
-            sweep_bar = {"bullish": None, "bearish": None}
-            sweep_depth = {"bullish": 0.0, "bearish": 0.0}
-            prev_date = trade_date
+            sweep_done        = {"bullish": False, "bearish": False}
+            mss_confirmed     = {"bullish": False, "bearish": False}
+            sweep_bar         = {"bullish": None, "bearish": None}
+            sweep_depth       = {"bullish": 0.0, "bearish": 0.0}
+            mss_strong_cache  = {"bullish": False, "bearish": False}
+            mss_bar_idx_cache = {"bullish": None, "bearish": None}
+            prev_date         = trade_date
+            opening_range_open  = None
+            opening_range_close = None
+            opening_range_dir   = "neutral"
+            smart.reset_day()
+
+            # London action for this trade date
+            ar = asia_ranges.get(trade_date)
+            if ar:
+                london_action = get_london_action(df, trade_date, ar["high"], ar["low"])
+            else:
+                london_action = {"direction": "neutral", "swept_high": False, "swept_low": False,
+                                 "sweep_depth_high": 0.0, "sweep_depth_low": 0.0}
+
+        # Track opening range
+        if mins == 9 * 60 + 30 and opening_range_open is None:
+            opening_range_open = float(closes.iloc[i])
+        if 9 * 60 + 30 <= mins < 10 * 60:
+            opening_range_close = float(closes.iloc[i])
+        if mins == 10 * 60 and opening_range_open is not None and opening_range_dir == "neutral":
+            if opening_range_close and opening_range_close > opening_range_open:
+                opening_range_dir = "bullish"
+            elif opening_range_close and opening_range_close < opening_range_open:
+                opening_range_dir = "bearish"
 
         # Hard stop: hit floor
         if balance <= floor:
@@ -165,6 +219,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             mss_result = detect_mss(df, sb, direction, lookback=15)
             if mss_result["detected"] and mss_result["mss_bar_idx"] == i:
                 mss_confirmed[direction] = True
+                mss_strong_cache[direction]  = mss_result.get("is_strong", False)
+                mss_bar_idx_cache[direction] = i
 
         # ── Score and enter ────────────────────────────────────────────────────
         for direction in ("bullish", "bearish"):
@@ -176,9 +232,21 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             if sb is None:
                 continue
 
-            # Find FVGs since the sweep
             fvgs = find_fvgs(df, signal_dir, sb, i, min_size_points=2.0)
             fvg_active = get_active_fvg(fvgs, price, signal_dir) is not None
+
+            # New conditions
+            london_ok  = is_london_aligned(london_action, signal_dir)
+            pdl_ok     = prev_day_lvls.get(trade_date)
+            pdh        = pdl_ok["high"] if pdl_ok else None
+            pdl        = pdl_ok["low"]  if pdl_ok else None
+            open_opposed = (
+                (opening_range_dir == "bullish" and signal_dir == "short") or
+                (opening_range_dir == "bearish" and signal_dir == "long")
+            )
+
+            # MSS strength from last detection (stored in mss_confirmed dict)
+            mss_strong_flag = mss_strong_cache.get(direction, False)
 
             confluence = score_setup(
                 asia_sweep=True,
@@ -189,24 +257,44 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                 direction=signal_dir,
                 bar_hour=est_dt.hour,
                 bar_minute=est_dt.minute,
+                london_aligned=london_ok,
+                pdh_pdl_confluence=False,   # auto-computed inside scorer via sweep_price
+                opening_range_opposed=open_opposed,
+                mss_strong=mss_strong_flag,
+                prev_day_high=pdh,
+                prev_day_low=pdl,
+                sweep_price=(
+                    float(lows.iloc[sb]) if signal_dir == "long"
+                    else float(highs.iloc[sb])
+                ),
             )
 
-            if not confluence.tradeable:
+            min_score = smart.min_score_required(
+                est_dt.hour, est_dt.minute,
+                day_of_week=trade_date.weekday(),
+                london_aligned=london_ok,
+                mss_strong=mss_strong_flag,
+                sweep_depth=sweep_depth[direction],
+            )
+            if confluence.score < min_score:
                 continue
 
-            # ── Entry via limit order (retracement into zone) ─────────────────
-            # Stop = below the sweep wick. Entry = limit order placed at
-            # (stop + MAX_STOP_POINTS) so risk is always exactly $50 on 1 contract.
-            # We wait for price to pull back to that limit level after the MSS.
+            # ── Entry: try order block first, fall back to fixed limit ─────────
+            mss_idx = mss_bar_idx_cache.get(direction)
+            ob = None
+            if mss_idx is not None:
+                ob = find_order_block(df, sb, mss_idx, signal_dir)
 
-            if signal_dir == "long":
-                sweep_wick = round(float(lows.iloc[max(0, sb):i+1].min()) - 1.0, 2)
-                stop_level = sweep_wick
-                limit_entry = round(stop_level + MAX_STOP_POINTS, 2)
+            if ob and ob["stop_distance"] <= MAX_STOP_POINTS:
+                limit_entry = ob["entry"]
+                stop_level  = ob["stop"]
             else:
-                sweep_wick = round(float(highs.iloc[max(0, sb):i+1].max()) + 1.0, 2)
-                stop_level = sweep_wick
-                limit_entry = round(stop_level - MAX_STOP_POINTS, 2)
+                if signal_dir == "long":
+                    stop_level  = round(float(lows.iloc[max(0, sb):i+1].min()) - 1.0, 2)
+                    limit_entry = round(stop_level + MAX_STOP_POINTS, 2)
+                else:
+                    stop_level  = round(float(highs.iloc[max(0, sb):i+1].max()) + 1.0, 2)
+                    limit_entry = round(stop_level - MAX_STOP_POINTS, 2)
 
             meta = dict(
                 signal_hour=est_dt.hour,
@@ -227,8 +315,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
                         entry=limit_entry, stop=stop_level,
-                        tp1=round(limit_entry + MAX_STOP_POINTS * 1.5, 2),
-                        tp2=round(limit_entry + MAX_STOP_POINTS * 3.0, 2),
+                        tp1=round(limit_entry + abs(limit_entry - stop_level) * 1.5, 2),
+                        tp2=round(limit_entry + abs(limit_entry - stop_level) * 3.0, 2),
                         contracts=1, trade_date=trade_date, score=confluence.score, reason=confluence.reason,
                         meta=meta,
                     )
@@ -244,8 +332,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
                         entry=limit_entry, stop=stop_level,
-                        tp1=round(limit_entry - MAX_STOP_POINTS * 1.5, 2),
-                        tp2=round(limit_entry - MAX_STOP_POINTS * 3.0, 2),
+                        tp1=round(limit_entry - abs(limit_entry - stop_level) * 1.5, 2),
+                        tp2=round(limit_entry - abs(limit_entry - stop_level) * 3.0, 2),
                         contracts=1, trade_date=trade_date, score=confluence.score, reason=confluence.reason,
                         meta=meta,
                     )
