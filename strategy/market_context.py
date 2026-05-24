@@ -65,7 +65,7 @@ def get_vix_regime(as_of: date | None = None) -> dict:
         elif vix < VIX_HIGH:
             regime, penalty = "high", 1
         elif vix < VIX_EXTREME:
-            regime, penalty = "very_high", 2
+            regime, penalty = "very_high", 3  # +3 penalty: only near-perfect setups trade very-high VIX
         else:
             regime, penalty = "extreme", 3
         return {"vix": round(vix, 2), "regime": regime, "score_penalty": penalty}

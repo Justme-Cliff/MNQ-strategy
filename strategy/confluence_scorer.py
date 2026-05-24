@@ -1,24 +1,25 @@
 """
 Confluence scorer — the gatekeeper.
 
-9-point system (upgraded from 7). Same 4-point base threshold, raised
-dynamically by smart_filter based on context, streak, and market regime.
+12-point system. Base threshold 4, raised dynamically by smart_filter.
 
 Score breakdown:
-  1. Asia sweep detected                    (required)
-  2. MSS confirmed                          (required)
-  3. FVG present in entry zone
-  4. VWAP aligned with direction
-  5. In prime trade window (9:30-11:00 AM)
-  6. PDH/PDL confluence                     (sweep hits a prior day level too)
-  7. Opening range opposed                  (setup reverses 9:30 trap direction)
-  8. Weekly level confluence                (sweep hits a prior week H/L too)   NEW
-  9. OTE zone (Optimal Trade Entry)         (price in 61.8-78.6% fib retrace)   NEW
+  1.  Asia sweep detected                    (required)
+  2.  MSS confirmed                          (required)
+  3.  FVG present in entry zone
+  4.  VWAP aligned with direction
+  5.  In prime trade window (9:30-11:00 AM)
+  6.  PDH/PDL confluence                     (sweep hits a prior day level too)
+  7.  Opening range opposed                  (setup reverses 9:30 trap direction)
+  8.  Weekly level confluence                (sweep hits a prior week H/L too)
+  9.  OTE zone (Optimal Trade Entry)         (price in 61.8-78.6% fib retrace)
+  10. SMT confirmed                          (ES confirms NQ sweep direction)
+  11. London aligned                         (London swept the same side as trade)
+  12. MSS strong                             (MSS candle shows real displacement)
 
-Stored but NOT counted in score (used by smart_filter to raise threshold):
-  - london_aligned : London swept the same side
-  - mss_strong     : MSS candle has real institutional displacement
-  - smt_confirmed  : ES confirms the NQ sweep direction
+smart_filter ALSO raises the minimum threshold when london/mss are unfavorable —
+these factors both add to score (positive confluence) and penalize when absent
+(threshold rises), so quality setups are rewarded twice and weak setups are blocked.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -64,7 +65,7 @@ class ConfluenceResult:
 
     @property
     def max_score(self) -> int:
-        return 9
+        return 12
 
 
 def score_setup(
@@ -100,7 +101,8 @@ def score_setup(
         if direction == "short" and price < vwap: vwap_aligned = True
 
     mins = bar_hour * 60 + bar_minute
-    in_time_window = (9 * 60 + 30) <= mins < (11 * 60)
+    # 9:00 AM with minute=0 implies a 1h bar that covers the full NY open (9:00-10:00 AM)
+    in_time_window = ((9 * 60 + 30) <= mins < (11 * 60)) or (bar_hour == 9 and bar_minute == 0)
 
     # Auto-compute PDH/PDL confluence from raw levels if flag not already set
     if not pdh_pdl_confluence and sweep_price is not None:
@@ -127,6 +129,9 @@ def score_setup(
         opening_range_opposed,
         weekly_level,
         ote_zone,
+        smt_confirmed,   # +1 when ES confirms NQ direction
+        london_aligned,  # +1 when London swept same side
+        mss_strong,      # +1 when MSS candle shows real displacement
     ])
 
     return ConfluenceResult(

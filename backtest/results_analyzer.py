@@ -110,21 +110,24 @@ def _print_report(trades, stats, daily):
     console.print()
 
     table = Table(box=box.SIMPLE_HEAD, title="Last 20 Trades")
-    for col in ["Date", "Day", "Mode", "Dir", "Score", "VIX", "SMT", "OTE", "Hour", "Sweep", "P&L", "Outcome"]:
+    for col in ["Date", "Day", "Mode", "Level", "Dir", "Score", "VIX", "SMT", "OTE", "Hour", "Sweep", "P&L", "Outcome"]:
         table.add_column(col)
-    mode_labels = {"normal": "[dim]norm[/dim]", "judas_reversal": "[cyan]judas[/cyan]", "post_claims": "[yellow]thurs[/yellow]"}
+    mode_labels  = {"normal": "[dim]norm[/dim]", "judas_reversal": "[cyan]judas[/cyan]", "post_claims": "[yellow]thurs[/yellow]"}
+    level_labels = {"asia": "[blue]asia[/blue]", "pdh_pdl": "[magenta]PDx[/magenta]", "pm_range": "[cyan]PM[/cyan]", "am_range": "[yellow]AMr[/yellow]"}
     for t in trades[-20:]:
         pnl_c   = "green" if t.pnl > 0 else "red"
         vix_c   = "green" if t.vix_regime in ("low", "medium", "unknown") else ("yellow" if t.vix_regime == "high" else "red")
         smt_str = "[green]Y[/green]" if t.smt_confirmed else "[red]N[/red]"
         ote_str = "[green]Y[/green]" if t.ote_used else "[dim]-[/dim]"
         mode    = getattr(t, "setup_mode", "normal")
+        lvl     = getattr(t, "level_type", "asia")
         table.add_row(
             str(t.date),
             DAYS[t.day_of_week] if t.day_of_week < 5 else "?",
             mode_labels.get(mode, mode),
+            level_labels.get(lvl, lvl),
             "[green]L[/green]" if t.direction == "long" else "[red]S[/red]",
-            f"{t.score}/9",
+            f"{t.score}/12",
             f"[{vix_c}]{t.vix_regime[:4]}[/{vix_c}]",
             smt_str,
             ote_str,
@@ -165,15 +168,15 @@ def _print_breakdown(trades: list[BacktestTrade]):
         dir_tbl.add_row(label, _wr(g), _avg_pnl(g), str(len(g)))
     console.print(dir_tbl)
 
-    # By confluence score (9-point)
-    sc_tbl = Table(box=box.SIMPLE_HEAD, title="Win Rate by Confluence Score (out of 9)")
+    # By confluence score (12-point)
+    sc_tbl = Table(box=box.SIMPLE_HEAD, title="Win Rate by Confluence Score (out of 12)")
     sc_tbl.add_column("Score")
     sc_tbl.add_column("Win Rate")
     sc_tbl.add_column("Avg P&L")
     sc_tbl.add_column("Trades")
-    for s in range(4, 10):
+    for s in range(4, 13):
         g = [t for t in trades if t.score == s]
-        sc_tbl.add_row(f"{s}/9", _wr(g), _avg_pnl(g), str(len(g)))
+        sc_tbl.add_row(f"{s}/12", _wr(g), _avg_pnl(g), str(len(g)))
     console.print(sc_tbl)
 
     # By signal hour
@@ -309,6 +312,22 @@ def _print_context_breakdown(trades: list[BacktestTrade]):
         str(sum(1 for t in trades if not t.ote_used)),
     )
     console.print(ote_tbl)
+
+    # By reference level type (new: asia vs pdh_pdl vs pm_range)
+    lvl_tbl = Table(box=box.SIMPLE_HEAD, title="Win Rate by Reference Level")
+    lvl_tbl.add_column("Level Type")
+    lvl_tbl.add_column("Win Rate")
+    lvl_tbl.add_column("Avg P&L")
+    lvl_tbl.add_column("Trades")
+    for lvl, label in [
+        ("asia",     "Asia Range H/L"),
+        ("pdh_pdl",  "PDH / PDL"),
+        ("pm_range", "Prev PM Session Range"),
+        ("am_range", "PM Session (morning range sweep)"),
+    ]:
+        g = [t for t in trades if getattr(t, "level_type", "asia") == lvl]
+        lvl_tbl.add_row(label, _wr(g), _avg_pnl(g), str(len(g)))
+    console.print(lvl_tbl)
 
     # By setup mode (normal / judas_reversal / post_claims)
     mode_tbl = Table(box=box.SIMPLE_HEAD, title="Win Rate by Setup Mode")

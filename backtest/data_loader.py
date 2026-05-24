@@ -56,6 +56,8 @@ def label_sessions(df: pd.DataFrame, interval: str = "5m") -> pd.DataFrame:
 
     df["in_asia"]         = (h >= 20) | (h == 0)   # 8 PM – midnight (hour 0 = 12 AM bar)
     df["in_ny"]           = (minutes >= 9 * 60 + 30) & (minutes < 16 * 60)
-    df["in_trade_window"] = (minutes >= trade_start) & (minutes < 12 * 60)
+    df["in_am_window"]    = (minutes >= trade_start) & (minutes < 12 * 60)
+    df["in_pm_window"]    = (minutes >= 13 * 60 + 30) & (minutes < 16 * 60)
+    df["in_trade_window"] = df["in_am_window"] | df["in_pm_window"]
 
     return df

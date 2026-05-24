@@ -108,76 +108,80 @@ class SmartFilter:
         memory=None,
         market_context: dict | None = None,
         judas_reversal_mode: bool = False,  # True = 2nd sweep opposite confirmed Judas
+        threshold_boost: int = 0,           # Extra points required for secondary levels (PDH/PDL, PM range)
     ) -> int:
         """
         Returns the minimum confluence score required to fire a signal.
 
+        Thresholds are calibrated for the 12-point scoring system.
+        The 3 quality factors (SMT confirmed, London aligned, MSS strong) are now
+        part of the score, so all base thresholds are shifted +3 vs the old 9-point system.
+
         Layers (applied in order):
-          1. Base threshold from BotMemory (real win rates) or hardcoded baseline
+          1. Base threshold (data-driven or hardcoded)
           2. Market context penalty (VIX regime, news calendar, SMT divergence)
           3. Session-state rules (loss streak, late session, MSS, London, sweep depth)
           4. Monday win-streak fast-pass
 
-        Tuesday: first sweep requires 8/9 (potential Judas). Once first sweep
-          times out without MSS → judas_reversal_mode=True for opposite direction
-          second sweep, base drops to 5/9 (confirmed Judas reversal trade).
-
-        Thursday: 8/9 before 10 AM (claims spike window). After 10 AM, 5/9
-          because claims have settled and the session normalizes.
+        Tuesday: first sweep requires 11/12 (Judas potential — 0% WR in 60-day test).
+          On confirmed Judas reversal (2nd sweep, opposite direction), base drops to 8.
+        Thursday: 9/12 before 10 AM (claims spike window). After 10 AM, 8/12.
+        Friday: 9/12 (profit-taking caution).
         """
         mins = bar_hour * 60 + bar_minute
 
-        # Layer 1: data-driven DOW base
+        # Layer 1: data-driven DOW base  (all values = old system + 3 for 12-pt scoring)
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            if day_of_week == 1:    # Tuesday: Judas Swing day
+            if day_of_week == 1:    # Tuesday: Judas Swing — 0% WR on first sweep
                 if judas_reversal_mode:
-                    base = 5  # Confirmed Judas reversal — second sweep, opposite direction
+                    base = 8  # Confirmed Judas reversal — second sweep, opposite direction
                 else:
-                    base = 8  # First sweep: could be the Judas, require near-perfect
+                    base = 11  # First sweep: strict (0% WR confirmed in 60-day test)
             elif day_of_week == 3:  # Thursday: jobless claims
                 if mins >= 10 * 60:
-                    base = 5  # After 10 AM: claims settled, normal session conditions
+                    base = 6  # After 10 AM: claims settled, moderate caution
                 else:
-                    base = 8  # Pre-10 AM: claims spike window, very strict
+                    base = 9  # Pre-10 AM: elevated caution around claims window
             elif day_of_week == 4:  # Friday: profit-taking/position-closing
-                base = 7  # Only allow near-perfect Friday setups
+                base = 9  # Requires near-perfect setup — only score-9+ Friday trades fire
             else:
-                base = 4
+                base = 5   # Mon / Wed: best days
 
-        # Layer 2: market context penalty (VIX + news + SMT)
+        # Level-type boost: secondary reference levels require more confluence
+        base += threshold_boost
+
+        # Layer 2: market context penalty (VIX + news + SMT) — use full ctx_penalty
         if market_context is not None:
             from strategy.market_context import context_score_penalty
             ctx_skip, ctx_penalty, _ = context_score_penalty(market_context)
             if ctx_skip:
                 return 99   # caller should check for this and skip entirely
-            news_penalty = market_context.get("news", {}).get("score_penalty", 0)
-            smt_penalty  = 1 if market_context.get("smt", {}).get("divergent") else 0
-            base = max(base, base + news_penalty + smt_penalty)
+            base = max(base, base + ctx_penalty)  # VIX + news + SMT all included
 
         # Layer 3: session-state rules
         if self.consecutive_losses >= 2:
-            base = max(base, 6)
+            base = max(base, 8)   # loss streak → require strong setup
         if mins >= 11 * 60:
-            base = max(base, 5)
+            base = max(base, 6)   # late session → tighter gate
         if not mss_strong:
             base = max(base, base + 1)
         if not london_aligned:
             base = max(base, base + 1)
         if sweep_depth < 15.0:
-            base = max(base, 6)  # shallow sweeps: require 6+ not just 5
+            base = max(base, 8)   # shallow sweeps: filter noise
 
         # Layer 4: Monday prime-window fast-pass
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
-            base = min(base, 4)
+            base = min(base, 5)
 
         # Judas reversal and post-claims modes override loss-streak escalation —
         # these are specifically identified high-probability set-ups
         if judas_reversal_mode:
-            base = min(base, 6)  # Cap: even with penalties, don't require more than 6
+            base = min(base, 9)   # Cap: even with penalties, don't require more than 9
 
-        return min(base, 8)
+        return min(base, 11)
 
     # ── Sweep quality check ───────────────────────────────────────────────────
 
