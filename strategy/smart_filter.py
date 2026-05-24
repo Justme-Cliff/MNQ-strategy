@@ -106,47 +106,51 @@ class SmartFilter:
         mss_strong: bool = True,
         sweep_depth: float = 999.0,
         memory=None,
+        market_context: dict | None = None,
     ) -> int:
         """
         Returns the minimum confluence score required to fire a signal.
-        Reads data-driven thresholds from BotMemory when available,
-        falls back to hardcoded baseline when not enough samples exist.
+
+        Layers (applied in order):
+          1. Base threshold from BotMemory (real win rates) or hardcoded baseline
+          2. Market context penalty (VIX regime, news calendar, SMT divergence)
+          3. Session-state rules (loss streak, late session, MSS, London, sweep depth)
+          4. Monday win-streak fast-pass
         """
         mins = bar_hour * 60 + bar_minute
 
-        # Base threshold: use real win-rate-derived value from memory if available
+        # Layer 1: data-driven DOW base
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            # Hardcoded baseline (used until memory has enough samples)
-            if day_of_week == 1:
+            if day_of_week == 1:    # Tuesday: Judas Swing day
                 base = 7
-            elif day_of_week == 3:
+            elif day_of_week == 3:  # Thursday: jobless claims
                 base = 5
             else:
                 base = 4
 
-        # After 2 consecutive losses: require near-perfect setup
+        # Layer 2: market context penalty (VIX + news + SMT)
+        if market_context is not None:
+            from strategy.market_context import context_score_penalty
+            ctx_skip, ctx_penalty, _ = context_score_penalty(market_context)
+            if ctx_skip:
+                return 99   # caller should check for this and skip entirely
+            base = max(base, base + ctx_penalty)
+
+        # Layer 3: session-state rules
         if self.consecutive_losses >= 2:
             base = max(base, 6)
-
-        # Late session (11:00-11:30 AM): require 5/7
         if mins >= 11 * 60:
             base = max(base, 5)
-
-        # Weak MSS (no real displacement): require +1
         if not mss_strong:
             base = max(base, base + 1)
-
-        # London opposes the setup direction: require +1
         if not london_aligned:
             base = max(base, base + 1)
-
-        # Shallow sweep (8-15 pts): require 5/7
         if sweep_depth < 15.0:
             base = max(base, 5)
 
-        # Monday with active win streak in prime window: cap at base 4
+        # Layer 4: Monday prime-window fast-pass
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
             base = min(base, 4)
 

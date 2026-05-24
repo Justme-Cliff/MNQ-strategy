@@ -13,6 +13,7 @@ from rich.table import Table
 from rich import box
 
 from strategy.london_session import london_summary_line
+from strategy.market_context import get_vix_regime, check_news_calendar, get_weekly_profile
 
 EST = ZoneInfo("America/New_York")
 console = Console()
@@ -37,10 +38,11 @@ def print_morning_briefing(
     state,
     smart,
     london_action: dict | None = None,
+    market_context: dict | None = None,
 ) -> dict:
     """Print full morning briefing. Returns prev day levels dict."""
     now = datetime.now(tz=EST)
-    console.rule(f"[bold cyan]TJR Morning Briefing — {now.strftime('%A %B %d, %Y')}[/bold cyan]")
+    console.rule(f"[bold cyan]TJR Morning Briefing  {now.strftime('%A %B %d, %Y')}[/bold cyan]")
 
     prev = get_prev_day_levels()
     s = state.summary()
@@ -55,21 +57,38 @@ def print_morning_briefing(
     acct.add_row("Buffer",      f"[{buf_color}]${buf:.0f} remaining[/{buf_color}]  (floor ${s['drawdown_floor']:,.0f})")
     acct.add_row("Total P&L",   f"${s['total_pnl']:+.2f}")
     acct.add_row("Progress",    f"{s['progress_pct']:.1f}% toward $1,500 target")
-    acct.add_row("Win streak",  str(smart.consecutive_wins)   if smart.consecutive_wins  else "—")
-    acct.add_row("Loss streak", f"[red]{smart.consecutive_losses}[/red]" if smart.consecutive_losses else "—")
+    acct.add_row("Win streak",  str(smart.consecutive_wins)   if smart.consecutive_wins  else "none")
+    acct.add_row("Loss streak", f"[red]{smart.consecutive_losses}[/red]" if smart.consecutive_losses else "none")
     dow = now.weekday()
-    min_score = smart.min_score_required(now.hour, now.minute, dow)
-    dow_note = ""
-    if dow == 0:
-        dow_note = "  [green]Monday — best day (86% hist win rate)[/green]"
-    elif dow == 1:
-        dow_note = "  [red]Tuesday — requires 5/5 (20% hist win rate)[/red]"
-    elif dow == 3:
-        dow_note = "  [red]Thursday — requires 5/5 (25% hist win rate)[/red]"
-    elif smart.consecutive_losses >= 2:
-        dow_note = "  ← stricter after losses"
-    acct.add_row("Min score today", f"[bold]{min_score}/5[/bold]{dow_note}")
+    min_score = smart.min_score_required(now.hour, now.minute, dow, market_context=market_context)
+    profile = get_weekly_profile(now)
+    dow_colors = {0: "green", 1: "red", 2: "cyan", 3: "yellow", 4: "blue"}
+    dow_c = dow_colors.get(dow, "white")
+    acct.add_row("Day profile",    f"[{dow_c}]{profile['phase'].upper()}[/{dow_c}]  {profile['note']}")
+    acct.add_row("Min score today", f"[bold]{min_score}/9[/bold]  [dim]{profile['guidance'][:60]}[/dim]")
     console.print(Panel(acct, title="[bold]Account[/bold]", border_style="blue", padding=(0, 1)))
+
+    # ── Market context: VIX + News ─────────────────────────────────────────────
+    vix_data = get_vix_regime()
+    news_data = check_news_calendar(now)
+    vix_col = "green" if vix_data["regime"] in ("low", "unknown") else ("yellow" if vix_data["regime"] == "medium" else "red")
+    news_col = "red" if news_data["skip"] else ("yellow" if news_data["score_penalty"] > 0 else "green")
+    ctx_body = (
+        f"  VIX: [{vix_col}]{vix_data.get('vix', 'n/a')} ({vix_data['regime']})[/{vix_col}]"
+        f"   Regime penalty: +{vix_data['score_penalty']} pts\n"
+        f"  News: [{news_col}]{news_data['reason']}[/{news_col}]"
+        f"{'   [red]SKIP TRADING NOW[/red]' if news_data['skip'] else ''}"
+    )
+    if market_context and market_context.get("weekly"):
+        wk = market_context["weekly"]
+        if wk.get("prev_week_high"):
+            ctx_body += f"\n  Prev Week High: [dim]{wk['prev_week_high']:.2f}[/dim]   Prev Week Low: [dim]{wk['prev_week_low']:.2f}[/dim]"
+    if market_context and market_context.get("smt"):
+        smt = market_context["smt"]
+        smt_col = "red" if smt.get("divergent") else "green"
+        ctx_body += f"\n  SMT (ES/NQ): [{smt_col}]{smt['detail']}[/{smt_col}]"
+    ctx_border = "red" if news_data["skip"] else ("yellow" if vix_data["score_penalty"] > 0 else "dim")
+    console.print(Panel(ctx_body, title="[bold]Market Context[/bold]", border_style=ctx_border, padding=(0, 1)))
 
     # ── Key levels ─────────────────────────────────────────────────────────────
     if asia_high and asia_low and current_price:
@@ -119,14 +138,14 @@ def print_morning_briefing(
     if asia_high and asia_low:
         day_warning = ""
         if dow in (1, 3):
-            day_warning = f"\n  [red]Tough day historically — only take 5/5 perfect setups[/red]"
+            day_warning = f"\n  [red]Tough day historically. Require higher score. Check Judas Swing guidance.[/red]"
         elif dow == 0:
             day_warning = f"\n  [green]Strong day historically — trust the signals[/green]"
         console.print(Panel(
             f"  [bold]Watch for:[/bold]\n"
             f"  🔴 Price sweeps ABOVE [orange1]{asia_high:.2f}[/orange1] → bear setup (SHORT)\n"
             f"  🟢 Price sweeps BELOW [orange1]{asia_low:.2f}[/orange1] → bull setup (LONG)\n\n"
-            f"  [bold]Entry rules:[/bold] Need {min_score}/5 score minimum\n"
+            f"  [bold]Entry rules:[/bold] Need {min_score}/9 score minimum\n"
             f"  [bold]Risk:[/bold] $50 per trade  |  [bold]Target:[/bold] $150 per trade\n"
             f"  [bold]Max trades:[/bold] 2 today  |  [bold]Stop:[/bold] 11:30 AM EST"
             f"{day_warning}",
