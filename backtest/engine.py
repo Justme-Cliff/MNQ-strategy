@@ -44,6 +44,9 @@ from config import (
     MNQ_DOLLARS_PER_POINT,
     STARTING_BALANCE,
     TRAILING_MAX_DRAWDOWN,
+    TRADE_END_HOUR,
+    TRADE_END_MIN,
+    SWEEP_TIMEOUT_MINUTES,
 )
 
 EST = ZoneInfo("America/New_York")
@@ -72,6 +75,7 @@ class BacktestTrade:
     smt_confirmed: bool = True
     ote_used: bool = False
     news_penalty: int = 0
+    setup_mode: str = "normal"   # normal | judas_reversal | post_claims
 
 
 @dataclass
@@ -155,7 +159,7 @@ def _swing_origin(df: pd.DataFrame, sweep_bar: int, direction: str, lookback: in
 def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
     print(f"Loading NQ data ({period} / {interval}) ...")
     df = load_nq(interval=interval, period=period)
-    df = label_sessions(df)
+    df = label_sessions(df, interval=interval)
     print(f"Loaded {len(df)} bars from {df.index[0].date()} to {df.index[-1].date()}")
 
     print("Loading ES data for SMT divergence ...")
@@ -185,12 +189,17 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
     mss_confirmed     = {"bullish": False, "bearish": False}
     sweep_bar         = {"bullish": None, "bearish": None}
     sweep_depth_val   = {"bullish": 0.0, "bearish": 0.0}
+    sweep_detected_at = {"bullish": None, "bearish": None}   # EST datetime of sweep
     mss_strong_cache  = {"bullish": False, "bearish": False}
     mss_bar_idx_cache = {"bullish": None, "bearish": None}
     smt_cache         = {"bullish": {"confirmed": True, "divergent": False}, "bearish": {"confirmed": True, "divergent": False}}
     ote_cache         = {"bullish": {"valid": False}, "bearish": {"valid": False}}
     london_action = {"direction": "neutral", "swept_high": False, "swept_low": False,
                      "sweep_depth_high": 0.0, "sweep_depth_low": 0.0}
+
+    # Per-day Judas Swing state (Tuesday)
+    tuesday_first_sweep_dir: str | None = None
+    tuesday_judas_confirmed: bool = False
 
     # Per-day context
     weekly_lvls   = {"prev_week_high": None, "prev_week_low": None}
@@ -222,10 +231,13 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             mss_confirmed     = {"bullish": False, "bearish": False}
             sweep_bar         = {"bullish": None, "bearish": None}
             sweep_depth_val   = {"bullish": 0.0, "bearish": 0.0}
+            sweep_detected_at = {"bullish": None, "bearish": None}
             mss_strong_cache  = {"bullish": False, "bearish": False}
             mss_bar_idx_cache = {"bullish": None, "bearish": None}
             smt_cache         = {"bullish": {"confirmed": True, "divergent": False}, "bearish": {"confirmed": True, "divergent": False}}
             ote_cache         = {"bullish": {"valid": False}, "bearish": {"valid": False}}
+            tuesday_first_sweep_dir = None
+            tuesday_judas_confirmed = False
             prev_date         = trade_date
             opening_range_open  = None
             opening_range_close = None
@@ -284,30 +296,50 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
         if news_check["skip"]:
             continue
 
+        # ── Sweep timeout: reset detection if sweep sat 90 min without MSS ───
+        for _d in ("bullish", "bearish"):
+            if sweep_done[_d] and not mss_confirmed[_d] and sweep_detected_at[_d] is not None:
+                elapsed = (est_dt - sweep_detected_at[_d]).total_seconds() / 60
+                if elapsed >= SWEEP_TIMEOUT_MINUTES:
+                    # Tuesday: first timed-out sweep is the Judas direction
+                    if trade_date.weekday() == 1 and tuesday_first_sweep_dir is None:
+                        tuesday_first_sweep_dir = _d
+                        tuesday_judas_confirmed = True
+                    # Full reset so fresh setup can be detected
+                    sweep_done[_d]        = False
+                    sweep_bar[_d]         = None
+                    sweep_detected_at[_d] = None
+                    smt_cache[_d]         = {"confirmed": True, "divergent": False}
+                    ote_cache[_d]         = {"valid": False}
+                    mss_strong_cache[_d]  = False
+                    mss_bar_idx_cache[_d] = None
+
         # ── Detect sweeps ──────────────────────────────────────────────────────
         if not sweep_done["bullish"] and low < asia_low:
             depth = round(asia_low - low, 2)
             valid, _ = smart.is_sweep_valid(low, asia_low, "long")
             if valid:
-                sweep_done["bullish"] = True
-                sweep_bar["bullish"]  = i
-                sweep_depth_val["bullish"] = depth
-                smt_cache["bullish"] = check_smt_divergence(df, es_df, i, "long")
+                sweep_done["bullish"]     = True
+                sweep_bar["bullish"]      = i
+                sweep_detected_at["bullish"] = est_dt
+                sweep_depth_val["bullish"]= depth
+                smt_cache["bullish"]      = check_smt_divergence(df, es_df, i, "long")
                 s_origin  = _swing_origin(df, i, "long")
                 s_extreme = float(lows.iloc[i])
-                ote_cache["bullish"] = compute_ote_zone(s_origin, s_extreme, "long")
+                ote_cache["bullish"]      = compute_ote_zone(s_origin, s_extreme, "long")
 
         if not sweep_done["bearish"] and high > asia_high:
             depth = round(high - asia_high, 2)
             valid, _ = smart.is_sweep_valid(high, asia_high, "short")
             if valid:
-                sweep_done["bearish"] = True
-                sweep_bar["bearish"]  = i
-                sweep_depth_val["bearish"] = depth
-                smt_cache["bearish"] = check_smt_divergence(df, es_df, i, "short")
+                sweep_done["bearish"]     = True
+                sweep_bar["bearish"]      = i
+                sweep_detected_at["bearish"] = est_dt
+                sweep_depth_val["bearish"]= depth
+                smt_cache["bearish"]      = check_smt_divergence(df, es_df, i, "short")
                 s_origin  = _swing_origin(df, i, "short")
                 s_extreme = float(highs.iloc[i])
-                ote_cache["bearish"] = compute_ote_zone(s_origin, s_extreme, "short")
+                ote_cache["bearish"]      = compute_ote_zone(s_origin, s_extreme, "short")
 
         # ── Detect MSS after sweep ─────────────────────────────────────────────
         for direction in ("bullish", "bearish"):
@@ -354,6 +386,20 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             if smt_result.get("divergent") and not smt_ok:
                 continue  # NQ diverges from ES = fake signal, skip
 
+            # Judas reversal mode: Tuesday second sweep, opposite of confirmed fake
+            judas_mode = (
+                trade_date.weekday() == 1
+                and tuesday_judas_confirmed
+                and direction != tuesday_first_sweep_dir
+            )
+            # Post-claims mode: Thursday after 10 AM
+            post_claims = (trade_date.weekday() == 3 and est_dt.hour >= 10)
+            setup_mode = (
+                "judas_reversal" if judas_mode
+                else "post_claims" if post_claims
+                else "normal"
+            )
+
             confluence = score_setup(
                 asia_sweep=True,
                 mss_confirmed=True,
@@ -394,6 +440,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                 mss_strong=mss_strong_flag,
                 sweep_depth=sweep_depth_val[direction],
                 market_context=market_ctx,
+                judas_reversal_mode=judas_mode,
             )
             # 99 = skip flag from news blackout
             if min_score >= 99 or confluence.score < min_score:
@@ -425,6 +472,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                 smt_confirmed=smt_ok,
                 ote_used=ote_active,
                 news_penalty=news_check.get("score_penalty", 0),
+                setup_mode=setup_mode,
             )
 
             if signal_dir == "long":
@@ -599,7 +647,7 @@ def _simulate_limit_trade(
             return None
 
         est_mins = est_dates[j].hour * 60 + est_dates[j].minute
-        if not (9 * 60 + 30 <= est_mins < 11 * 60 + 30):
+        if not (9 * 60 + 30 <= est_mins < TRADE_END_HOUR * 60 + TRADE_END_MIN):
             return None
 
         filled = (direction == "long" and float(lows.iloc[j]) <= limit_entry) or \

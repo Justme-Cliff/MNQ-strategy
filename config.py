@@ -25,14 +25,15 @@ WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8000"))
 
 # ── Risk parameters (non-negotiable) ──────────────────────────────────────────
 MAX_RISK_PER_TRADE   = 50       # dollars
-MAX_TRADES_PER_DAY   = 2
-MAX_DAILY_LOSS       = 100      # dollars (self-imposed kill switch)
-MIN_CONFLUENCE_SCORE = 4        # out of 5
+MAX_TRADES_PER_DAY   = 3       # 2 → 3 to capture Judas reversal + 2 normal setups
+MAX_DAILY_LOSS       = 150      # dollars — raised proportionally for 3-trade limit
+MIN_CONFLUENCE_SCORE = 4        # out of 9
 TRADE_START_HOUR     = 9
 TRADE_START_MIN      = 30
-TRADE_END_HOUR       = 11
-TRADE_END_MIN        = 30
+TRADE_END_HOUR       = 12      # Extended to noon to capture London close sweep
+TRADE_END_MIN        = 0
 MAX_STOP_POINTS      = 25       # MNQ: $50 / $2 per point
+SWEEP_TIMEOUT_MINUTES = 90     # Reset sweep detection after 90 min without MSS
 MIN_TARGET_POINTS    = 75       # 3:1 RR minimum
 CONSISTENCY_BUFFER   = 0.38     # fire at 38%; Tradeify rule is 40%
 DRAWDOWN_ALERT       = 200      # warn when remaining buffer < $200

@@ -110,16 +110,19 @@ def _print_report(trades, stats, daily):
     console.print()
 
     table = Table(box=box.SIMPLE_HEAD, title="Last 20 Trades")
-    for col in ["Date", "Day", "Dir", "Score", "VIX", "SMT", "OTE", "Hour", "Sweep", "P&L", "Outcome"]:
+    for col in ["Date", "Day", "Mode", "Dir", "Score", "VIX", "SMT", "OTE", "Hour", "Sweep", "P&L", "Outcome"]:
         table.add_column(col)
+    mode_labels = {"normal": "[dim]norm[/dim]", "judas_reversal": "[cyan]judas[/cyan]", "post_claims": "[yellow]thurs[/yellow]"}
     for t in trades[-20:]:
         pnl_c   = "green" if t.pnl > 0 else "red"
         vix_c   = "green" if t.vix_regime in ("low", "medium", "unknown") else ("yellow" if t.vix_regime == "high" else "red")
         smt_str = "[green]Y[/green]" if t.smt_confirmed else "[red]N[/red]"
         ote_str = "[green]Y[/green]" if t.ote_used else "[dim]-[/dim]"
+        mode    = getattr(t, "setup_mode", "normal")
         table.add_row(
             str(t.date),
             DAYS[t.day_of_week] if t.day_of_week < 5 else "?",
+            mode_labels.get(mode, mode),
             "[green]L[/green]" if t.direction == "long" else "[red]S[/red]",
             f"{t.score}/9",
             f"[{vix_c}]{t.vix_regime[:4]}[/{vix_c}]",
@@ -306,6 +309,21 @@ def _print_context_breakdown(trades: list[BacktestTrade]):
         str(sum(1 for t in trades if not t.ote_used)),
     )
     console.print(ote_tbl)
+
+    # By setup mode (normal / judas_reversal / post_claims)
+    mode_tbl = Table(box=box.SIMPLE_HEAD, title="Win Rate by Setup Mode")
+    mode_tbl.add_column("Setup Mode")
+    mode_tbl.add_column("Win Rate")
+    mode_tbl.add_column("Avg P&L")
+    mode_tbl.add_column("Trades")
+    for mode, label in [
+        ("normal",         "Normal"),
+        ("judas_reversal", "Judas Reversal (Tue 2nd sweep)"),
+        ("post_claims",    "Post-Claims (Thu after 10 AM)"),
+    ]:
+        g = [t for t in trades if getattr(t, "setup_mode", "normal") == mode]
+        mode_tbl.add_row(label, _wr(g), _avg_pnl(g), str(len(g)))
+    console.print(mode_tbl)
 
     # News penalty breakdown
     news_tbl = Table(box=box.SIMPLE_HEAD, title="Win Rate by News Penalty")

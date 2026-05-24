@@ -36,8 +36,12 @@ def load_nq(interval: str = "5m", period: str = "60d") -> pd.DataFrame:
     return df
 
 
-def label_sessions(df: pd.DataFrame) -> pd.DataFrame:
-    """Add EST hour/minute columns and session label flags."""
+def label_sessions(df: pd.DataFrame, interval: str = "5m") -> pd.DataFrame:
+    """Add EST hour/minute columns and session label flags.
+
+    For 1h bars the 9:00 AM bar represents 9:00-10:00 AM (covers the NY open),
+    so we start the trade window at 9:00 instead of 9:30 to avoid missing it.
+    """
     df = df.copy()
     est_idx = df.index.tz_convert(EST)
     df["est_hour"]   = est_idx.hour
@@ -47,8 +51,11 @@ def label_sessions(df: pd.DataFrame) -> pd.DataFrame:
     h, m = df["est_hour"], df["est_minute"]
     minutes = h * 60 + m
 
-    df["in_asia"] = (h >= 20) | (h < 0)          # 8 PM – midnight
-    df["in_ny"]   = (minutes >= 9 * 60 + 30) & (minutes < 16 * 60)
-    df["in_trade_window"] = (minutes >= 9 * 60 + 30) & (minutes < 11 * 60 + 30)
+    # 1h bar at 9:00 AM already represents the 9:30 AM open — include it
+    trade_start = 9 * 60 if interval == "1h" else 9 * 60 + 30
+
+    df["in_asia"]         = (h >= 20) | (h == 0)   # 8 PM – midnight (hour 0 = 12 AM bar)
+    df["in_ny"]           = (minutes >= 9 * 60 + 30) & (minutes < 16 * 60)
+    df["in_trade_window"] = (minutes >= trade_start) & (minutes < 12 * 60)
 
     return df

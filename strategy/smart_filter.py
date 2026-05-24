@@ -107,6 +107,7 @@ class SmartFilter:
         sweep_depth: float = 999.0,
         memory=None,
         market_context: dict | None = None,
+        judas_reversal_mode: bool = False,  # True = 2nd sweep opposite confirmed Judas
     ) -> int:
         """
         Returns the minimum confluence score required to fire a signal.
@@ -116,6 +117,13 @@ class SmartFilter:
           2. Market context penalty (VIX regime, news calendar, SMT divergence)
           3. Session-state rules (loss streak, late session, MSS, London, sweep depth)
           4. Monday win-streak fast-pass
+
+        Tuesday: first sweep requires 8/9 (potential Judas). Once first sweep
+          times out without MSS → judas_reversal_mode=True for opposite direction
+          second sweep, base drops to 5/9 (confirmed Judas reversal trade).
+
+        Thursday: 8/9 before 10 AM (claims spike window). After 10 AM, 5/9
+          because claims have settled and the session normalizes.
         """
         mins = bar_hour * 60 + bar_minute
 
@@ -123,10 +131,18 @@ class SmartFilter:
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            if day_of_week == 1:    # Tuesday: Judas Swing day — require strong confirmation
-                base = 8
-            elif day_of_week == 3:  # Thursday: jobless claims — all signals elevated
-                base = 8
+            if day_of_week == 1:    # Tuesday: Judas Swing day
+                if judas_reversal_mode:
+                    base = 5  # Confirmed Judas reversal — second sweep, opposite direction
+                else:
+                    base = 8  # First sweep: could be the Judas, require near-perfect
+            elif day_of_week == 3:  # Thursday: jobless claims
+                if mins >= 10 * 60:
+                    base = 5  # After 10 AM: claims settled, normal session conditions
+                else:
+                    base = 8  # Pre-10 AM: claims spike window, very strict
+            elif day_of_week == 4:  # Friday: profit-taking/position-closing
+                base = 7  # Only allow near-perfect Friday setups
             else:
                 base = 4
 
@@ -136,8 +152,6 @@ class SmartFilter:
             ctx_skip, ctx_penalty, _ = context_score_penalty(market_context)
             if ctx_skip:
                 return 99   # caller should check for this and skip entirely
-            # Only apply VIX penalty to LONG setups (high VIX trending markets
-            # are actually favorable for SHORT sweep setups — trend continuation)
             news_penalty = market_context.get("news", {}).get("score_penalty", 0)
             smt_penalty  = 1 if market_context.get("smt", {}).get("divergent") else 0
             base = max(base, base + news_penalty + smt_penalty)
@@ -158,6 +172,11 @@ class SmartFilter:
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
             base = min(base, 4)
 
+        # Judas reversal and post-claims modes override loss-streak escalation —
+        # these are specifically identified high-probability set-ups
+        if judas_reversal_mode:
+            base = min(base, 6)  # Cap: even with penalties, don't require more than 6
+
         return min(base, 8)
 
     # ── Sweep quality check ───────────────────────────────────────────────────
@@ -175,8 +194,8 @@ class SmartFilter:
         """
         depth = abs(sweep_price - asia_level)
 
-        if depth < 20.0:
-            return False, f"Sweep too shallow ({depth:.1f} pts) — below 20-pt institutional threshold"
+        if depth < 25.0:
+            return False, f"Sweep too shallow ({depth:.1f} pts) — below 25-pt institutional threshold"
 
         if depth > 80.0:
             return False, f"Sweep too deep ({depth:.1f} pts) — likely news spike, skip"
