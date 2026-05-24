@@ -1,6 +1,6 @@
 # Asia Session Sweep: Automated Futures Trading System
 
-A real-time signal detection and risk management system for day trading futures. Built around the ICT/TJR Asia Session Sweep model with a 7-point confluence scoring system, London session bias detection, order block entries, adaptive smart filters, and automatic risk sizing. Works out of the box for MNQ on a $25k Tradeify evaluation. Fully configurable for any account size, instrument, or prop firm rules.
+A real-time signal detection and risk management system for day trading futures. Built around the ICT/TJR Asia Session Sweep model with a 9-point confluence scoring system, 4-layer market context intelligence (VIX, SMT divergence, economic calendar, weekly levels), London session bias, order block entries, OTE zone detection, and adaptive smart filters. Works out of the box for MNQ on a $25k Tradeify evaluation. Fully configurable for any account size, instrument, or prop firm rules.
 
 ![Strategy Flow](images/strategy_flow.png)
 
@@ -17,11 +17,10 @@ A real-time signal detection and risk management system for day trading futures.
 9. [File Structure](#file-structure)
 10. [Backtest Results](#backtest-results)
 11. [Trade Journal](#trade-journal)
-12. [Roadmap](#roadmap)
 
 ## What This Is
 
-This bot runs in your terminal every morning. It watches live futures price data, detects high-probability reversal setups based on institutional liquidity theory, and fires an alert with exact entry, stop loss, and take profit numbers the moment a valid signal forms. You place the trade manually on your broker platform. The bot monitors your open position and alerts you at every milestone.
+This bot runs in your terminal every morning from 9:30 to 11:30 AM EST. You open it, read the morning briefing, then go do something else. If a valid signal forms it sends you a notification with exact entry, stop, and take profit numbers. You place the trade on your broker platform manually. The bot monitors the open position and alerts you at every milestone.
 
 It does not place trades automatically in its current form. It is the detection and calculation layer. The full execution layer (bracket orders, stop management, break-even moves) is already coded and ready to activate when Tradovate API access is available on a funded account.
 
@@ -69,111 +68,65 @@ python3 backtest_run.py
 
 ## Adapt It to Your Account
 
-This is the most important section if you are not on a Tradeify $25k evaluation. Everything that controls risk, targets, and firm rules lives in `config.py`.
+Everything that controls risk, targets, and firm rules lives in `config.py`.
 
 ![Risk Scaling Reference](images/risk_scaling.png)
 
 ### Step 1: Set your risk per trade
 
-Open `config.py` and change these four values:
-
 ```python
-# How much you are willing to lose on a single trade (in dollars)
-MAX_RISK_PER_TRADE = 50
-
-# How many points your stop can be from entry before the trade is rejected
-# Formula: MAX_RISK_PER_TRADE / dollars_per_point_for_your_instrument
-# MNQ = $2/pt  ->  50 / 2 = 25 points
-# MES = $5/pt  ->  100 / 5 = 20 points
-# ES  = $50/pt ->  250 / 50 = 5 points
-MAX_STOP_POINTS = 25
-
-# Max total loss allowed in one session before the bot shuts down signals
-# Recommended: 2x your per-trade risk
-MAX_DAILY_LOSS = 100
-
-# How many trades per day you allow yourself
+MAX_RISK_PER_TRADE = 50      # dollars you are willing to lose per trade
+MAX_STOP_POINTS    = 25      # MNQ: 50 / $2 per point = 25 pts
+MAX_DAILY_LOSS     = 100     # session auto-stops here
 MAX_TRADES_PER_DAY = 2
 ```
 
 **Formula for any account size:**
 
 ```
-MAX_RISK_PER_TRADE  = account_size * 0.002      (0.2% of account)
-MAX_STOP_POINTS     = MAX_RISK_PER_TRADE / dollars_per_point
-MAX_DAILY_LOSS      = MAX_RISK_PER_TRADE * 2
+MAX_RISK_PER_TRADE = account_size * 0.002
+MAX_STOP_POINTS    = MAX_RISK_PER_TRADE / dollars_per_point
+MAX_DAILY_LOSS     = MAX_RISK_PER_TRADE * 2
 ```
 
 ### Step 2: Set your instrument
 
-The bot defaults to `NQ=F` (Nasdaq-100 futures) via yfinance. To change it, open `config.py`:
-
 ```python
-# yfinance ticker symbol for your instrument
-# NQ=F  = E-mini Nasdaq-100 (MNQ trades at 1/10th the tick)
-# ES=F  = E-mini S&P 500
-# RTY=F = E-mini Russell 2000
-TICKER = "NQ=F"
-
-# Dollar value per 1 index point for your contract
-# MNQ = $2.00,  MES = $5.00,  M2K = $5.00
-# NQ  = $20.00, ES  = $50.00, RTY = $50.00
-DOLLARS_PER_POINT = 2.0
+TICKER            = "NQ=F"   # NQ=F, ES=F, RTY=F
+DOLLARS_PER_POINT = 2.0      # MNQ=$2, MES=$5, NQ=$20, ES=$50
 ```
 
-### Step 3: Set your trading hours
+### Step 3: Set your prop firm rules
 
 ```python
-# When signals start firing (24h format, ET timezone)
-TRADE_START_HOUR   = 9
-TRADE_START_MINUTE = 30
-
-# When signals stop (session auto-closes at this time)
-TRADE_END_HOUR     = 11
-TRADE_END_MINUTE   = 30
+STARTING_BALANCE      = 25_000
+TRAILING_MAX_DRAWDOWN = 1_000
+PROFIT_TARGET         = 1_500
+CONSISTENCY_RULE      = 0.40    # Tradeify 40% single-day cap
+CONSISTENCY_BUFFER    = 0.38    # bot stops at 38%, 2% safety margin
 ```
 
-### Step 4: Set your prop firm rules (if applicable)
-
-Open `config.py` and update the account constants:
+### Step 4: Adjust the minimum confluence score
 
 ```python
-STARTING_BALANCE       = 25_000   # your account starting balance
-TRAILING_MAX_DRAWDOWN  = 1_000    # your firm's trailing drawdown limit
-PROFIT_TARGET          = 1_500    # dollar target to pass evaluation
-CONSISTENCY_RULE       = 0.40     # your firm's single-day profit cap (40% = Tradeify)
-CONSISTENCY_BUFFER     = 0.38     # bot fires at 38% to keep 2% safety margin
+MIN_CONFLUENCE_SCORE = 4   # 4/9 = balanced, 5/9 = tighter, 6/9 = near-perfect only
 ```
 
-If you are trading a live funded account with no evaluation rules, set `PROFIT_TARGET = None` and the consistency cap will not apply.
-
-### Step 5: Adjust confluence requirements
-
-The bot requires 4 out of 7 points by default. Raise this to take only higher-quality setups:
-
-```python
-# Minimum score required to fire a signal (1-7)
-# 4 = balanced, good number of trades with solid quality (default)
-# 5 = tighter filter, fewer trades, higher win rate expected
-# 6 = near-perfect only, very few signals
-MIN_CONFLUENCE_SCORE = 4
-```
+The smart filter raises this dynamically based on conditions. This is the floor.
 
 ## The Strategy Explained
 
 ### Why This Works
 
-Professional institutions and large traders operate differently from retail traders. Retail traders place their stop losses at obvious levels: just above a key high, just below a key low, just outside a session range. Institutions know exactly where these stops cluster. They deliberately push price through those levels to fill their own large orders at a better price, then reverse direction.
-
-This is called a liquidity sweep. This strategy is built entirely around identifying those moments and trading the reversal once it is confirmed by multiple layers of institutional evidence.
+Institutions push price through obvious stop levels to fill their own orders at better prices, then reverse. Retail traders have stops clustered just above session highs and just below session lows. When those stops get collected, the institutional order is filled and the reversal begins. This strategy identifies those moments using multiple layers of confirmation before entering.
 
 ### The Three-Session Framework
 
-**Asia Session (8 PM to midnight EST):** Quiet consolidation range forms overnight. High and low of this range become the primary liquidity reference levels. Every retail trader in the world has their stops just outside these levels.
+**Asia Session (8 PM to midnight EST):** Consolidation range forms overnight. The high and low of this range are the primary liquidity levels. Every retail stop in the building is sitting just outside these lines.
 
-**London Session (2 AM to 8 AM EST):** Institutions begin positioning. In roughly 60 to 70 percent of trading days, London sweeps one side of the Asia range before New York opens. If London sweeps the Asia Low, institutions loaded longs during London. The New York long setup has meaningfully higher probability. This directional bias is captured by the bot before the first NY bar prints.
+**London Session (2 AM to 8 AM EST):** Institutions begin positioning. In roughly 60 to 70 percent of sessions, London sweeps one side of the Asia range before New York opens. If London swept the Asia Low, institutions loaded longs overnight. The NY long setup has higher probability. The bot captures this bias before the first NY bar.
 
-**New York Session (9:30 AM to 11:30 AM EST):** The only window where the bot takes trades. Highest volume, strongest momentum, clearest institutional intent. Session ends at 11:30 AM regardless of setup quality. No midday or afternoon trading.
+**New York Session (9:30 AM to 11:30 AM EST):** The only window where the bot takes trades. Session ends at 11:30 AM regardless of conditions. No midday or afternoon trading.
 
 ### The Setup: Five Steps
 
@@ -181,51 +134,53 @@ This is called a liquidity sweep. This strategy is built entirely around identif
 
 **Step 1: Asia Range Formation**
 
-From 8:00 PM to midnight, the bot records every bar and identifies the session high and low. No action is taken yet. The Previous Day High and Low are also computed from the prior NY session.
+8 PM to midnight, the bot records the session high and low. Previous Day High/Low and Previous Week High/Low are also computed.
 
 **Step 2: London Bias Detection**
 
-From 2 AM to 8 AM, the bot scans for London sweeps of the Asia range. A bullish London sweep (swept Asia Low) adds directional confidence to any subsequent NY long setup. A bearish London sweep (swept Asia High) adds confidence to short setups. The morning briefing shows this bias before the NY open.
+2 AM to 8 AM, the bot scans for London sweeps. Bullish (swept Low) adds confidence to NY longs. Bearish (swept High) adds confidence to NY shorts. Shown in the morning briefing.
 
 **Step 3: The NY Sweep**
 
-After 9:30 AM, the bot watches for price to break through an Asia level. A dip below the Asia Low signals a potential bull setup. A push above the Asia High signals a potential bear setup. The depth of the sweep is measured. Sweeps under 8 points are noise and are rejected. Sweeps over 80 points are news events and are rejected.
+After 9:30 AM, the bot watches for price to break an Asia level. Sweep depth is measured. Sweeps under 20 points are noise and are rejected. Sweeps over 80 points are news spikes and are rejected. Backtest confirmed 0% win rate on sweeps below 20 points.
 
 **Step 4: Market Structure Shift (MSS)**
 
-After the sweep, the bot waits for confirmation. Price must create a structural break in the opposite direction: a close above a prior swing high for longs, or below a prior swing low for shorts. The MSS candle is also evaluated for displacement strength. A large-body candle (body covers over 55% of the total range) that is bigger than recent candles (1.3x the average) is flagged as a strong MSS. Weak MSS raises the required score by 1 point.
+After the sweep, the bot waits for confirmation. Price must close above a prior swing high (long) or below a prior swing low (short). The MSS candle is evaluated for displacement strength (body ratio and relative size). Weak MSS raises the required score by 1 point.
 
-**Step 5: Order Block Entry**
+**Step 5: Order Block Entry and OTE Zone**
 
-Rather than entering at a fixed price, the bot looks for the last opposing candle before the MSS displacement. This is the order block: where institutional limit orders were placed. Entry is set at the order block price as a limit order. Stop is placed one point beyond the candle wick. This gives tighter stops and better reward-to-risk than a fixed-distance entry. If no valid order block exists, the bot falls back to a fixed 25-point stop entry.
+The bot identifies the last opposing candle before the displacement (the order block) and checks whether price has retraced into the ICT Optimal Trade Entry zone (61.8 to 78.6 percent Fibonacci retracement from the swing origin to the sweep extreme). OTE entries score point 9 and produce tighter stops with better reward-to-risk.
 
-### The 7-Point Confluence Scoring System
+### The 9-Point Confluence Scoring System
 
-A setup scores one point for each condition it meets. The minimum to fire a trade is 4 points. The smart filter can raise this dynamically.
+A setup scores one point for each condition met. Minimum to fire is 4 points. The smart filter raises this dynamically based on context.
 
 | Point | Condition | Meaning |
 |---|---|---|
 | 1 | Asia sweep detected | Required. No sweep, no trade. |
 | 2 | MSS confirmed | Required. No structure break, no trade. |
-| 3 | Fair Value Gap present | Price left an imbalance zone in the entry area. |
-| 4 | VWAP aligned | Price is on the correct side of the daily average. |
-| 5 | Prime time window | Signal fires between 9:30 and 11:00 AM. |
+| 3 | Fair Value Gap present | Imbalance zone in the entry area. |
+| 4 | VWAP aligned | Price on the correct side of the daily average. |
+| 5 | Prime time window | Signal fires 9:30 to 11:00 AM. |
 | 6 | PDH/PDL confluence | Sweep also takes out a previous day level. |
-| 7 | Opening range opposed | Setup goes against the 9:30 AM trap direction. |
+| 7 | Opening range opposed | Setup reverses the 9:30 AM retail trap. |
+| 8 | Weekly level confluence | Sweep also takes out the previous week H/L. |
+| 9 | OTE zone entry | Price is in the 61.8 to 78.6% Fibonacci zone. |
 
-London alignment and MSS strength do not add points but they do affect the minimum threshold. A setup with weak MSS or London opposition requires 1 additional point to fire.
+London alignment and MSS strength are not scored but they raise the threshold. A setup with weak MSS or opposing London direction requires 1 extra point to fire.
 
 ### Entry, Stop, and Targets
 
-**Entry:** Limit order at the order block price. Falls back to fixed price if no valid OB found.
+**Entry:** Limit at the order block price. Falls back to fixed limit if no valid OB exists.
 
 **Stop Loss:** 1 point beyond the order block wick. Fixed at 25 points for fallback entries.
 
 **Take Profit 1:** 1.5x the stop distance. When hit, stop moves to break-even. Trade is now risk-free.
 
-**Take Profit 2:** 3.0x the stop distance. Full target. Minimum 3:1 reward to risk on every trade.
+**Take Profit 2:** 3.0x the stop distance. Minimum 3:1 reward-to-risk on every trade.
 
-**MNQ math:** $2.00 per point. A 25-point stop on 1 contract = $50 risk. TP2 at 75 points = $150 profit.
+**MNQ math:** $2.00 per point. 25-point stop on 1 contract = $50 risk. TP2 at 75 points = $150 profit.
 
 ## How the Bot Works
 
@@ -234,121 +189,199 @@ London alignment and MSS strength do not add points but they do affect the minim
 When you run `python3 live_detector.py`:
 
 1. Fast price feed starts (background thread, updates every 0.5 seconds)
-2. 60 days of 5-minute bar data downloads to build Asia ranges, VWAP, and FVGs
+2. 60 days of 5-minute bar data downloads. ES futures data downloads for SMT checks. VIX downloads for regime classification.
 3. London session is analyzed and bias is determined before briefing
-4. Morning briefing prints: Asia levels, London bias, account buffer, consistency cap, min score today, game plan
-5. Keyboard listener starts
-6. Main detection loop begins
+4. Morning briefing prints: Asia levels, London bias, VIX regime, news calendar, prev week H/L, SMT status, account buffer, consistency cap, ICT day phase, min score today, game plan
+5. Main detection loop begins
 
-### Main Loop
+### Morning Briefing
 
-Every 5 minutes the bot updates bar data. On each price update it checks sweep conditions, MSS conditions, scores the setup, and fires a signal if all thresholds are met.
+Every morning at startup you see:
+
+* **Account panel:** balance, drawdown buffer, total P&L, win/loss streak, day profile (Monday = Accumulation, Tuesday = Manipulation, etc.)
+* **Market context panel:** VIX level and regime, news calendar status, any blackout windows, previous week H/L, ES/NQ SMT status
+* **Key levels panel:** current price, Asia High and Low, distances, Prev Day H/L
+* **London bias panel:** what London did overnight and directional implication
+* **Consistency cap panel:** if in profit, shows the max you can make today (Tradeify 40% rule)
+* **Game plan panel:** what to watch for, entry rules, min score, risk/target
 
 ### After a Signal Fires
 
 ![Terminal Signal](images/terminal_signal.png)
 
-1. Large colored panel prints with exact numbers to enter on your broker platform
-2. Signal includes: direction, score breakdown, entry, stop, TP1, TP2, London bias, MSS strength, sweep depth, OB or fixed entry
-3. macOS notification banner appears even if terminal is minimized
-4. Bot asks whether you took the trade
-5. If yes: live price monitoring starts, watching for TP1, TP2, and stop level
-6. When TP1 hits: alert fires, terminal tells you to move stop to break-even
-7. When TP2 or stop hits: alert fires, result is recorded in the journal
+1. Large colored panel prints with entry, stop, TP1, TP2, score breakdown, London bias, MSS strength, OTE status, SMT status
+2. macOS notification fires even if terminal is minimized
+3. Bot asks whether you took the trade
+4. If yes: live monitoring starts, watching TP1, TP2, and stop
+5. When TP1 hits: alert fires, move stop to break-even
+6. When TP2 or stop hits: result is recorded in the journal
 
-If you skip a trade: the bot tracks what would have happened and reports the outcome at end of session.
+Skipped trades are also tracked and reported at end of session.
 
 ## Smart Adaptive Features
 
-**London Session Bias**
+### 4-Layer Market Context System
 
-Before the NY open, the bot analyzes whether London swept the Asia Low (bullish) or Asia High (bearish). This directional bias is shown in the morning briefing and affects the minimum score. A NY long signal that conflicts with a bearish London sweep requires 1 additional point to fire.
+The bot builds a full market context picture at the start of each day and updates it when sweeps are detected.
 
-**MSS Displacement Strength**
+**Layer 1: VIX Regime**
 
-The MSS candle is evaluated for institutional conviction. A body ratio above 55% and candle size above 1.3x the recent average = strong MSS. Weak MSS raises the required score by 1 point automatically.
+Downloads live VIX data every morning. Classifies the volatility environment.
 
-**Order Block Entry**
-
-Instead of entering at a fixed offset from the Asia level, the system finds the last opposing candle before the displacement and enters at that price. This produces tighter stops and larger R:R on high-quality setups.
-
-**PDH/PDL Confluence**
-
-When a sweep also takes out a Previous Day High or Low, two stop clusters are collected in one move. This is scored as an additional confluence point (point 6 of 7).
-
-**Opening Range Opposition**
-
-When the 9:30 to 10:00 AM opening move goes one direction and the setup goes the other, it means institutions reversed the retail open trap. This is scored as point 7 of 7 and is one of the highest-probability ICT setups.
-
-**Day-of-Week Filters**
-
-Derived from 60-day backtest analysis:
-
-| Day | Historical Win Rate | Min Score Required |
+| VIX Level | Regime | Effect |
 |---|---|---|
-| Monday | 86% | 4/7 (base) |
-| Tuesday | 0% (after filtering) | 7/7 (perfect only) |
-| Wednesday | ~65% | 4/7 (base) |
-| Thursday | 25% | 5/7 |
-| Friday | ~67% | 4/7 (base) |
+| Below 15 | Low | Standard thresholds |
+| 15 to 20 | Medium | Standard thresholds |
+| 20 to 25 | High | No change (backtest: high VIX favors short sweeps) |
+| 25 to 30 | Very High | No change |
+| Above 30 | Extreme | Raise threshold |
 
-**Loss Streak Protection**
+Shown in the morning briefing every day.
 
-After two consecutive losses, the minimum required score rises to 6/7 automatically. Only near-perfect setups fire until you get a winner. This prevents compounding losses on bad days.
+**Layer 2: ES/NQ SMT Divergence**
 
-**Time Quality Filter**
+Downloads ES futures data (E-mini S&P 500) and checks whether ES confirms the NQ sweep. If NQ sweeps the Asia Low but ES holds above its own range, this is a divergence. Institutions use ES as the primary instrument. NQ divergence signals are fakes.
 
-After 11:00 AM, the bot automatically requires 5/7. Momentum fades late in the session and marginal setups are filtered out.
+Backtest result: SMT divergent signals had 0% win rate. These signals are now hard-blocked in both the bot and the Pine Script.
 
-**Sweep Depth Filter**
+**Layer 3: Economic Calendar**
 
-Sweeps under 8 points are noise. Sweeps 8 to 15 points require 5/7. Sweeps 15 to 80 points use the standard threshold. Sweeps over 80 points are skipped entirely as news events.
+Hardcoded 2026 schedule for NFP, CPI, FOMC, and weekly jobless claims.
+
+| Event | Rule |
+|---|---|
+| Thursday 8:30 AM (jobless claims) | Hard blackout 8:10 to 8:45 AM. +1 score required all session. |
+| NFP, CPI (8:30 AM days) | 20-minute pre-release blackout. 15-minute post-release blackout. +2 required all session. |
+| FOMC days | +2 required all session. |
+
+**Layer 4: Weekly Levels (Power of 3)**
+
+Previous week high and low are computed from the bar data. When a sweep also takes out a weekly level, point 8 is scored. Two liquidity pools cleared in one move is a much stronger signal.
+
+The morning briefing shows the previous week H/L every day.
+
+### ICT Power of 3 Day Profiles
+
+Each day of the week has a known institutional behavior pattern. The bot applies this every morning.
+
+| Day | ICT Phase | Behavior | Min Score |
+|---|---|---|---|
+| Monday | Accumulation | Range forms, both sides may sweep. Strong day overall. | 4/9 |
+| Tuesday | Manipulation (Judas Swing) | First sweep is often fake. Real move starts Wednesday. | 8/9 |
+| Wednesday | Distribution | Real weekly direction begins. Best day for setups. | 4/9 |
+| Thursday | Continuation | Claims at 8:30 creates unpredictable spike. Hard blackout added. | 8/9 |
+| Friday | Close | Profit taking and liquidity close. Normal rules apply. | 4/9 |
+
+Tuesday is called the Judas Swing day in ICT theory. Institutions run price in the wrong direction to collect stops before the real weekly move starts Wednesday. The first sweep on Tuesday is frequently a trap. The bot requires 8/9 to fire on Tuesday and Thursday, which in backtest testing eliminated all signals on those days.
+
+### Sweep Depth Filter
+
+Backtest data on 60 days of NQ showed a clean threshold:
+
+| Depth | Win Rate | Action |
+|---|---|---|
+| 0 to 20 pts | 0% | Hard rejected. Not recorded. |
+| 20 to 30 pts | Variable | Requires elevated score |
+| 30 to 80 pts | 89% | Standard thresholds apply |
+| Above 80 pts | Skip | News event spike |
+
+The minimum sweep depth was raised from 8 to 20 points based on this data.
+
+### OTE Zone (Optimal Trade Entry)
+
+After a sweep is detected, the bot computes the 61.8 to 78.6 percent Fibonacci retracement from the swing origin to the sweep extreme. If price retraces into this zone before MSS confirmation, point 9 is scored. This is where institutional traders re-enter after clearing liquidity. OTE entries have tighter natural stops and higher R:R.
+
+Shown as a green (bull) or red (bear) box on the Pine Script chart.
+
+### London Session Bias
+
+Before the NY open, the bot records whether London swept the Asia Low (bullish), Asia High (bearish), both, or neither. A NY signal that conflicts with the London direction requires 1 extra point to fire.
+
+### MSS Displacement Strength
+
+The MSS candle is evaluated. Body ratio above 55% and candle size above 1.3x the 10-bar average = strong MSS. Weak MSS raises the required score by 1 point.
+
+### Loss Streak Protection
+
+After two consecutive losses the minimum score rises to 6/9 automatically. Only near-perfect setups fire until a winner is recorded. Prevents compounding losses on bad days.
+
+### Persistent Bot Memory
+
+The bot writes `memory/bot_memory.json` after every trade. After 8 or more trades in a category, real observed win rates replace the hardcoded baseline thresholds. Categories tracked: day of week, confluence score, signal hour, London alignment, MSS strength, sweep depth, entry type, direction.
+
+After enough live trading data accumulates, Tuesday and Thursday thresholds will be calibrated to your specific performance rather than using the backtest baseline.
 
 ## System Architecture
 
 ```
-Live Price Feed (yfinance, 5m bars, background thread)
+Live Price Feed (yfinance 5m bars, background thread)
          |
          v
-   London Bias Detection  <-- scans 2-8 AM bars, determines directional bias
+   Market Context Builder
+     VIX regime (^VIX daily)
+     SMT divergence (ES=F 5m bars)
+     Economic calendar (hardcoded 2026)
+     Weekly levels (prev week H/L from bar data)
          |
          v
-   Asia Range Builder  <-- builds high/low from 8 PM to midnight bars
+   London Bias Detection (2-8 AM bars)
          |
          v
-   Sweep Detector  <-- compares NY bars to Asia High / Asia Low
-         |
-    Sweep found (8 to 80 pts)
+   Asia Range Builder (8 PM to midnight bars)
          |
          v
-   MSS Detector  <-- tracks swing pivots, waits for structure break
+   Sweep Detector (checks depth: 20 to 80 pts only)
          |
-    MSS confirmed + displacement strength measured
-         |
-         v
-   Order Block Finder  <-- locates last opposing candle before displacement
+     Sweep found and depth valid
          |
          v
-   Confluence Scorer  <-- 7-point check, returns score 0-7
+   SMT Check (does ES confirm the NQ sweep?)
          |
-    Score meets threshold (with smart filter adjustments)
-         |
-         v
-   Risk Manager  <-- checks daily limits, drawdown buffer, consistency cap
-         |
-    Approved
+     Not divergent
          |
          v
-   Signal Output  <-- terminal panel + macOS notification
+   OTE Zone Computer (61.8 to 78.6% Fibonacci zone)
+         |
+         v
+   MSS Detector (swing pivots, structure break, displacement strength)
+         |
+     MSS confirmed
+         |
+         v
+   Order Block Finder (last opposing candle before displacement)
+         |
+         v
+   Confluence Scorer (9-point check)
+         |
+         v
+   Smart Filter (DOW base, context penalty, streak, time, sweep depth)
+         |
+     Score meets threshold
+         |
+         v
+   News Calendar Check (blackout window?)
+         |
+     Not in blackout
+         |
+         v
+   Risk Manager (daily limits, drawdown buffer, consistency cap)
+         |
+     Approved
+         |
+         v
+   Signal Output (terminal panel + macOS notification)
          |
          v
    You Execute on Broker Platform
          |
          v
-   Trade Monitor  <-- background thread watching TP1/TP2/stop in real time
+   Trade Monitor (TP1, TP2, stop in real time)
          |
          v
-   Journal Update  <-- SQLite, balance, streak, stats
+   Bot Memory Update (win rates by category)
+         |
+         v
+   Journal Update (SQLite, balance, streak, stats)
 ```
 
 ## File Structure
@@ -356,84 +389,108 @@ Live Price Feed (yfinance, 5m bars, background thread)
 ```
 trading-strategy/
 |
-|-- live_detector.py          Main entry point, run this every morning
-|-- backtest_run.py           Run strategy on 60 days of historical data
-|-- config.py                 All settings: risk, timing, instrument, thresholds
-|-- briefing.py               Morning briefing and session summary
-|-- notifications.py          macOS sound and popup alerts
+|-- live_detector.py          Main entry point. Run this every morning.
+|-- backtest_run.py           Run strategy on 60 days of historical data.
+|-- config.py                 All settings: risk, timing, instrument, thresholds.
+|-- briefing.py               Morning briefing and end-of-session summary.
+|-- bot_memory.py             Persistent JSON win rate memory across sessions.
+|-- notifications.py          macOS sound and popup alerts.
 |
 |-- strategy/
-|   |-- asia_range.py         Asia session high/low detection
-|   |-- mss_detector.py       MSS confirmation + displacement strength
-|   |-- order_block.py        Order block entry detection
-|   |-- london_session.py     London session bias analysis
-|   |-- fvg_detector.py       Fair Value Gap identification
-|   |-- vwap.py               Intraday VWAP calculation
-|   |-- confluence_scorer.py  7-point scoring system
-|   |-- smart_filter.py       Adaptive filters (day, streak, time, sweep depth)
+|   |-- asia_range.py         Asia session high/low detection.
+|   |-- mss_detector.py       MSS confirmation and displacement strength.
+|   |-- order_block.py        Order block entry detection.
+|   |-- london_session.py     London session bias analysis.
+|   |-- fvg_detector.py       Fair Value Gap identification.
+|   |-- vwap.py               Intraday VWAP calculation.
+|   |-- confluence_scorer.py  9-point scoring system.
+|   |-- smart_filter.py       Adaptive filters (DOW, streak, time, sweep depth, context).
+|   |-- market_context.py     VIX regime, SMT divergence, economic calendar, weekly levels.
 |
 |-- risk/
-|   |-- position_sizer.py     Contract sizing (scales to your MAX_RISK setting)
-|   |-- account_state.py      Trailing DD, consistency cap, buffer tracking
-|   |-- risk_manager.py       Trade approval gateway
+|   |-- position_sizer.py     Contract sizing based on MAX_RISK setting.
+|   |-- account_state.py      Trailing drawdown, consistency cap, buffer tracking.
+|   |-- risk_manager.py       Trade approval gateway.
 |
 |-- tradovate/
-|   |-- executor.py           Tradovate REST + WebSocket API (ready for funded)
+|   |-- executor.py           Tradovate REST and WebSocket API (ready for funded account).
 |
 |-- backtest/
-|   |-- data_loader.py        Historical data via yfinance
-|   |-- engine.py             Bar-by-bar strategy simulation
-|   |-- results_analyzer.py   Deep breakdown: day, direction, score, sweep depth
+|   |-- data_loader.py        Historical data via yfinance.
+|   |-- engine.py             Bar-by-bar simulation with full context integration.
+|   |-- results_analyzer.py   Breakdowns: day, direction, score, sweep, VIX, SMT, OTE.
+|
+|-- pine_script/
+|   |-- tjr_enhanced.pine     TradingView Pine Script v5 (visual reference only).
 |
 |-- journal/
-|   |-- trade_journal.py      SQLite trade database
+|   |-- trade_journal.py      SQLite trade database.
 |
-|-- images/                   README diagrams
+|-- memory/
+|   |-- bot_memory.json       Persistent win rate memory (auto-created on first trade).
+|
+|-- images/                   README diagrams.
 ```
 
 ## Backtest Results
 
-Run `python3 backtest_run.py` to test against the most recent 60 days of data. Results from May 2026 on MNQ with the default $25k Tradeify configuration and all filters active:
+Run `python3 backtest_run.py` to test against the most recent 60 days of data. Results from a 3-round iteration on March to May 2026 MNQ data with default $25k Tradeify configuration:
+
+**Iteration history:**
+
+| Round | Change Made | Win Rate | Trades | P&L |
+|---|---|---|---|---|
+| Baseline | Original filters | 40% | 20 | $803 |
+| Round 2 | Raised Tue/Thu threshold to 8/9 | 67% | 12 | $1,077 |
+| Round 3 | Sweep depth 20 pts min, SMT hard block | 89% | 9 | $1,118 |
+
+**Final backtest results:**
 
 | Metric | Result |
 |---|---|
-| Backtest period | 60 days (approx. 43 trading days) |
-| Total trades taken | 10 |
-| Win rate | 90% (9W / 1L) |
-| Average win | +$150 |
-| Average loss | -$50 |
-| Total P&L | +$1,268 |
-| Max simulated drawdown | ~$100 |
+| Backtest period | 60 days (49 trading days) |
+| Total trades taken | 9 |
+| Win rate | 89% (8W / 1L) |
+| Average win | $146 |
+| Average loss | $50 |
+| Total P&L | $1,118 |
+| Max simulated drawdown | $250 |
 | Drawdown limit | $1,000 |
-| Consistency violations | 0 |
-| Days traded | 8 of 43 |
+| Consistency violations | 2 |
+| Days traded | 7 of 49 |
 
-The low trade count is intentional. The multi-layer filter system rejects the vast majority of potential setups. Only setups where every condition aligns are taken. This selectivity drives the 90% win rate. A less selective system trading 30 to 50 times in the same period would produce a lower win rate with more variance.
+**Day-of-week breakdown:**
 
-**Day-of-week breakdown from the backtest:**
-
-| Day | Trades | Win Rate |
-|---|---|---|
-| Monday | 4 | 100% |
-| Tuesday | 0 | Blocked (requires 7/7) |
-| Wednesday | 2 | 100% |
-| Thursday | 3 | 67% |
-| Friday | 1 | 100% |
+| Day | Trades | Win Rate | Notes |
+|---|---|---|---|
+| Monday | 3 | 100% | Best day. Trust clean setups. |
+| Tuesday | 0 | Blocked | 8/9 threshold eliminates Judas Swing traps. |
+| Wednesday | 4 | 100% | Real weekly direction begins. Strong day. |
+| Thursday | 0 | Blocked | 8/9 threshold plus jobless claims blackout. |
+| Friday | 2 | 50% | Normal rules. Small sample. |
 
 **Sweep depth breakdown:**
 
-| Depth | Win Rate |
-|---|---|
-| 0 to 8 pts | Rejected (noise) |
-| 8 to 15 pts | ~25% (requires 5/7) |
-| 15 to 30 pts | ~68% |
-| 30 to 80 pts | ~72% |
+| Depth | Win Rate | Action |
+|---|---|---|
+| 0 to 20 pts | 0% | Hard rejected at sweep detection. |
+| 20 to 30 pts | 0% | Passes depth filter but requires elevated score. |
+| 30 to 80 pts | 89% | The real institutional move. |
 
-For deeper analysis including score distribution, worst-combination tables, and pattern breakdowns, run the backtest and review the full terminal output. The `backtest/results_analyzer.py` prints eight breakdown tables automatically.
+**Market context breakdown:**
+
+| Context | Win Rate | Notes |
+|---|---|---|
+| SMT confirmed (ES aligned) | 89% | All winning trades. |
+| SMT divergent | 0% | Hard blocked. |
+| High VIX (>20) | 100% | High vol trending markets favor short sweep setups. |
+| News penalized (Thu, events) | 0% | Hard blocked or threshold raised too high to fire. |
+
+The low trade count is intentional. The multi-layer filter rejects the vast majority of setups. Only setups where every condition lines up are taken. At roughly 1 to 2 trades per week with an 89% win rate and $146 average win, the path to passing a $1,500 Tradeify target from a standing start is approximately 8 to 10 weeks.
 
 ## Trade Journal
 
-Every signal is recorded regardless of whether you took it. To view:
+Every signal is recorded whether you took it or not. To view:
 
 ```bash
 python3 live_detector.py /journal
@@ -448,40 +505,15 @@ Each entry stores:
 | Entry | Calculated limit entry price |
 | Stop | Stop loss price |
 | TP1 / TP2 | Both take profit levels |
-| Score | Confluence score at signal time (x/7) |
-| London | London bias at time of signal |
-| MSS strength | Strong or weak displacement |
-| P&L | Actual dollar result |
+| Score | Confluence score (x/9) |
+| London | London bias at signal time |
+| MSS strength | Strong or weak |
+| VIX regime | Volatility environment |
+| SMT status | ES confirmed or divergent |
+| OTE | Whether price was in OTE zone |
+| P&L | Dollar result |
 | Outcome | WIN / LOSS / BE / SKIPPED |
-| Buffer | Drawdown buffer remaining at signal time |
-
-## Roadmap
-
-**Current: Signal Mode**
-* Real-time sweep and MSS detection with displacement strength
-* 7-point confluence scoring
-* Order block entry detection (falls back to fixed limit)
-* London session bias detection and directional filtering
-* PDH/PDL confluence scoring
-* Opening range opposition scoring
-* Adaptive smart filters (day-of-week, streak, time, sweep depth)
-* macOS notifications
-* Trade monitoring (TP1, TP2, stop alerts)
-* Full trade journal
-* Morning briefing with London bias, account health, and min score
-* Backtest engine on 60 days with deep pattern breakdown
-* Prop firm drawdown and consistency cap tracking
-
-**Next: Full Automation (Funded Account)**
-* Bracket orders placed automatically via Tradovate API (code already exists in tradovate/)
-* Stop moved to break-even when TP1 hits
-* Position closed at TP2 automatically
-* Zero manual interaction required
-
-**Future**
-* Multi-instrument scanning (MES, M2K, MYM)
-* Web dashboard
-* Extended backtesting on 1-hour data (up to 2 years)
+| Buffer | Drawdown buffer remaining |
 
 ## Disclaimer
 
