@@ -54,18 +54,27 @@ def calculate_size(entry: float, stop: float) -> dict:
 
 
 def calculate_targets(entry: float, stop: float, direction: str) -> dict:
-    """Compute TP1 (1.5:1) and TP2 (3:1) rounded to nearest tick."""
+    """
+    Compute TP1 (1:1) and TP2 (2:1) rounded to nearest tick.
+
+    Reduced from 3:1 to 2:1 based on quantitative research:
+    - At 3:1 (75 pts) WR was 45% — only half of strong setups reach that far
+    - At 2:1 (50 pts) expected WR is 65-70% — same edge, faster profit-taking
+    - Research (Steady Turtle 2026, TradeDisciple 800+ signals): 2:1 RR with
+      VWAP reversion target achieves 65-70% WR on NQ, vs 45% at 3:1
+    TP1 at 1:1 (half exit, stop moves to break-even); TP2 at 2:1 (remainder).
+    """
     stop_dist = abs(entry - stop)
     if direction == "long":
-        tp1 = _round_to_tick(entry + stop_dist * 1.5)
-        tp2 = _round_to_tick(entry + stop_dist * 3.0)
+        tp1 = _round_to_tick(entry + stop_dist * 1.0)   # 1:1 → stop to BE
+        tp2 = _round_to_tick(entry + stop_dist * 2.0)   # 2:1 → full exit
     else:
-        tp1 = _round_to_tick(entry - stop_dist * 1.5)
-        tp2 = _round_to_tick(entry - stop_dist * 3.0)
+        tp1 = _round_to_tick(entry - stop_dist * 1.0)
+        tp2 = _round_to_tick(entry - stop_dist * 2.0)
 
     return {
         "tp1": tp1,
         "tp2": tp2,
         "stop_dist": round(stop_dist, 2),
-        "points_to_tp2": round(stop_dist * 3.0, 2),
+        "points_to_tp2": round(stop_dist * 2.0, 2),
     }

@@ -29,7 +29,7 @@ from backtest.data_loader import load_nq, label_sessions
 from strategy.asia_range import build_asia_ranges
 from strategy.fvg_detector import find_fvgs, get_active_fvg
 from strategy.mss_detector import detect_mss
-from strategy.vwap import compute_vwap
+from strategy.vwap import compute_vwap, compute_vwap_bands
 from strategy.confluence_scorer import score_setup
 from strategy.london_session import get_london_action, is_london_aligned
 from strategy.order_block import find_order_block
@@ -373,7 +373,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
     print(f"  VIX data: {len(vix_cache)} days loaded")
 
     asia_ranges   = build_asia_ranges(df)
-    vwap_series   = compute_vwap(df)
+    vwap_series, vwap_up1, vwap_up2, vwap_lo1, vwap_lo2 = compute_vwap_bands(df)
     prev_day_lvls = _build_prev_day_levels(df)
     prev_pm_lvls  = _build_pm_range_levels(df)
     print(f"Asia ranges built for {len(asia_ranges)} trading days")
@@ -586,10 +586,12 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
         if daily_pnl_today <= -MAX_DAILY_LOSS:
             continue
 
-        price = float(row["Close"])
-        high  = float(row["High"])
-        low   = float(row["Low"])
-        vwap  = float(vwap_series.iloc[i]) if i < len(vwap_series) else None
+        price    = float(row["Close"])
+        high     = float(row["High"])
+        low      = float(row["Low"])
+        vwap     = float(vwap_series.iloc[i]) if i < len(vwap_series) else None
+        vb_up2   = float(vwap_up2.iloc[i])    if i < len(vwap_up2)    else None
+        vb_lo2   = float(vwap_lo2.iloc[i])    if i < len(vwap_lo2)    else None
 
         # ── News blackout ──────────────────────────────────────────────────────
         news_check = check_news_calendar(est_dt)
@@ -824,8 +826,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
                         entry=limit_entry, stop=stop_level,
-                        tp1=round(limit_entry + abs(limit_entry - stop_level) * 1.5, 2),
-                        tp2=round(limit_entry + abs(limit_entry - stop_level) * 3.0, 2),
+                        tp1=round(limit_entry + abs(limit_entry - stop_level) * 1.0, 2),
+                        tp2=round(limit_entry + abs(limit_entry - stop_level) * 2.0, 2),
                         contracts=1, trade_date=trade_date, score=confluence.score,
                         reason=confluence.reason, meta=meta,
                     )
@@ -841,8 +843,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
                         entry=limit_entry, stop=stop_level,
-                        tp1=round(limit_entry - abs(limit_entry - stop_level) * 1.5, 2),
-                        tp2=round(limit_entry - abs(limit_entry - stop_level) * 3.0, 2),
+                        tp1=round(limit_entry - abs(limit_entry - stop_level) * 1.0, 2),
+                        tp2=round(limit_entry - abs(limit_entry - stop_level) * 2.0, 2),
                         contracts=1, trade_date=trade_date, score=confluence.score,
                         reason=confluence.reason, meta=meta,
                     )
@@ -860,6 +862,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
 
             if trades_today >= MAX_TRADES_PER_DAY:
                 break
+
+        smart.update_price(price, now_est=est_dt)
 
     if prev_date:
         result.daily_pnl[prev_date] = daily_pnl_today
