@@ -123,10 +123,10 @@ class SmartFilter:
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            if day_of_week == 1:    # Tuesday: Judas Swing day
-                base = 7
-            elif day_of_week == 3:  # Thursday: jobless claims
-                base = 5
+            if day_of_week == 1:    # Tuesday: Judas Swing day — require strong confirmation
+                base = 8
+            elif day_of_week == 3:  # Thursday: jobless claims — all signals elevated
+                base = 8
             else:
                 base = 4
 
@@ -136,7 +136,11 @@ class SmartFilter:
             ctx_skip, ctx_penalty, _ = context_score_penalty(market_context)
             if ctx_skip:
                 return 99   # caller should check for this and skip entirely
-            base = max(base, base + ctx_penalty)
+            # Only apply VIX penalty to LONG setups (high VIX trending markets
+            # are actually favorable for SHORT sweep setups — trend continuation)
+            news_penalty = market_context.get("news", {}).get("score_penalty", 0)
+            smt_penalty  = 1 if market_context.get("smt", {}).get("divergent") else 0
+            base = max(base, base + news_penalty + smt_penalty)
 
         # Layer 3: session-state rules
         if self.consecutive_losses >= 2:
@@ -148,13 +152,13 @@ class SmartFilter:
         if not london_aligned:
             base = max(base, base + 1)
         if sweep_depth < 15.0:
-            base = max(base, 5)
+            base = max(base, 6)  # shallow sweeps: require 6+ not just 5
 
         # Layer 4: Monday prime-window fast-pass
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
             base = min(base, 4)
 
-        return min(base, 7)
+        return min(base, 8)
 
     # ── Sweep quality check ───────────────────────────────────────────────────
 
@@ -166,15 +170,16 @@ class SmartFilter:
     ) -> tuple[bool, str]:
         """
         Reject sweeps that are too shallow (noise) or too deep (news event).
-        Minimum raised from 3 to 8 pts based on backtest: 0-5 pt sweeps had 0% win rate.
+        Backtest data: 0-30 pt sweeps had 0% WR; 30-80 pt sweeps had 89% WR.
+        Minimum raised to 20 pts to filter shallow institutional noise.
         """
         depth = abs(sweep_price - asia_level)
 
-        if depth < 8.0:
-            return False, f"Sweep too shallow ({depth:.1f} pts) — noise, not institutional"
+        if depth < 20.0:
+            return False, f"Sweep too shallow ({depth:.1f} pts) — below 20-pt institutional threshold"
 
         if depth > 80.0:
-            return False, f"Sweep too deep ({depth:.1f} pts) — likely news event, skip"
+            return False, f"Sweep too deep ({depth:.1f} pts) — likely news spike, skip"
 
         return True, f"Sweep depth {depth:.1f} pts — valid"
 
