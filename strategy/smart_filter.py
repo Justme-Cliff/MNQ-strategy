@@ -130,24 +130,21 @@ class SmartFilter:
         """
         mins = bar_hour * 60 + bar_minute
 
-        # Layer 1: data-driven DOW base  (all values = old system + 3 for 12-pt scoring)
+        # Layer 1: DOW base — balanced for volume AND quality
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            if day_of_week == 1:    # Tuesday: Judas Swing — 0% WR on first sweep
-                if judas_reversal_mode:
-                    base = 8  # Confirmed Judas reversal — second sweep, opposite direction
-                else:
-                    base = 11  # First sweep: strict (0% WR confirmed in 60-day test)
+            if day_of_week == 1:    # Tuesday: 0% WR historically — block
+                base = 11  # unreachable in 12-pt system → no Tuesday trades
             elif day_of_week == 3:  # Thursday: jobless claims
                 if mins >= 10 * 60:
-                    base = 6  # After 10 AM: claims settled, moderate caution
+                    base = 4  # post-claims: open
                 else:
-                    base = 9  # Pre-10 AM: elevated caution around claims window
-            elif day_of_week == 4:  # Friday: profit-taking/position-closing
-                base = 9  # Requires near-perfect setup — only score-9+ Friday trades fire
+                    base = 5  # pre-claims: slight caution
+            elif day_of_week == 4:  # Friday
+                base = 4
             else:
-                base = 5   # Mon / Wed: best days
+                base = 4   # Mon / Wed: best days
 
         # Level-type boost: secondary reference levels require more confluence
         base += threshold_boost
@@ -162,24 +159,18 @@ class SmartFilter:
 
         # Layer 3: session-state rules
         if self.consecutive_losses >= 2:
-            base = max(base, 8)   # loss streak → require strong setup
-        if mins >= 11 * 60:
-            base = max(base, 6)   # late session → tighter gate
+            base = max(base, 6)   # loss streak → slightly stricter
         if not mss_strong:
             base = max(base, base + 1)
         if not london_aligned:
             base = max(base, base + 1)
-        if sweep_depth < 15.0:
-            base = max(base, 8)   # shallow sweeps: filter noise
 
         # Layer 4: Monday prime-window fast-pass
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:
             base = min(base, 5)
 
-        # Judas reversal and post-claims modes override loss-streak escalation —
-        # these are specifically identified high-probability set-ups
         if judas_reversal_mode:
-            base = min(base, 9)   # Cap: even with penalties, don't require more than 9
+            base = min(base, 8)
 
         return min(base, 11)
 
@@ -198,10 +189,10 @@ class SmartFilter:
         """
         depth = abs(sweep_price - asia_level)
 
-        if depth < 25.0:
-            return False, f"Sweep too shallow ({depth:.1f} pts) — below 25-pt institutional threshold"
+        if depth < 8.0:
+            return False, f"Sweep too shallow ({depth:.1f} pts) — pure noise"
 
-        if depth > 80.0:
+        if depth > 200.0:
             return False, f"Sweep too deep ({depth:.1f} pts) — likely news spike, skip"
 
         return True, f"Sweep depth {depth:.1f} pts — valid"

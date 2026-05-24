@@ -113,7 +113,7 @@ def _print_report(trades, stats, daily):
     for col in ["Date", "Day", "Mode", "Level", "Dir", "Score", "VIX", "SMT", "OTE", "Hour", "Sweep", "P&L", "Outcome"]:
         table.add_column(col)
     mode_labels  = {"normal": "[dim]norm[/dim]", "judas_reversal": "[cyan]judas[/cyan]", "post_claims": "[yellow]thurs[/yellow]"}
-    level_labels = {"asia": "[blue]asia[/blue]", "pdh_pdl": "[magenta]PDx[/magenta]", "pm_range": "[cyan]PM[/cyan]", "am_range": "[yellow]AMr[/yellow]"}
+    level_labels = {"asia": "[blue]asia[/blue]", "pdh_pdl": "[magenta]PDx[/magenta]", "pm_range": "[cyan]PM[/cyan]", "am_range": "[yellow]AMr[/yellow]", "silver_bullet": "[bold cyan]SB[/bold cyan]"}
     for t in trades[-20:]:
         pnl_c   = "green" if t.pnl > 0 else "red"
         vix_c   = "green" if t.vix_regime in ("low", "medium", "unknown") else ("yellow" if t.vix_regime == "high" else "red")
@@ -320,10 +320,11 @@ def _print_context_breakdown(trades: list[BacktestTrade]):
     lvl_tbl.add_column("Avg P&L")
     lvl_tbl.add_column("Trades")
     for lvl, label in [
-        ("asia",     "Asia Range H/L"),
-        ("pdh_pdl",  "PDH / PDL"),
-        ("pm_range", "Prev PM Session Range"),
-        ("am_range", "PM Session (morning range sweep)"),
+        ("asia",          "Asia Range H/L"),
+        ("pdh_pdl",       "PDH / PDL"),
+        ("pm_range",      "Prev PM Session Range"),
+        ("am_range",      "PM Session (morning range sweep)"),
+        ("silver_bullet", "Silver Bullet (opening range sweep)"),
     ]:
         g = [t for t in trades if getattr(t, "level_type", "asia") == lvl]
         lvl_tbl.add_row(label, _wr(g), _avg_pnl(g), str(len(g)))

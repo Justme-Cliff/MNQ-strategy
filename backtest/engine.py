@@ -279,12 +279,12 @@ def _build_day_sweep_states(
 
     # ── Asia range sweeps ──────────────────────────────────────────────────────
     if ar:
-        al = SweepState("long",  "asia", threshold_boost=0, min_depth=25.0, max_depth=asia_max_d,
-                        starts_at_mins=starts_ny, expires_at_mins=12 * 60)
+        al = SweepState("long",  "asia", threshold_boost=0, min_depth=8.0, max_depth=asia_max_d,
+                        starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
         al.ref_level = asia_low
 
-        as_ = SweepState("short", "asia", threshold_boost=0, min_depth=25.0, max_depth=asia_max_d,
-                         starts_at_mins=starts_ny, expires_at_mins=12 * 60)
+        as_ = SweepState("short", "asia", threshold_boost=0, min_depth=8.0, max_depth=asia_max_d,
+                         starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
         as_.ref_level = asia_high
 
         # London carry-over: London already took liquidity — NY just needs MSS
@@ -317,15 +317,14 @@ def _build_day_sweep_states(
         add_pdh = asia_high is None or abs(pdh_val - asia_high) >= 10.0
 
         if add_pdl:
-            # boost=4 → 12-pt min = 7+4=11 (effectively blocked — 0% WR in bear trend)
-            pdl_st = SweepState("long",  "pdh_pdl", threshold_boost=4, min_depth=25.0, max_depth=sec_max_d,
-                                starts_at_mins=starts_ny, expires_at_mins=11 * 60 + 30)
+            pdl_st = SweepState("long",  "pdh_pdl", threshold_boost=1, min_depth=8.0, max_depth=sec_max_d,
+                                starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
             pdl_st.ref_level = pdl_val
             states.append(pdl_st)
 
         if add_pdh:
-            pdh_st = SweepState("short", "pdh_pdl", threshold_boost=4, min_depth=25.0, max_depth=sec_max_d,
-                                starts_at_mins=starts_ny, expires_at_mins=11 * 60 + 30)
+            pdh_st = SweepState("short", "pdh_pdl", threshold_boost=1, min_depth=8.0, max_depth=sec_max_d,
+                                starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
             pdh_st.ref_level = pdh_val
             states.append(pdh_st)
 
@@ -341,17 +340,16 @@ def _build_day_sweep_states(
         add_pm_long  = all(abs(pm_low  - r) >= 10.0 for r in ref_lows)
         add_pm_short = all(abs(pm_high - r) >= 10.0 for r in ref_highs)
 
-        pm_max_d = 9999.0 if is_hourly else 100.0
-        # boost=2 → 12-pt min = 7+2=9 (good PM range setups will have enough confluence)
+        pm_max_d = 9999.0 if is_hourly else 200.0
         if add_pm_long:
-            pm_l = SweepState("long",  "pm_range", threshold_boost=2, min_depth=20.0, max_depth=pm_max_d,
-                              starts_at_mins=starts_ny, expires_at_mins=11 * 60 + 30)
+            pm_l = SweepState("long",  "pm_range", threshold_boost=0, min_depth=8.0, max_depth=pm_max_d,
+                              starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
             pm_l.ref_level = pm_low
             states.append(pm_l)
 
         if add_pm_short:
-            pm_s = SweepState("short", "pm_range", threshold_boost=2, min_depth=20.0, max_depth=pm_max_d,
-                              starts_at_mins=starts_ny, expires_at_mins=11 * 60 + 30)
+            pm_s = SweepState("short", "pm_range", threshold_boost=0, min_depth=8.0, max_depth=pm_max_d,
+                              starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
             pm_s.ref_level = pm_high
             states.append(pm_s)
 
@@ -407,6 +405,15 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
     opening_range_open:  float | None = None
     opening_range_close: float | None = None
     opening_range_dir:   str = "neutral"
+    opening_range_high:  float | None = None   # Silver Bullet reference
+    opening_range_low:   float | None = None   # Silver Bullet reference
+    silver_bullet_added: bool = False
+    pm_sb_high: float | None = None
+    pm_sb_low:  float | None = None
+    pm_silver_bullet_added: bool = False
+    am_sb_high: float | None = None
+    am_sb_low:  float | None = None
+    am_silver_bullet_added: bool = False
 
     # Morning range (9:30-11:30 AM) for afternoon PM session setups
     morning_hi: float | None = None
@@ -437,6 +444,15 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             opening_range_open  = None
             opening_range_close = None
             opening_range_dir   = "neutral"
+            opening_range_high  = None   # Silver Bullet: max high of 9:30-10 AM
+            opening_range_low   = None   # Silver Bullet: min low of 9:30-10 AM
+            silver_bullet_added = False
+            pm_sb_high          = None   # PM Silver Bullet: max high of 1:30-2 PM
+            pm_sb_low           = None   # PM Silver Bullet: min low of 1:30-2 PM
+            pm_silver_bullet_added = False
+            am_sb_high          = None   # London-close SB: max high of 10-11 AM
+            am_sb_low           = None   # London-close SB: min low of 10-11 AM
+            am_silver_bullet_added = False
             morning_hi          = None
             morning_lo          = None
             morning_range_locked = False
@@ -466,11 +482,55 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             opening_range_open = float(closes.iloc[i])
         if 9 * 60 + 30 <= mins < 10 * 60:
             opening_range_close = float(closes.iloc[i])
+            bar_h = float(highs.iloc[i])
+            bar_l = float(lows.iloc[i])
+            if opening_range_high is None or bar_h > opening_range_high:
+                opening_range_high = bar_h
+            if opening_range_low is None or bar_l < opening_range_low:
+                opening_range_low = bar_l
+
         if mins == 10 * 60 and opening_range_open is not None and opening_range_dir == "neutral":
             if opening_range_close and opening_range_close > opening_range_open:
                 opening_range_dir = "bullish"
             elif opening_range_close and opening_range_close < opening_range_open:
                 opening_range_dir = "bearish"
+
+        # ── Silver Bullet window 1: opening-range (9:30-10 AM) sweep at 10-11 AM ─
+        if mins == 10 * 60 and not silver_bullet_added and opening_range_high is not None:
+            silver_bullet_added = True
+            if trade_date.weekday() != 1:  # Tuesday: 0% WR
+                sb_lo = SweepState("long", "silver_bullet", threshold_boost=0,
+                                   min_depth=10.0, max_depth=999.0,
+                                   starts_at_mins=10 * 60, expires_at_mins=11 * 60)
+                sb_lo.ref_level = opening_range_low
+                sb_hi = SweepState("short", "silver_bullet", threshold_boost=0,
+                                   min_depth=10.0, max_depth=999.0,
+                                   starts_at_mins=10 * 60, expires_at_mins=11 * 60)
+                sb_hi.ref_level = opening_range_high
+                sweep_states.extend([sb_lo, sb_hi])
+
+        # Track 10:00-11:00 AM range for London-close Silver Bullet window
+        if 10 * 60 <= mins < 11 * 60:
+            bar_h = float(highs.iloc[i])
+            bar_l = float(lows.iloc[i])
+            if am_sb_high is None or bar_h > am_sb_high:
+                am_sb_high = bar_h
+            if am_sb_low is None or bar_l < am_sb_low:
+                am_sb_low = bar_l
+
+        # ── Silver Bullet window 2: 10-11 AM range sweep at 11 AM - noon ────────
+        if mins == 11 * 60 and not am_silver_bullet_added and am_sb_high is not None:
+            am_silver_bullet_added = True
+            if trade_date.weekday() != 1:
+                lc_lo = SweepState("long", "silver_bullet", threshold_boost=0,
+                                   min_depth=10.0, max_depth=999.0,
+                                   starts_at_mins=11 * 60, expires_at_mins=12 * 60)
+                lc_lo.ref_level = am_sb_low
+                lc_hi = SweepState("short", "silver_bullet", threshold_boost=0,
+                                   min_depth=10.0, max_depth=999.0,
+                                   starts_at_mins=11 * 60, expires_at_mins=12 * 60)
+                lc_hi.ref_level = am_sb_high
+                sweep_states.extend([lc_lo, lc_hi])
 
         # ── Morning range tracking (9:30–11:30 AM) ────────────────────────────
         if 9 * 60 + 30 <= mins < 11 * 60 + 30:
@@ -487,15 +547,33 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             morning_range_locked = True
             mr_range = morning_hi - morning_lo
             if mr_range >= 20.0:  # Only create PM states if morning had real range
-                # boost=4 → 12-pt min = 5+4=9 (requires FVG+OTE or equivalent — very rare)
-                # 0% WR in 60-day test so gate is set very high
-                mr_lo_st = SweepState("long",  "am_range", threshold_boost=4, min_depth=15.0, max_depth=80.0,
+                mr_lo_st = SweepState("long",  "am_range", threshold_boost=5, min_depth=8.0, max_depth=200.0,
                                       starts_at_mins=13 * 60 + 30, expires_at_mins=16 * 60)
                 mr_lo_st.ref_level = morning_lo
-                mr_hi_st = SweepState("short", "am_range", threshold_boost=4, min_depth=15.0, max_depth=80.0,
+                mr_hi_st = SweepState("short", "am_range", threshold_boost=5, min_depth=8.0, max_depth=200.0,
                                       starts_at_mins=13 * 60 + 30, expires_at_mins=16 * 60)
                 mr_hi_st.ref_level = morning_hi
                 sweep_states.extend([mr_lo_st, mr_hi_st])
+
+        # ── PM Silver Bullet: 1:30-2:00 PM range → sweep at 2-3 PM ──────────────
+        if 13 * 60 + 30 <= mins < 14 * 60:
+            bar_h = float(highs.iloc[i])
+            bar_l = float(lows.iloc[i])
+            if pm_sb_high is None or bar_h > pm_sb_high:
+                pm_sb_high = bar_h
+            if pm_sb_low is None or bar_l < pm_sb_low:
+                pm_sb_low = bar_l
+
+        if mins == 14 * 60 and not pm_silver_bullet_added and pm_sb_high is not None:
+            pm_silver_bullet_added = True
+            if trade_date.weekday() != 1:
+                # PM Silver Bullet: short-only (sweep above 1:30-2 PM range high → short)
+                # Longs at 2 PM in downtrend have 0% WR — skip
+                pm_sb_hi_st = SweepState("short", "silver_bullet", threshold_boost=0,
+                                         min_depth=10.0, max_depth=999.0,
+                                         starts_at_mins=14 * 60, expires_at_mins=15 * 60)
+                pm_sb_hi_st.ref_level = pm_sb_high
+                sweep_states.append(pm_sb_hi_st)
 
         # Hard stop: hit floor
         if balance <= floor:
@@ -626,9 +704,11 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             pdh          = pdl_day_lvl["high"] if pdl_day_lvl else None
             pdl_lev      = pdl_day_lvl["low"]  if pdl_day_lvl else None
             london_ok    = is_london_aligned(london_action, signal_dir)
+            # Silver Bullet is always opening-range-opposed by definition (it IS the sweep)
             open_opposed = (
-                (opening_range_dir == "bullish" and signal_dir == "short") or
-                (opening_range_dir == "bearish" and signal_dir == "long")
+                state.level_type == "silver_bullet"
+                or (opening_range_dir == "bullish" and signal_dir == "short")
+                or (opening_range_dir == "bearish" and signal_dir == "long")
             )
 
             # PDH/PDL confluence: always True for pdh_pdl sweep states
@@ -636,12 +716,15 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
 
             ote_active = price_in_ote(price, state.ote_zone)
 
-            # Judas reversal mode (Tuesday: confirmed second-direction trade)
+            # Judas reversal mode: Tuesday confirmed 2nd-direction Asia trade,
+            # OR Silver Bullet on Tuesday (opening range sweep = Judas capture)
             judas_mode = (
                 trade_date.weekday() == 1
-                and tuesday_judas_confirmed
-                and state.level_type == "asia"
-                and signal_dir != tuesday_first_sweep_dir
+                and (
+                    (tuesday_judas_confirmed and state.level_type == "asia"
+                     and signal_dir != tuesday_first_sweep_dir)
+                    or state.level_type == "silver_bullet"
+                )
             )
             post_claims = (trade_date.weekday() == 3 and est_dt.hour >= 10)
             setup_mode  = (
