@@ -42,12 +42,9 @@ env/
 *.swp
 *.swo
 
-# Temporary chart files from PDF generator
-/tmp/tjr_charts/
-
-# Old PDFs
+# PDF files and generator (keep locally, not in git)
 *.pdf
-!Asia_Sweep_System_Research.pdf
+generate_research_paper.py
 
 # Jupyter
 .ipynb_checkpoints/
