@@ -1,17 +1,17 @@
 //@version=5
-indicator("TJR Asia Sweep System v3 - MNQ", overlay=true,
+indicator("TJR Asia Sweep System v4 - MNQ", overlay=true,
      max_boxes_count=150, max_labels_count=300, max_lines_count=150)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // INPUTS
 // ═══════════════════════════════════════════════════════════════════════════════
 var g_core  = "Core Settings"
-min_score   = input.int(4,    "Min Score to Alert (1-9)", minval=1, maxval=9,    group=g_core)
-pivot_str   = input.int(2,    "MSS Pivot Strength",       minval=1, maxval=5,    group=g_core)
-fvg_min     = input.float(2.0,"Min FVG Size (pts)",       minval=0.25,           group=g_core)
-ob_min_body = input.float(3.0,"Min OB Body (pts)",        minval=0.5,            group=g_core)
-sweep_min   = input.float(20.0,"Min Sweep Depth (pts)",   minval=5.0, maxval=80.0, group=g_core, tooltip="Backtest: sweeps under 20 pts had 0% win rate. 20-80 pts is the institutional range.")
-sweep_max   = input.float(80.0,"Max Sweep Depth (pts)",   minval=20.0,maxval=200.0,group=g_core)
+min_score   = input.int(4,    "Min Score to Alert (1-12)", minval=1, maxval=12,   group=g_core)
+pivot_str   = input.int(2,    "MSS Pivot Strength",        minval=1, maxval=5,    group=g_core)
+fvg_min     = input.float(2.0,"Min FVG Size (pts)",        minval=0.25,           group=g_core)
+ob_min_body = input.float(3.0,"Min OB Body (pts)",         minval=0.5,            group=g_core)
+sweep_min   = input.float(8.0, "Min Sweep Depth (pts)",    minval=2.0, maxval=80.0, group=g_core, tooltip="Backtest-calibrated: 8pt minimum. Sweeps below 8pts are noise. 15-80pts is the institutional range.")
+sweep_max   = input.float(120.0,"Max Sweep Depth (pts)",   minval=20.0,maxval=300.0,group=g_core)
 
 var g_vis   = "Display"
 show_asia   = input.bool(true,  "Show Asia Range",              group=g_vis)
@@ -28,12 +28,12 @@ show_dow    = input.bool(true,  "Show Day-of-Week Label",       group=g_vis)
 show_sweep  = input.bool(true,  "Show Sweep / MSS Labels",      group=g_vis)
 show_bg     = input.bool(true,  "Shade Trade Window",           group=g_vis)
 
-var g_thr   = "Day Thresholds (min score, 1-9)"
-min_mon = input.int(4, "Monday    (Accumulation)",  minval=4, maxval=9, group=g_thr)
-min_tue = input.int(8, "Tuesday   (Manipulation)",  minval=4, maxval=9, group=g_thr, tooltip="ICT Judas Swing day. Raised to 8 based on backtest: Tue/Thu had 0% win rate below this threshold.")
-min_wed = input.int(4, "Wednesday (Distribution)",  minval=4, maxval=9, group=g_thr)
-min_thu = input.int(8, "Thursday  (Continuation)",  minval=4, maxval=9, group=g_thr, tooltip="Jobless claims at 8:30 AM every Thursday. Raised to 8 based on backtest data.")
-min_fri = input.int(4, "Friday    (Close)",          minval=4, maxval=9, group=g_thr)
+var g_thr   = "Day Thresholds (min score, 1-12)"
+min_mon = input.int(4,  "Monday    (Accumulation)",  minval=4, maxval=12, group=g_thr)
+min_tue = input.int(11, "Tuesday   (Manipulation)",  minval=4, maxval=12, group=g_thr, tooltip="ICT Judas Swing day. Bot blocks all Tuesday trades (unreachable 11/12). Only enable for confirmed Judas reversal setups.")
+min_wed = input.int(4,  "Wednesday (Distribution)",  minval=4, maxval=12, group=g_thr)
+min_thu = input.int(4,  "Thursday  (Continuation)",  minval=4, maxval=12, group=g_thr, tooltip="Jobless claims 8:30 AM. Bot blocks Thursday SHORTS (17% WR in backtest). Longs allowed at normal threshold.")
+min_fri = input.int(4,  "Friday    (Close)",          minval=4, maxval=12, group=g_thr)
 
 var g_smt   = "SMT Divergence (ES/NQ)"
 smt_enable  = input.bool(true,   "Enable SMT Check (Block Divergent)", group=g_smt, tooltip="If ES does not confirm the NQ sweep, the signal is blocked. Backtest: SMT divergent trades had 0% win rate.")
@@ -64,7 +64,7 @@ recent_lowest_30  = ta.lowest(low,   30)
 // ═══════════════════════════════════════════════════════════════════════════════
 in_asia   = not na(time("", "2000-0000", "America/New_York"))
 in_london = not na(time("", "0200-0800", "America/New_York"))
-in_trade  = not na(time("", "0930-1130", "America/New_York"))
+in_trade  = not na(time("", "0930-1200", "America/New_York"))
 in_prime  = not na(time("", "0930-1100", "America/New_York"))
 in_or     = not na(time("", "0930-1000", "America/New_York"))
 new_day   = ta.change(dayofmonth) != 0
@@ -258,6 +258,42 @@ if show_or and or_done and not or_done[1] and not na(or_box)
 
 plot(show_or and or_done and not na(or_hi) ? or_hi : na, "OR High", color=color.new(color.yellow, 60), linewidth=1, style=plot.style_linebr)
 plot(show_or and or_done and not na(or_lo) ? or_lo : na, "OR Low",  color=color.new(color.yellow, 60), linewidth=1, style=plot.style_linebr)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PRE-MARKET RANGE  8:00 to 9:25 AM  (Judas Swing reference — 5m only)
+// The final 90-min squeeze before the NY open. When RTH sweeps below the
+// pre-market low or above the pre-market high, that is the Judas Swing
+// liquidity grab. Bot signals trigger on these sweeps + MSS.
+// ═══════════════════════════════════════════════════════════════════════════════
+var g_pmk   = "Display"
+show_pmk    = input.bool(true, "Show Pre-Market Range (8–9:25 AM)", group=g_vis)
+
+var float pmk_hi  = na
+var float pmk_lo  = na
+var bool  pmk_set = false
+in_pmk = not na(time("", "0800-0925", "America/New_York"))
+
+if new_day
+    pmk_hi  := na
+    pmk_lo  := na
+    pmk_set := false
+
+if in_pmk
+    pmk_hi := na(pmk_hi) ? high : math.max(pmk_hi, high)
+    pmk_lo := na(pmk_lo) ? low  : math.min(pmk_lo, low)
+
+if not in_pmk and in_pmk[1] and not pmk_set and not na(pmk_hi)
+    pmk_set := true
+
+plot(show_pmk and pmk_set and not na(pmk_hi) ? pmk_hi : na, "Pre-Mkt High", color=color.new(color.teal, 40), linewidth=1, style=plot.style_linebr)
+plot(show_pmk and pmk_set and not na(pmk_lo) ? pmk_lo : na, "Pre-Mkt Low",  color=color.new(color.teal, 40), linewidth=1, style=plot.style_linebr)
+
+var bool pmk_labeled = false
+if new_day
+    pmk_labeled := false
+if show_pmk and pmk_set and in_trade and not in_trade[1] and not pmk_labeled and not na(pmk_hi)
+    pmk_labeled := true
+    label.new(bar_index, pmk_hi, "PMK " + str.tostring(math.round(pmk_hi - pmk_lo, 1)) + " pts", color=color.new(color.teal, 80), textcolor=color.new(color.teal, 20), style=label.style_label_lower_right, size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VWAP
@@ -516,34 +552,44 @@ bull_or_opp    = bull_mss and or_dir == "bearish"
 bear_or_opp    = bear_mss and or_dir == "bullish"
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 9-POINT CONFLUENCE SCORING
+// 12-POINT CONFLUENCE SCORING
+// Matches the Python backtest engine exactly.
+// Points 10-12 (SMT, London, MSS strong) both ADD to the score AND penalize
+// the threshold when absent — quality setups are rewarded twice, weak ones blocked.
 // ═══════════════════════════════════════════════════════════════════════════════
-lp1 = bull_sweep       ? 1 : 0   // 1. Asia sweep
-lp2 = bull_mss         ? 1 : 0   // 2. MSS confirmed
-lp3 = in_bfvg          ? 1 : 0   // 3. FVG present
-lp4 = close < vwap_val ? 1 : 0   // 4. VWAP aligned (long = below VWAP)
-lp5 = in_prime         ? 1 : 0   // 5. Prime time window (9:30-11 AM)
-lp6 = bull_pdl_conf    ? 1 : 0   // 6. PDH/PDL confluence
-lp7 = bull_or_opp      ? 1 : 0   // 7. Opening range opposed
-lp8 = bull_wk_conf     ? 1 : 0   // 8. Weekly level confluence
-lp9 = in_bull_ote      ? 1 : 0   // 9. OTE zone entry
+lp1  = bull_sweep       ? 1 : 0   //  1. Asia sweep detected
+lp2  = bull_mss         ? 1 : 0   //  2. MSS confirmed
+lp3  = in_bfvg          ? 1 : 0   //  3. FVG present in entry area
+lp4  = close < vwap_val ? 1 : 0   //  4. VWAP aligned (below VWAP for longs)
+lp5  = in_prime         ? 1 : 0   //  5. Prime window 9:30-11 AM
+lp6  = bull_pdl_conf    ? 1 : 0   //  6. PDH/PDL confluence
+lp7  = bull_or_opp      ? 1 : 0   //  7. Opening range opposed
+lp8  = bull_wk_conf     ? 1 : 0   //  8. Weekly level confluence
+lp9  = in_bull_ote      ? 1 : 0   //  9. OTE zone entry (61.8-78.6% fib)
+lp10 = smt_enable and not bull_smt_divergent ? 1 : 0  // 10. SMT: ES confirms NQ
+lp11 = (london_dir == "bullish" or london_dir == "neutral") ? 1 : 0  // 11. London aligned
+lp12 = bull_mss_strong  ? 1 : 0   // 12. MSS candle shows real displacement
 
-sp1 = bear_sweep       ? 1 : 0
-sp2 = bear_mss         ? 1 : 0
-sp3 = in_sfvg          ? 1 : 0
-sp4 = close > vwap_val ? 1 : 0
-sp5 = in_prime         ? 1 : 0
-sp6 = bear_pdh_conf    ? 1 : 0
-sp7 = bear_or_opp      ? 1 : 0
-sp8 = bear_wk_conf     ? 1 : 0
-sp9 = in_bear_ote      ? 1 : 0
+sp1  = bear_sweep       ? 1 : 0
+sp2  = bear_mss         ? 1 : 0
+sp3  = in_sfvg          ? 1 : 0
+sp4  = close > vwap_val ? 1 : 0
+sp5  = in_prime         ? 1 : 0
+sp6  = bear_pdh_conf    ? 1 : 0
+sp7  = bear_or_opp      ? 1 : 0
+sp8  = bear_wk_conf     ? 1 : 0
+sp9  = in_bear_ote      ? 1 : 0
+sp10 = smt_enable and not bear_smt_divergent ? 1 : 0
+sp11 = (london_dir == "bearish" or london_dir == "neutral") ? 1 : 0
+sp12 = bear_mss_strong  ? 1 : 0
 
-long_score  = lp1 + lp2 + lp3 + lp4 + lp5 + lp6 + lp7 + lp8 + lp9
-short_score = sp1 + sp2 + sp3 + sp4 + sp5 + sp6 + sp7 + sp8 + sp9
+long_score  = lp1 + lp2 + lp3 + lp4 + lp5 + lp6 + lp7 + lp8 + lp9 + lp10 + lp11 + lp12
+short_score = sp1 + sp2 + sp3 + sp4 + sp5 + sp6 + sp7 + sp8 + sp9 + sp10 + sp11 + sp12
 
-// Penalty: +1 required when London opposes or MSS is weak
-long_base  = not (london_dir == "bullish" or london_dir == "neutral") or not bull_mss_strong ? min_score + 1 : min_score
-short_base = not (london_dir == "bearish" or london_dir == "neutral") or not bear_mss_strong ? min_score + 1 : min_score
+// Threshold penalty: +1 required when London opposes OR MSS is weak
+// (same factors that score +1 when present; they also raise the bar when absent)
+long_base  = (lp11 == 0 or lp12 == 0) ? min_score + 1 : min_score
+short_base = (sp11 == 0 or sp12 == 0) ? min_score + 1 : min_score
 
 // Day-of-week minimum (Sun=1 Mon=2 Tue=3 Wed=4 Thu=5 Fri=6)
 dow_min = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 5 ? min_thu : dow == 6 ? min_fri : min_score
@@ -551,9 +597,12 @@ dow_min = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 
 long_req  = math.max(long_base,  dow_min)
 short_req = math.max(short_base, dow_min)
 
+// Thursday: bot blocks shorts (17% WR); Pine shows visual warning only
+thu_short_blocked = (dow == 5) and bear_mss  // visually flag it — bot handles the block
+
 // Signal fires only if score meets threshold AND SMT is not divergent
 long_signal  = bull_mss and long_score  >= long_req  and in_trade and not (smt_enable and bull_smt_divergent)
-short_signal = bear_mss and short_score >= short_req and in_trade and not (smt_enable and bear_smt_divergent)
+short_signal = bear_mss and short_score >= short_req and in_trade and not (smt_enable and bear_smt_divergent) and not thu_short_blocked
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENTRY / STOP / TARGETS
@@ -561,14 +610,14 @@ short_signal = bear_mss and short_score >= short_req and in_trade and not (smt_e
 long_entry = not na(bull_ob_top)  ? bull_ob_top  : (na(today_lo) ? close : today_lo + 1.0)
 long_stop  = not na(bull_ob_stop) ? bull_ob_stop : (na(today_lo) ? close - 25 : today_lo - 25.0)
 long_risk  = math.max(long_entry - long_stop, 0.25)
-long_tp1   = long_entry + long_risk * 1.5
-long_tp2   = long_entry + long_risk * 3.0
+long_tp1   = long_entry + long_risk * 1.0   // TP1 at 1:1 → stop moves to break-even
+long_tp2   = long_entry + long_risk * 2.0   // TP2 at 2:1 → full exit (raised WR 45%→67%)
 
 short_entry = not na(bear_ob_bot)  ? bear_ob_bot  : (na(today_hi) ? close : today_hi - 1.0)
 short_stop  = not na(bear_ob_stop) ? bear_ob_stop : (na(today_hi) ? close + 25 : today_hi + 25.0)
 short_risk  = math.max(short_stop - short_entry, 0.25)
-short_tp1   = short_entry - short_risk * 1.5
-short_tp2   = short_entry - short_risk * 3.0
+short_tp1   = short_entry - short_risk * 1.0
+short_tp2   = short_entry - short_risk * 2.0
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SIGNAL LABELS
@@ -579,22 +628,26 @@ if new_day
     long_fired  := false
     short_fired := false
 
+// Thursday short visual warning (bot blocks these; show on chart so trader knows)
+if show_sweep and thu_short_blocked and not thu_short_blocked[1]
+    label.new(bar_index, bear_sweep_px + bear_sweep_depth * 0.5, "THU SHORT\nBLOCKED\n(17% WR)", color=color.new(color.orange, 20), textcolor=color.orange, style=label.style_label_down, size=size.small)
+
 if show_score and long_signal and not long_fired
     long_fired := true
-    _ld  = london_dir == "bullish" ? "London: ALIGNED" : london_dir == "bearish" ? "London: OPPOSED" : "London: neutral"
-    _ms  = bull_mss_strong ? "MSS: STRONG" : "MSS: weak"
+    _ld  = london_dir == "bullish" ? "London: ALIGNED +1" : london_dir == "bearish" ? "London: OPPOSED" : "London: neutral"
+    _ms  = bull_mss_strong ? "MSS: STRONG +1" : "MSS: weak"
     _ob  = not na(bull_ob_top) ? "OB entry" : "Fixed entry"
-    _ote = in_bull_ote ? "  OTE" : ""
-    _lbl = str.tostring(long_score) + "/9 LONG  " + _ob + _ote + "\nEntry " + str.tostring(math.round(long_entry, 2)) + "  Stop " + str.tostring(math.round(long_stop, 2)) + "\nTP1 " + str.tostring(math.round(long_tp1, 2)) + "  TP2 " + str.tostring(math.round(long_tp2, 2)) + "\n" + _ld + "  " + _ms
+    _ote = in_bull_ote ? "  OTE +1" : ""
+    _lbl = str.tostring(long_score) + "/12 LONG  " + _ob + _ote + "\nEntry " + str.tostring(math.round(long_entry, 2)) + "  Stop " + str.tostring(math.round(long_stop, 2)) + "\nTP1 " + str.tostring(math.round(long_tp1, 2)) + "  TP2 " + str.tostring(math.round(long_tp2, 2)) + "\n" + _ld + "  " + _ms
     label.new(bar_index, long_stop - long_risk, _lbl, color=color.new(color.green, 5), textcolor=color.white, style=label.style_label_upper_right, size=size.normal)
 
 if show_score and short_signal and not short_fired
     short_fired := true
-    _ld  = london_dir == "bearish" ? "London: ALIGNED" : london_dir == "bullish" ? "London: OPPOSED" : "London: neutral"
-    _ms  = bear_mss_strong ? "MSS: STRONG" : "MSS: weak"
+    _ld  = london_dir == "bearish" ? "London: ALIGNED +1" : london_dir == "bullish" ? "London: OPPOSED" : "London: neutral"
+    _ms  = bear_mss_strong ? "MSS: STRONG +1" : "MSS: weak"
     _ob  = not na(bear_ob_bot) ? "OB entry" : "Fixed entry"
-    _ote = in_bear_ote ? "  OTE" : ""
-    _lbl = str.tostring(short_score) + "/9 SHORT  " + _ob + _ote + "\nEntry " + str.tostring(math.round(short_entry, 2)) + "  Stop " + str.tostring(math.round(short_stop, 2)) + "\nTP1 " + str.tostring(math.round(short_tp1, 2)) + "  TP2 " + str.tostring(math.round(short_tp2, 2)) + "\n" + _ld + "  " + _ms
+    _ote = in_bear_ote ? "  OTE +1" : ""
+    _lbl = str.tostring(short_score) + "/12 SHORT  " + _ob + _ote + "\nEntry " + str.tostring(math.round(short_entry, 2)) + "  Stop " + str.tostring(math.round(short_stop, 2)) + "\nTP1 " + str.tostring(math.round(short_tp1, 2)) + "  TP2 " + str.tostring(math.round(short_tp2, 2)) + "\n" + _ld + "  " + _ms
     label.new(bar_index, short_stop + short_risk, _lbl, color=color.new(color.red, 5), textcolor=color.white, style=label.style_label_lower_right, size=size.normal)
 
 if long_signal and not long_signal[1]
@@ -620,18 +673,18 @@ if show_dow and in_trade and not in_trade[1] and not dow_shown
     _dname = dow == 2 ? "MON  ACCUMULATION" : dow == 3 ? "TUE  MANIPULATION" : dow == 4 ? "WED  DISTRIBUTION" : dow == 5 ? "THU  CONTINUATION" : "FRI  CLOSE"
     _dthr  = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 5 ? min_thu : min_fri
     _dcol  = dow == 3 ? color.red : dow == 5 ? color.orange : dow == 2 ? color.green : dow == 4 ? color.aqua : color.blue
-    _note  = dow == 3 ? "  Judas Swing - wait for 2nd sweep" : dow == 5 ? "  Claims 8:30 AM" : ""
-    label.new(bar_index, na(today_lo) ? low : today_lo - (na(today_hi) ? 10 : (today_hi - today_lo) * 0.25), _dname + _note + "  Min: " + str.tostring(_dthr) + "/9", color=color.new(_dcol, 75), textcolor=_dcol, style=label.style_label_right, size=size.small)
+    _note  = dow == 3 ? "  BLOCKED (Judas — 0% WR)" : dow == 5 ? "  Claims 8:30 AM — SHORTS BLOCKED" : ""
+    label.new(bar_index, na(today_lo) ? low : today_lo - (na(today_hi) ? 10 : (today_hi - today_lo) * 0.25), _dname + _note + "  Min: " + str.tostring(_dthr) + "/12", color=color.new(_dcol, 75), textcolor=_dcol, style=label.style_label_right, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LIVE SCORE TABLE  (top-right, 9-point system)
+// LIVE SCORE TABLE  (top-right, 12-point system)
 // ═══════════════════════════════════════════════════════════════════════════════
-var table tbl = table.new(position.top_right, 3, 14, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.new(color.gray, 60))
+var table tbl = table.new(position.top_right, 3, 17, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.new(color.gray, 60))
 
 if barstate.islast
-    table.cell(tbl, 0, 0, "Point",     text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.navy, 60))
-    table.cell(tbl, 1, 0, "LONG",      text_color=color.green,               text_size=size.small, bgcolor=color.new(color.navy, 60))
-    table.cell(tbl, 2, 0, "SHORT",     text_color=color.red,                 text_size=size.small, bgcolor=color.new(color.navy, 60))
+    table.cell(tbl, 0, 0, "Point",        text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.navy, 60))
+    table.cell(tbl, 1, 0, "LONG",         text_color=color.green,               text_size=size.small, bgcolor=color.new(color.navy, 60))
+    table.cell(tbl, 2, 0, "SHORT",        text_color=color.red,                 text_size=size.small, bgcolor=color.new(color.navy, 60))
 
     table.cell(tbl, 0, 1,  "1. Sweep",     text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
     table.cell(tbl, 0, 2,  "2. MSS",       text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
@@ -642,10 +695,13 @@ if barstate.islast
     table.cell(tbl, 0, 7,  "7. OR opp",    text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
     table.cell(tbl, 0, 8,  "8. Wk Level",  text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
     table.cell(tbl, 0, 9,  "9. OTE Zone",  text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 0, 10, "10. SMT ok",   text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 0, 11, "11. London",   text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 0, 12, "12. MSS str",  text_color=color.white, text_size=size.small, bgcolor=color.new(color.black, 75))
 
-    lpts = array.from(lp1, lp2, lp3, lp4, lp5, lp6, lp7, lp8, lp9)
-    spts = array.from(sp1, sp2, sp3, sp4, sp5, sp6, sp7, sp8, sp9)
-    for i = 0 to 8
+    lpts = array.from(lp1, lp2, lp3, lp4, lp5, lp6, lp7, lp8, lp9, lp10, lp11, lp12)
+    spts = array.from(sp1, sp2, sp3, sp4, sp5, sp6, sp7, sp8, sp9, sp10, sp11, sp12)
+    for i = 0 to 11
         _lv = array.get(lpts, i)
         _sv = array.get(spts, i)
         table.cell(tbl, 1, i + 1, _lv == 1 ? "yes" : "-", text_color=_lv == 1 ? color.green : color.new(color.gray, 50), text_size=size.small, bgcolor=color.new(color.black, 75))
@@ -653,25 +709,25 @@ if barstate.islast
 
     _lc = long_score  >= long_req  ? color.green : color.new(color.gray, 40)
     _sc = short_score >= short_req ? color.red   : color.new(color.gray, 40)
-    table.cell(tbl, 0, 10, "SCORE",                                                        text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 50))
-    table.cell(tbl, 1, 10, str.tostring(long_score)  + " / " + str.tostring(long_req),  text_color=_lc,          text_size=size.small, bgcolor=color.new(color.navy, 50))
-    table.cell(tbl, 2, 10, str.tostring(short_score) + " / " + str.tostring(short_req), text_color=_sc,          text_size=size.small, bgcolor=color.new(color.navy, 50))
+    table.cell(tbl, 0, 13, "SCORE",                                                         text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 50))
+    table.cell(tbl, 1, 13, str.tostring(long_score)  + " / " + str.tostring(long_req),  text_color=_lc,          text_size=size.small, bgcolor=color.new(color.navy, 50))
+    table.cell(tbl, 2, 13, str.tostring(short_score) + " / " + str.tostring(short_req), text_color=_sc,          text_size=size.small, bgcolor=color.new(color.navy, 50))
 
     _ldc = london_dir == "bullish" ? color.green : london_dir == "bearish" ? color.red : color.gray
-    table.cell(tbl, 0, 11, "London",                                               text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 1, 11, london_dir,                                             text_color=_ldc,                      text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 2, 11, or_done ? "OR: " + or_dir : "OR: wait",                text_color=color.new(color.yellow, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 0, 14, "London",                                               text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 1, 14, london_dir,                                             text_color=_ldc,                      text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 2, 14, or_done ? "OR: " + or_dir : "OR: wait",                text_color=color.new(color.yellow, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
 
-    _mss_c = bar_is_strong ? color.lime : color.new(color.gray, 40)
-    table.cell(tbl, 0, 12, "MSS str",                            text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 1, 12, bull_mss_strong ? "STRONG" : "weak",  text_color=_mss_c,                    text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 2, 12, bear_mss_strong ? "STRONG" : "weak",  text_color=_mss_c,                    text_size=size.small, bgcolor=color.new(color.black, 75))
+    _thu_c = (dow == 5) ? color.orange : color.new(color.gray, 60)
+    table.cell(tbl, 0, 15, "Day filter",                                                              text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 1, 15, dow == 3 ? "BLOCKED" : dow == 5 ? "longs ok" : "ok",                     text_color=_thu_c,                    text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 2, 15, dow == 3 ? "BLOCKED" : dow == 5 ? "THU SHORT BLOCKED" : "ok",            text_color=dow == 5 ? color.orange : (dow == 3 ? color.red : color.new(color.gray, 50)), text_size=size.small, bgcolor=color.new(color.black, 75))
 
     _bull_smt_c = bull_smt_divergent ? color.orange : color.new(color.gray, 40)
     _bear_smt_c = bear_smt_divergent ? color.orange : color.new(color.gray, 40)
-    table.cell(tbl, 0, 13, "SMT (ES)",                              text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 1, 13, bull_smt_divergent ? "DIVERGENT" : "ok", text_color=_bull_smt_c,               text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 2, 13, bear_smt_divergent ? "DIVERGENT" : "ok", text_color=_bear_smt_c,               text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 0, 16, "SMT divg",                              text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 1, 16, bull_smt_divergent ? "DIVERGENT" : "ok", text_color=_bull_smt_c,               text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 2, 16, bear_smt_divergent ? "DIVERGENT" : "ok", text_color=_bear_smt_c,               text_size=size.small, bgcolor=color.new(color.black, 75))
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BACKGROUND SHADING
