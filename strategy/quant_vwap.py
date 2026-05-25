@@ -56,6 +56,8 @@ def detect_all(
     vix: float,
     atr: float,
     max_signals: int = 2,
+    start_min: int | None = None,   # minutes from midnight; None = 9:45 AM default
+    end_min:   int | None = None,   # None = 11:30 AM default
 ) -> list[VWAPSignal]:
     """
     Detect VWAP reversion signals for today.
@@ -83,13 +85,16 @@ def detect_all(
     long_fired  = False
     short_fired = False
 
+    _start = start_min if start_min is not None else 9 * 60 + 45
+    _end   = end_min   if end_min   is not None else 11 * 60 + 30
+
     for pos, (ts, row) in enumerate(today_df.iterrows()):
         dt = ts.astimezone(EST)
         mins = dt.hour * 60 + dt.minute
 
-        if mins < 9 * 60 + 45:
+        if mins < _start:
             continue
-        if mins >= 11 * 60 + 30:
+        if mins >= _end:
             break
 
         close    = float(row["Close"])

@@ -129,7 +129,9 @@ def _simulate_trade(
     stop: float,
     target: float,
     n_contracts: int = 1,
+    be_mult: float = 1.0,
 ) -> tuple[float, float, str]:
+    """Simulate with trailing stop: stop moves to breakeven once be_mult×risk profit reached."""
     per_pt = MNQ_PER_POINT * n_contracts
 
     if direction == "long":
@@ -138,6 +140,9 @@ def _simulate_trade(
     else:
         risk_pts   = stop - entry
         reward_pts = entry - target
+
+    current_stop = stop
+    at_breakeven = False
 
     for i in range(signal_bar_idx, min(signal_bar_idx + 200, len(df))):
         row   = df.iloc[i]
@@ -152,25 +157,37 @@ def _simulate_trade(
             return close, pnl, "LOSS" if pnl < 0 else "WIN"
 
         if direction == "long":
-            hit_stop   = low  <= stop
+            if not at_breakeven and high >= entry + risk_pts * be_mult:
+                current_stop = entry
+                at_breakeven = True
+            hit_stop   = low  <= current_stop
             hit_target = high >= target
             if hit_stop and hit_target:
-                return (target, reward_pts * per_pt, "WIN") if close >= open_ \
-                       else (stop, -risk_pts * per_pt, "LOSS")
+                if close >= open_:
+                    return target, reward_pts * per_pt, "WIN"
+                pnl = (current_stop - entry) * per_pt
+                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
             elif hit_target:
                 return target, reward_pts * per_pt, "WIN"
             elif hit_stop:
-                return stop, -risk_pts * per_pt, "LOSS"
+                pnl = (current_stop - entry) * per_pt
+                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
         else:
-            hit_stop   = high >= stop
+            if not at_breakeven and low <= entry - risk_pts * be_mult:
+                current_stop = entry
+                at_breakeven = True
+            hit_stop   = high >= current_stop
             hit_target = low  <= target
             if hit_stop and hit_target:
-                return (target, reward_pts * per_pt, "WIN") if close <= open_ \
-                       else (stop, -risk_pts * per_pt, "LOSS")
+                if close <= open_:
+                    return target, reward_pts * per_pt, "WIN"
+                pnl = (entry - current_stop) * per_pt
+                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
             elif hit_target:
                 return target, reward_pts * per_pt, "WIN"
             elif hit_stop:
-                return stop, -risk_pts * per_pt, "LOSS"
+                pnl = (entry - current_stop) * per_pt
+                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
 
     last = float(df["Close"].iloc[-1])
     pnl  = (last - entry) * per_pt if direction == "long" \
@@ -357,10 +374,11 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
             )
             n_contracts = 2 if score >= 3 else 1
 
+            be_mult = 2.0 if strategy == "orb" else 1.0
             exit_p, pnl, outcome = _simulate_trade(
                 df, sig.signal_bar_idx,
                 sig.direction, sig.entry, sig.stop, sig.target,
-                n_contracts=n_contracts,
+                n_contracts=n_contracts, be_mult=be_mult,
             )
             reward_pts = abs(sig.target - sig.entry)
             rr = reward_pts / risk_pts if risk_pts > 0 else 0
@@ -389,23 +407,23 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
             used_strats.add(strategy)
             return True
 
-        vix_ok = vix < 22
+        vix_ok = vix < 25   # raised from 22 — mildly elevated VIX ok in strong trend
 
         # ── Priority 1: Gap Fill ──────────────────────────────────────────────
         if _can_trade():
-            gap = detect_gap(df, today, atr)
+            gap = detect_gap(df, today, atr, dow=dow)   # Monday filter + premarket bias
             if gap and direction_allowed(gap.direction, trend, strict=True):
                 _try_hybrid("gap_fill", gap,
                             f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
 
         # ── Priority 2: FVG ───────────────────────────────────────────────────
-        if _can_trade() and vix_ok and trend["direction"] == "neutral":
+        if _can_trade() and vix_ok and trend["direction"] == "neutral" and dow != 0:
             fvg = detect_fvg(df, today, atr, trend["direction"])
             if fvg and direction_allowed(fvg.direction, trend, strict=True):
                 _try_hybrid("fvg", fvg,
                             f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
 
-        # ── Priority 3: ORB ───────────────────────────────────────────────────
+        # ── Priority 3: ORB (pullback entry) ─────────────────────────────────
         if _can_trade() and vix_ok:
             orb = detect_orb(df, today, atr, dow)
             if orb:
@@ -415,7 +433,7 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                     ok = trend["direction"] in ("strong_bull", "neutral")
                 if ok:
                     _try_hybrid("orb", orb,
-                                f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR)")
+                                f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
 
         # ── Priority 4: IB Breakout ───────────────────────────────────────────
         if _can_trade() and vix_ok and dow != 0 and "orb" not in used_strats:
@@ -425,7 +443,7 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                     _try_hybrid("ib_breakout", ib,
                                 f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR)")
 
-        # ── Priority 5: VWAP Reversion ────────────────────────────────────────
+        # ── Priority 5: AM VWAP Reversion ─────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:
             remaining = MAX_TRADES_DAY - trades_today
             for vs in detect_vwap(df, today, vix, atr, max_signals=remaining):
@@ -433,7 +451,18 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                     break
                 if direction_allowed(vs.direction, trend, strict=True):
                     _try_hybrid("vwap_rev", vs,
-                                f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}sigma)")
+                                f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
+
+        # ── Priority 6: PM VWAP Reversion (1:30–3:30 PM) ────────────────────
+        if _can_trade() and market["vwap_ok"]:
+            remaining = MAX_TRADES_DAY - trades_today
+            for vs in detect_vwap(df, today, vix, atr, max_signals=remaining,
+                                  start_min=13*60+30, end_min=15*60+30):
+                if not _can_trade():
+                    break
+                if direction_allowed(vs.direction, trend, strict=True):
+                    _try_hybrid("vwap_pm", vs,
+                                f"PM dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
 
     run_hybrid_backtest._hard_blocks = hard_block_counts
     return trades

@@ -109,10 +109,13 @@ def _simulate_trade(
     entry: float,
     stop: float,
     target: float,
+    be_mult: float = 1.0,
 ) -> tuple[float, float, str]:
     """
-    Simulate bar-by-bar outcome after signal_bar_idx.
-    Tie-break: candle direction determines whether stop or target hit first.
+    Simulate bar-by-bar outcome with trailing stop.
+    Stop moves to breakeven once be_mult × risk_pts profit is reached.
+    be_mult=1.0 for mean-reversion (gap_fill, vwap), 2.0 for breakouts (orb).
+    Tie-break: candle direction determines stop vs. target on same bar.
     """
     if direction == "long":
         risk_pts   = entry - stop
@@ -120,6 +123,9 @@ def _simulate_trade(
     else:
         risk_pts   = stop - entry
         reward_pts = entry - target
+
+    current_stop  = stop
+    at_breakeven  = False
 
     for i in range(signal_bar_idx, min(signal_bar_idx + 200, len(df))):
         row   = df.iloc[i]
@@ -135,41 +141,45 @@ def _simulate_trade(
             return close, pnl, "LOSS" if pnl < 0 else "WIN"
 
         if direction == "long":
-            hit_stop   = low  <= stop
+            if not at_breakeven and high >= entry + risk_pts * be_mult:
+                current_stop = entry
+                at_breakeven = True
+
+            hit_stop   = low  <= current_stop
             hit_target = high >= target
             if hit_stop and hit_target:
                 if close >= open_:
-                    pnl = reward_pts * MNQ_PER_POINT
-                    return target, pnl, "WIN"
+                    return target, reward_pts * MNQ_PER_POINT, "WIN"
                 else:
-                    pnl = -risk_pts * MNQ_PER_POINT
-                    return stop, pnl, "LOSS"
+                    pnl = (current_stop - entry) * MNQ_PER_POINT
+                    return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
             elif hit_target:
-                pnl = reward_pts * MNQ_PER_POINT
-                return target, pnl, "WIN"
+                return target, reward_pts * MNQ_PER_POINT, "WIN"
             elif hit_stop:
-                pnl = -risk_pts * MNQ_PER_POINT
-                return stop, pnl, "LOSS"
+                pnl = (current_stop - entry) * MNQ_PER_POINT
+                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
         else:
-            hit_stop   = high >= stop
+            if not at_breakeven and low <= entry - risk_pts * be_mult:
+                current_stop = entry
+                at_breakeven = True
+
+            hit_stop   = high >= current_stop
             hit_target = low  <= target
             if hit_stop and hit_target:
                 if close <= open_:
-                    pnl = reward_pts * MNQ_PER_POINT
-                    return target, pnl, "WIN"
+                    return target, reward_pts * MNQ_PER_POINT, "WIN"
                 else:
-                    pnl = -risk_pts * MNQ_PER_POINT
-                    return stop, pnl, "LOSS"
+                    pnl = (entry - current_stop) * MNQ_PER_POINT
+                    return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
             elif hit_target:
-                pnl = reward_pts * MNQ_PER_POINT
-                return target, pnl, "WIN"
+                return target, reward_pts * MNQ_PER_POINT, "WIN"
             elif hit_stop:
-                pnl = -risk_pts * MNQ_PER_POINT
-                return stop, pnl, "LOSS"
+                pnl = (entry - current_stop) * MNQ_PER_POINT
+                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
 
     last = float(df["Close"].iloc[-1])
-    pnl = (last - entry) * MNQ_PER_POINT if direction == "long" \
-          else (entry - last) * MNQ_PER_POINT
+    pnl  = (last - entry) * MNQ_PER_POINT if direction == "long" \
+           else (entry - last) * MNQ_PER_POINT
     return last, pnl, "LOSS" if pnl < 0 else "WIN"
 
 
@@ -191,9 +201,11 @@ def _add_trade(
     if risk_pts < 1.0:
         return 0.0, False
 
+    # Breakout strategies get more room before trailing stop (2× vs 1× for mean-rev)
+    be_mult = 2.0 if strategy == "orb" else 1.0
     exit_p, pnl, outcome = _simulate_trade(
         df, sig.signal_bar_idx,
-        sig.direction, sig.entry, sig.stop, sig.target,
+        sig.direction, sig.entry, sig.stop, sig.target, be_mult=be_mult,
     )
     reward_pts = abs(sig.target - sig.entry)
     rr = reward_pts / risk_pts if risk_pts > 0 else 0
@@ -263,32 +275,56 @@ def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantT
                 return True
             return False
 
+        today_mask = est_idx.date == today
+        today_df   = df[today_mask].copy()
+
+        # ── 1h MTF bias helper ─────────────────────────────────────────────────
+        def _1h_bias_ok(sig) -> bool:
+            """
+            Returns False only if the completed 1h bar directly before the signal
+            contradicts the trade direction. Gap fill is exempt (fires before
+            any 1h bar completes). Neutral 1h → always OK.
+            """
+            try:
+                signal_ts = df.index[sig.signal_bar_idx]
+                # Only look at bars before the signal timestamp
+                pre = today_df[today_df.index < signal_ts]
+                if len(pre) < 6:     # less than 30 min of data → neutral
+                    return True
+                hourly = pre.resample("1h").agg(
+                    {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+                ).dropna()
+                if hourly.empty:
+                    return True
+                last_h = hourly.iloc[-1]
+                o, c = float(last_h["Open"]), float(last_h["Close"])
+                if c > o * 1.0001:   # bullish 1h bar
+                    return sig.direction == "long"
+                elif c < o * 0.9999: # bearish 1h bar
+                    return sig.direction == "short"
+                return True          # flat → neutral → allow
+            except Exception:
+                return True
+
         # ── Priority 1: Gap Fill ───────────────────────────────────────────────
-        # In trending markets: only take gap fills in the TREND direction.
-        # Gap UP (short entry) in a bull market rarely fills — bulls buy every dip.
-        # Gap DOWN (long entry) in a bull market DOES fill — bulls step in immediately.
         if _can_trade():
-            gap = detect_gap(df, today, atr)
+            gap = detect_gap(df, today, atr, dow=dow)   # now passes dow (Monday filter)
             if gap and direction_allowed(gap.direction, trend, strict=True):
                 _try("gap_fill", gap,
-                     f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}×ATR)")
+                     f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
 
-        vix_ok_breakout = market["vix"] < 22  # elevated VIX (22-30) destroys ORB/IB/FVG stats
+        # Breakout strategies: VIX < 25 (was 22 — mildly elevated VIX still ok in strong trend)
+        vix_ok_breakout = market["vix"] < 25
 
         # ── Priority 2: FVG ───────────────────────────────────────────────────
-        # FVG is a mean-reversion strategy — only valid in neutral/sideways markets.
-        # In trending markets, zones get blown through rather than respected.
         fvg_ok_trend = trend["direction"] == "neutral"
-        if _can_trade() and vix_ok_breakout and fvg_ok_trend:
+        if _can_trade() and vix_ok_breakout and fvg_ok_trend and dow != 0:
             fvg = detect_fvg(df, today, atr, trend["direction"])
             if fvg and direction_allowed(fvg.direction, trend, strict=True):
                 _try("fvg", fvg,
                      f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
 
         # ── Priority 3: ORB ───────────────────────────────────────────────────
-        # ORB requires VIX < 22 — elevated VIX causes chaotic opens that stop out breakouts.
-        # Longs: strong_bull or neutral only (bull-trend ORBs show poor WR empirically).
-        # Shorts: strong_bear only (neutral ORB shorts get squeezed in crash recoveries).
         if _can_trade() and vix_ok_breakout:
             orb = detect_orb(df, today, atr, dow)
             if orb:
@@ -296,29 +332,45 @@ def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantT
                     ok = trend["direction"] == "strong_bear"
                 else:
                     ok = trend["direction"] in ("strong_bull", "neutral")
-                if ok:
+                if ok and _1h_bias_ok(orb):
                     _try("orb", orb,
-                         f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}×ATR) VWAP={orb.vwap_at_entry:.0f}")
+                         f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
 
         # ── Priority 4: IB Breakout ───────────────────────────────────────────
-        # IB needs a neutral/sideways session to form a meaningful balance range.
         ib_ok_trend = trend["direction"] == "neutral"
         if _can_trade() and vix_ok_breakout and dow != 0 and "orb" not in used_strats and ib_ok_trend:
             ib = detect_ib(df, today, atr)
-            if ib and direction_allowed(ib.direction, trend, strict=True):
+            if ib and direction_allowed(ib.direction, trend, strict=True) and _1h_bias_ok(ib):
                 _try("ib_breakout", ib,
-                     f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}×ATR) bias={ib.ib_bias}")
+                     f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR) bias={ib.ib_bias}")
 
-        # ── Priority 5: VWAP Reversion (neutral regime only) ─────────────────
+        # ── Priority 5: AM VWAP Reversion ─────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:
             remaining = MAX_TRADES_DAY - trades_today
-            vwap_sigs = detect_vwap(df, today, vix, atr,
-                                    max_signals=remaining)
+            vwap_sigs = detect_vwap(df, today, vix, atr, max_signals=remaining)
             for vs in vwap_sigs:
                 if not _can_trade():
                     break
-                if direction_allowed(vs.direction, trend, strict=True):
+                if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
                     _try("vwap_rev", vs,
-                         f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}σ) ATR={atr:.0f}")
+                         f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s) ATR={atr:.0f}")
+
+        # ── Priority 6: PM VWAP Reversion (1:30–3:30 PM) ────────────────────
+        # Same conditions as AM VWAP but in the afternoon session.
+        # Only fires if < 2 AM trades taken (shared daily trade budget).
+        if _can_trade() and market["vwap_ok"]:
+            remaining = MAX_TRADES_DAY - trades_today
+            pm_sigs = detect_vwap(
+                df, today, vix, atr,
+                max_signals=remaining,
+                start_min=13 * 60 + 30,   # 1:30 PM
+                end_min=15 * 60 + 30,     # 3:30 PM
+            )
+            for vs in pm_sigs:
+                if not _can_trade():
+                    break
+                if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
+                    _try("vwap_pm", vs,
+                         f"PM dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
 
     return trades

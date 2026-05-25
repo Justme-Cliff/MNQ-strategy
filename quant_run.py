@@ -61,13 +61,14 @@ def analyze(trades: list[QuantTrade]) -> None:
     for t in trades:
         strats[t.strategy].append(t)
 
-    strategy_order = ["gap_fill", "fvg", "orb", "ib_breakout", "vwap_rev"]
+    strategy_order = ["gap_fill", "fvg", "orb", "ib_breakout", "vwap_rev", "vwap_pm"]
     strategy_names = {
-        "gap_fill":    "Gap Fill       (tiny gap + first-bar confirm)",
+        "gap_fill":    "Gap Fill       (tiny gap + premarket bias)",
         "fvg":         "FVG            (fair value gap fill)",
-        "orb":         "ORB            (5-min opening range breakout)",
+        "orb":         "ORB            (pullback entry on 5-min opening range)",
         "ib_breakout": "IB Breakout    (initial balance + C-period)",
-        "vwap_rev":    "VWAP Reversion (2σ mean reversion)",
+        "vwap_rev":    "VWAP Rev AM    (2s mean reversion 9:45-11:30)",
+        "vwap_pm":     "VWAP Rev PM    (2s mean reversion 1:30-3:30)",
     }
     for s in strategy_order:
         if s not in strats:
