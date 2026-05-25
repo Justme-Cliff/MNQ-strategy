@@ -36,6 +36,43 @@ def load_nq(interval: str = "5m", period: str = "60d") -> pd.DataFrame:
     return df
 
 
+def load_es(interval: str = "5m", period: str = "60d") -> pd.DataFrame:
+    """
+    Download ES futures 5-minute bars (MES=F proxy).
+    Used for ES/NQ lead-lag confirmation.
+    Returns empty DataFrame on failure — caller must handle gracefully.
+    """
+    try:
+        ticker = yf.Ticker("MES=F")
+        df = ticker.history(period=period, interval=interval, auto_adjust=True)
+        if df.empty:
+            return pd.DataFrame()
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("UTC")
+        else:
+            df.index = df.index.tz_convert("UTC")
+        df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_daily_closes(ticker: str = "MNQ=F", period: str = "90d") -> "pd.Series":
+    """
+    Download daily closing prices for HMM / HAR-RV training.
+    Returns a pd.Series indexed by date.
+    """
+    try:
+        data = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=True)
+        if data.empty:
+            return pd.Series(dtype=float)
+        closes = data["Close"]
+        closes.index = [ts.date() if hasattr(ts, "date") else ts for ts in closes.index]
+        return closes
+    except Exception:
+        return pd.Series(dtype=float)
+
+
 def label_sessions(df: pd.DataFrame, interval: str = "5m") -> pd.DataFrame:
     """Add EST hour/minute columns and session label flags.
 
