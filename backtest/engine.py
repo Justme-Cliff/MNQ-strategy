@@ -1,20 +1,26 @@
 """
-Backtest engine — replays 5-minute MNQ bars through the full strategy pipeline.
+Backtest engine — replays 15-minute MNQ bars through the full strategy pipeline.
 
 Assumptions:
   - Limit orders fill at the entry price (no slippage)
   - Stop loss fills at stop price (no slippage on gaps)
-  - TP1 at 1.5:1 → move stop to break-even, exit half
-  - TP2 at 3:1   → exit remaining half
+  - TP1 at 1:1 → move stop to break-even
+  - TP2 at flexible RR (3:1–5:1, setup-aware)
   - P&L uses MNQ = $2/point * contracts
-  - Max 3 trades per day, max $150 risk per day
+  - Max 2 trades per day, max $100 risk per day
   - Trade window: 9:30 AM – noon EST
 
 Reference levels monitored (same sweep + MSS mechanic):
-  - Asia session H/L         (threshold_boost=0, min_depth=25 pts)
-  - PDH/PDL                  (threshold_boost=+1, min_depth=25 pts)
-  - Previous PM range H/L    (threshold_boost=+1, min_depth=20 pts)
+  - Asia session H/L         (threshold_boost=0, min_depth=15 pts on 15m)
+  - PDH/PDL                  (threshold_boost=+1, min_depth=15 pts)
+  - Previous PM range H/L    (threshold_boost=varies)
   - London carry-over        (Asia state pre-initialized when London swept 25+ pts)
+  - Pre-market 8:00-9:25 AM  (Judas Swing — 15m only)
+  - Weekly H/L               (1h only)
+  - NY Midnight Range        (1h only)
+
+RR is computed per-trade via quant_signals.compute_trade_rr:
+  base 3:1 → upgraded by score, signal type, day of week, and quant bonus.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -42,6 +48,7 @@ from strategy.market_context import (
     price_in_ote,
 )
 from risk.position_sizer import calculate_size, calculate_targets
+from strategy.quant_signals import quant_bonus_score, compute_trade_rr
 from config import (
     MIN_CONFLUENCE_SCORE,
     MAX_TRADES_PER_DAY,
@@ -53,6 +60,7 @@ from config import (
     TRADE_END_HOUR,
     TRADE_END_MIN,
     SWEEP_TIMEOUT_MINUTES,
+    BACKTEST_INTERVAL,
 )
 
 EST = ZoneInfo("America/New_York")
@@ -150,7 +158,9 @@ class BacktestTrade:
     ote_used: bool = False
     news_penalty: int = 0
     setup_mode: str = "normal"    # normal | judas_reversal | post_claims
-    level_type: str = "asia"      # asia | pdh_pdl | pm_range
+    level_type: str = "asia"      # asia | pdh_pdl | pm_range | weekly | midnight | premarket
+    rr: float = 3.0               # actual RR target used for this trade
+    quant_bonus: int = 0          # 0–3 quant scoring points that upgraded the RR
 
 
 @dataclass
@@ -322,21 +332,31 @@ def _build_day_sweep_states(
     asia_low  = ar["low"]  if ar else None
     asia_high = ar["high"] if ar else None
 
-    # 1h bars: the 9 AM bar represents the full 9:00-10:00 AM open window.
-    # Lower the start gate and uncap max_depth (hourly ranges dwarf 5m max_depth).
-    is_hourly    = (interval == "1h")
-    starts_ny    = 9 * 60 if is_hourly else 9 * 60 + 30   # 9:00 vs 9:30 AM
-    asia_max_d   = 9999.0 if is_hourly else 80.0           # uncapped for 1h
-    sec_max_d    = 9999.0 if is_hourly else 150.0          # PDH/PDL max depth
+    is_hourly = (interval == "1h")
+    is_15m    = (interval == "15m")
+
+    # 1h bars: the 9 AM bar covers 9:00-10:00 AM — lower the start gate.
+    # 15m and 5m bars: first bar starts at 9:30 AM exactly.
+    starts_ny = 9 * 60 if is_hourly else 9 * 60 + 30
+
+    # Sweep depth windows scale with timeframe.
+    # 15m: minimum 15 pts (8 pts is too tight for a 15-minute bar's natural range).
+    # 5m:  minimum 8 pts (original calibration).
+    # 1h:  uncapped (hourly ranges naturally exceed 80 pts in volatile sessions).
+    asia_min_d = 15.0 if is_15m else 8.0
+    sec_min_d  = 15.0 if is_15m else 8.0
+    asia_max_d = 9999.0 if is_hourly else (200.0 if is_15m else 80.0)
+    sec_max_d  = 9999.0 if is_hourly else 250.0
 
     # ── Asia range sweeps ──────────────────────────────────────────────────────
     if ar:
-        al = SweepState("long",  "asia", threshold_boost=0, min_depth=8.0, max_depth=asia_max_d,
-                        starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
+        asia_expiry = 15 * 60 if is_hourly else 13 * 60 + 30
+        al = SweepState("long",  "asia", threshold_boost=0, min_depth=asia_min_d, max_depth=asia_max_d,
+                        starts_at_mins=starts_ny, expires_at_mins=asia_expiry)
         al.ref_level = asia_low
 
-        as_ = SweepState("short", "asia", threshold_boost=0, min_depth=8.0, max_depth=asia_max_d,
-                         starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
+        as_ = SweepState("short", "asia", threshold_boost=0, min_depth=asia_min_d, max_depth=asia_max_d,
+                         starts_at_mins=starts_ny, expires_at_mins=asia_expiry)
         as_.ref_level = asia_high
 
         # London carry-over: London already took liquidity — NY just needs MSS
@@ -370,15 +390,16 @@ def _build_day_sweep_states(
         add_pdl = asia_low  is None or abs(pdl_val - asia_low)  >= 5.0
         add_pdh = asia_high is None or abs(pdh_val - asia_high) >= 5.0
 
+        pdh_expiry = 15 * 60 if is_hourly else 13 * 60 + 30
         if add_pdl:
-            pdl_st = SweepState("long",  "pdh_pdl", threshold_boost=1, min_depth=8.0, max_depth=sec_max_d,
-                                starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
+            pdl_st = SweepState("long",  "pdh_pdl", threshold_boost=1, min_depth=sec_min_d, max_depth=sec_max_d,
+                                starts_at_mins=starts_ny, expires_at_mins=pdh_expiry)
             pdl_st.ref_level = pdl_val
             states.append(pdl_st)
 
         if add_pdh:
-            pdh_st = SweepState("short", "pdh_pdl", threshold_boost=1, min_depth=8.0, max_depth=sec_max_d,
-                                starts_at_mins=starts_ny, expires_at_mins=13 * 60 + 30)
+            pdh_st = SweepState("short", "pdh_pdl", threshold_boost=1, min_depth=sec_min_d, max_depth=sec_max_d,
+                                starts_at_mins=starts_ny, expires_at_mins=pdh_expiry)
             pdh_st.ref_level = pdh_val
             states.append(pdh_st)
 
@@ -466,10 +487,11 @@ def _build_day_sweep_states(
             mn_hi_st.ref_level = mnh
             states.append(mn_hi_st)
 
-    # ── Pre-market range (8:00–9:25 AM EST) sweeps — 5m ONLY ─────────────────
+    # ── Pre-market range (8:00–9:25 AM EST) sweeps — 15m + 5m, not 1h ─────────
     # Final institutional squeeze before RTH open. RTH sweep of pre-market H/L
     # = Judas Swing confirmed → institutional reversal. 1h bars lack the resolution
-    # to separate the pre-market range from the 9 AM bar, so 5m only.
+    # to separate the pre-market range from the 9 AM bar.
+    # On 15m: 6 pre-market bars form the range (8:00–9:15 AM), giving a clean H/L.
     if premarket_lvls and not is_hourly:
         pmk_h = premarket_lvls.get("high")
         pmk_l = premarket_lvls.get("low")
@@ -497,7 +519,7 @@ def _build_day_sweep_states(
 
 # ── Main backtest ──────────────────────────────────────────────────────────────
 
-def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
+def run_backtest(interval: str = BACKTEST_INTERVAL, period: str = "60d") -> BacktestResult:
     print(f"Loading NQ data ({period} / {interval}) ...")
     df = load_nq(interval=interval, period=period)
     df = label_sessions(df, interval=interval)
@@ -792,6 +814,8 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
         high     = float(row["High"])
         low      = float(row["Low"])
         vwap     = float(vwap_series.iloc[i]) if i < len(vwap_series) else None
+        vb_up1   = float(vwap_up1.iloc[i])    if i < len(vwap_up1)    else None
+        vb_lo1   = float(vwap_lo1.iloc[i])    if i < len(vwap_lo1)    else None
         vb_up2   = float(vwap_up2.iloc[i])    if i < len(vwap_up2)    else None
         vb_lo2   = float(vwap_lo2.iloc[i])    if i < len(vwap_lo2)    else None
 
@@ -992,6 +1016,18 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
             if min_score >= 99 or confluence.score < min_score:
                 continue
 
+            # ── Quant bonus & flexible RR ──────────────────────────────────────
+            qb = quant_bonus_score(
+                df=df, sweep_bar=sb, signal_dir=signal_dir, price=price,
+                vwap_upper1=vb_up1, vwap_lower1=vb_lo1,
+            )
+            trade_rr = compute_trade_rr(
+                score=confluence.score,
+                signal_type=state.level_type,
+                day_of_week=trade_date.weekday(),
+                quant_bonus=qb,
+            )
+
             # ── Build entry ────────────────────────────────────────────────────
             mss_idx = state.mss_bar_idx
             ob = None
@@ -1009,6 +1045,7 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                     stop_level  = round(float(highs.iloc[max(0, sb):i+1].max()) + 1.0, 2)
                     limit_entry = round(stop_level - MAX_STOP_POINTS, 2)
 
+            stop_dist = abs(limit_entry - stop_level)
             meta = dict(
                 signal_hour=est_dt.hour,
                 day_of_week=trade_date.weekday(),
@@ -1022,39 +1059,41 @@ def run_backtest(interval: str = "5m", period: str = "60d") -> BacktestResult:
                 news_penalty=news_check.get("score_penalty", 0),
                 setup_mode=setup_mode,
                 level_type=state.level_type,
+                rr=trade_rr,
+                quant_bonus=qb,
             )
 
             if signal_dir == "long":
+                tp1 = round(limit_entry + stop_dist * 1.0,       2)
+                tp2 = round(limit_entry + stop_dist * trade_rr,  2)
                 if low > limit_entry:
                     trade = _simulate_limit_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
-                        limit_entry=limit_entry, stop=stop_level,
+                        limit_entry=limit_entry, stop=stop_level, tp1=tp1, tp2=tp2,
                         trade_date=trade_date, score=confluence.score,
                         reason=confluence.reason, meta=meta,
                     )
                 else:
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
-                        entry=limit_entry, stop=stop_level,
-                        tp1=round(limit_entry + abs(limit_entry - stop_level) * 1.0, 2),
-                        tp2=round(limit_entry + abs(limit_entry - stop_level) * 2.0, 2),
+                        entry=limit_entry, stop=stop_level, tp1=tp1, tp2=tp2,
                         contracts=1, trade_date=trade_date, score=confluence.score,
                         reason=confluence.reason, meta=meta,
                     )
             else:
+                tp1 = round(limit_entry - stop_dist * 1.0,       2)
+                tp2 = round(limit_entry - stop_dist * trade_rr,  2)
                 if high < limit_entry:
                     trade = _simulate_limit_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
-                        limit_entry=limit_entry, stop=stop_level,
+                        limit_entry=limit_entry, stop=stop_level, tp1=tp1, tp2=tp2,
                         trade_date=trade_date, score=confluence.score,
                         reason=confluence.reason, meta=meta,
                     )
                 else:
                     trade = _simulate_trade(
                         df=df, start_idx=i + 1, direction=signal_dir,
-                        entry=limit_entry, stop=stop_level,
-                        tp1=round(limit_entry - abs(limit_entry - stop_level) * 1.0, 2),
-                        tp2=round(limit_entry - abs(limit_entry - stop_level) * 2.0, 2),
+                        entry=limit_entry, stop=stop_level, tp1=tp1, tp2=tp2,
                         contracts=1, trade_date=trade_date, score=confluence.score,
                         reason=confluence.reason, meta=meta,
                     )
@@ -1184,6 +1223,8 @@ def _simulate_limit_trade(
     direction: str,
     limit_entry: float,
     stop: float,
+    tp1: float,
+    tp2: float,
     trade_date,
     score: int,
     reason: str,
@@ -1192,8 +1233,6 @@ def _simulate_limit_trade(
     highs     = df["High"]
     lows      = df["Low"]
     est_dates = df.index.tz_convert(EST)
-    tp1 = round(limit_entry + MAX_STOP_POINTS * 1.5, 2) if direction == "long" else round(limit_entry - MAX_STOP_POINTS * 1.5, 2)
-    tp2 = round(limit_entry + MAX_STOP_POINTS * 3.0, 2) if direction == "long" else round(limit_entry - MAX_STOP_POINTS * 3.0, 2)
 
     for j in range(start_idx, min(start_idx + 150, len(df))):
         bar_date = est_dates[j].date()

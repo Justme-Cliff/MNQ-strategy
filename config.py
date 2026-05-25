@@ -25,19 +25,23 @@ WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8000"))
 
 # ── Risk parameters (non-negotiable) ──────────────────────────────────────────
 MAX_RISK_PER_TRADE   = 50       # dollars
-MAX_TRADES_PER_DAY   = 4       # 3 → 4: gap fill + up to 3 ICT/SB setups per day
-MAX_DAILY_LOSS       = 200      # dollars — raised proportionally for 4-trade limit
-MIN_CONFLUENCE_SCORE = 4        # out of 9
+MAX_TRADES_PER_DAY   = 2       # 2 high-quality 15m setups beats 4 noisy 5m entries
+MAX_DAILY_LOSS       = 100      # dollars — 2 × $50 max-risk trades
+MIN_CONFLUENCE_SCORE = 4        # out of 12 (12-point ICT scoring system)
 TRADE_START_HOUR     = 9
 TRADE_START_MIN      = 30
-TRADE_END_HOUR       = 12      # Extended to noon to capture London close sweep
+TRADE_END_HOUR       = 12      # Noon — captures London close sweep window
 TRADE_END_MIN        = 0
 MAX_STOP_POINTS      = 25       # MNQ: $50 / $2 per point
 SWEEP_TIMEOUT_MINUTES = 90     # Reset sweep detection after 90 min without MSS
-MIN_TARGET_POINTS    = 75       # 3:1 RR minimum
+MIN_TARGET_RR        = 3.0      # Minimum reward-to-risk (all setups)
+MAX_TARGET_RR        = 5.0      # Maximum reward-to-risk (best setups)
 CONSISTENCY_BUFFER   = 0.38     # fire at 38%; Tradeify rule is 40%
 DRAWDOWN_ALERT       = 200      # warn when remaining buffer < $200
 DRAWDOWN_BLOCK       = 100      # hard block when remaining buffer < $100
+
+# ── Backtest default timeframe ─────────────────────────────────────────────────
+BACKTEST_INTERVAL    = "15m"    # 15m: absorbs 5m whipsaw, better signal quality
 
 # ── Tradeify account constants ─────────────────────────────────────────────────
 STARTING_BALANCE       = 25_000

@@ -30,7 +30,7 @@ show_bg     = input.bool(true,  "Shade Trade Window",           group=g_vis)
 
 var g_thr   = "Day Thresholds (min score, 1-12)"
 min_mon = input.int(4,  "Monday    (Accumulation)",  minval=4, maxval=12, group=g_thr)
-min_tue = input.int(11, "Tuesday   (Manipulation)",  minval=4, maxval=12, group=g_thr, tooltip="ICT Judas Swing day. Bot blocks all Tuesday trades (unreachable 11/12). Only enable for confirmed Judas reversal setups.")
+min_tue = input.int(7,  "Tuesday   (Manipulation)",  minval=4, maxval=12, group=g_thr, tooltip="ICT Judas Swing day. Higher threshold (7/12) allows only near-perfect setups. Confirmed Judas reversals (2nd sweep, opposite direction) fire at normal threshold.")
 min_wed = input.int(4,  "Wednesday (Distribution)",  minval=4, maxval=12, group=g_thr)
 min_thu = input.int(4,  "Thursday  (Continuation)",  minval=4, maxval=12, group=g_thr, tooltip="Jobless claims 8:30 AM. Bot blocks Thursday SHORTS (17% WR in backtest). Longs allowed at normal threshold.")
 min_fri = input.int(4,  "Friday    (Close)",          minval=4, maxval=12, group=g_thr)
@@ -554,8 +554,8 @@ bear_or_opp    = bear_mss and or_dir == "bullish"
 // ═══════════════════════════════════════════════════════════════════════════════
 // 12-POINT CONFLUENCE SCORING
 // Matches the Python backtest engine exactly.
-// Points 10-12 (SMT, London, MSS strong) both ADD to the score AND penalize
-// the threshold when absent — quality setups are rewarded twice, weak ones blocked.
+// Points 10-12 (SMT, London, MSS strong) add to the score when present.
+// Absent conditions are already penalized by lower score — no double-penalty.
 // ═══════════════════════════════════════════════════════════════════════════════
 lp1  = bull_sweep       ? 1 : 0   //  1. Asia sweep detected
 lp2  = bull_mss         ? 1 : 0   //  2. MSS confirmed
@@ -586,16 +586,11 @@ sp12 = bear_mss_strong  ? 1 : 0
 long_score  = lp1 + lp2 + lp3 + lp4 + lp5 + lp6 + lp7 + lp8 + lp9 + lp10 + lp11 + lp12
 short_score = sp1 + sp2 + sp3 + sp4 + sp5 + sp6 + sp7 + sp8 + sp9 + sp10 + sp11 + sp12
 
-// Threshold penalty: +1 required when London opposes OR MSS is weak
-// (same factors that score +1 when present; they also raise the bar when absent)
-long_base  = (lp11 == 0 or lp12 == 0) ? min_score + 1 : min_score
-short_base = (sp11 == 0 or sp12 == 0) ? min_score + 1 : min_score
-
 // Day-of-week minimum (Sun=1 Mon=2 Tue=3 Wed=4 Thu=5 Fri=6)
 dow_min = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 5 ? min_thu : dow == 6 ? min_fri : min_score
 
-long_req  = math.max(long_base,  dow_min)
-short_req = math.max(short_base, dow_min)
+long_req  = math.max(min_score, dow_min)
+short_req = math.max(min_score, dow_min)
 
 // Thursday: bot blocks shorts (17% WR); Pine shows visual warning only
 thu_short_blocked = (dow == 5) and bear_mss  // visually flag it — bot handles the block
@@ -673,7 +668,7 @@ if show_dow and in_trade and not in_trade[1] and not dow_shown
     _dname = dow == 2 ? "MON  ACCUMULATION" : dow == 3 ? "TUE  MANIPULATION" : dow == 4 ? "WED  DISTRIBUTION" : dow == 5 ? "THU  CONTINUATION" : "FRI  CLOSE"
     _dthr  = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 5 ? min_thu : min_fri
     _dcol  = dow == 3 ? color.red : dow == 5 ? color.orange : dow == 2 ? color.green : dow == 4 ? color.aqua : color.blue
-    _note  = dow == 3 ? "  BLOCKED (Judas — 0% WR)" : dow == 5 ? "  Claims 8:30 AM — SHORTS BLOCKED" : ""
+    _note  = dow == 3 ? "  (Judas — high threshold)" : dow == 5 ? "  Claims 8:30 AM — SHORTS BLOCKED" : ""
     label.new(bar_index, na(today_lo) ? low : today_lo - (na(today_hi) ? 10 : (today_hi - today_lo) * 0.25), _dname + _note + "  Min: " + str.tostring(_dthr) + "/12", color=color.new(_dcol, 75), textcolor=_dcol, style=label.style_label_right, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -720,8 +715,8 @@ if barstate.islast
 
     _thu_c = (dow == 5) ? color.orange : color.new(color.gray, 60)
     table.cell(tbl, 0, 15, "Day filter",                                                              text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 1, 15, dow == 3 ? "BLOCKED" : dow == 5 ? "longs ok" : "ok",                     text_color=_thu_c,                    text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 2, 15, dow == 3 ? "BLOCKED" : dow == 5 ? "THU SHORT BLOCKED" : "ok",            text_color=dow == 5 ? color.orange : (dow == 3 ? color.red : color.new(color.gray, 50)), text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 1, 15, dow == 3 ? "high thr" : dow == 5 ? "longs ok" : "ok",                    text_color=_thu_c,                    text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 2, 15, dow == 3 ? "high thr" : dow == 5 ? "THU SHORT BLOCKED" : "ok",           text_color=dow == 5 ? color.orange : (dow == 3 ? color.orange : color.new(color.gray, 50)), text_size=size.small, bgcolor=color.new(color.black, 75))
 
     _bull_smt_c = bull_smt_divergent ? color.orange : color.new(color.gray, 40)
     _bear_smt_c = bear_smt_divergent ? color.orange : color.new(color.gray, 40)

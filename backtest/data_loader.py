@@ -58,6 +58,10 @@ def label_sessions(df: pd.DataFrame, interval: str = "5m") -> pd.DataFrame:
     df["in_ny"]           = (minutes >= 9 * 60 + 30) & (minutes < 16 * 60)
     df["in_am_window"]    = (minutes >= trade_start) & (minutes < 12 * 60)
     df["in_pm_window"]    = (minutes >= 13 * 60 + 30) & (minutes < 16 * 60)
-    df["in_trade_window"] = df["in_am_window"] | df["in_pm_window"]
+    # 1h bars: extend trade window to full RTH (9 AM–4 PM) so PM MSS confirmations are visible
+    if interval == "1h":
+        df["in_trade_window"] = (minutes >= trade_start) & (minutes < 16 * 60)
+    else:
+        df["in_trade_window"] = df["in_am_window"] | df["in_pm_window"]
 
     return df

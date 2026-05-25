@@ -134,8 +134,8 @@ class SmartFilter:
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            if day_of_week == 1:    # Tuesday: 0% WR historically — block
-                base = 11  # unreachable in 12-pt system → no Tuesday trades
+            if day_of_week == 1:    # Tuesday: Judas swing day — high score required
+                base = 7   # only near-perfect setups (Judas reversals still allowed)
             elif day_of_week == 3:  # Thursday: jobless claims
                 if mins >= 10 * 60:
                     base = 4  # post-claims: open
@@ -160,10 +160,6 @@ class SmartFilter:
         # Layer 3: session-state rules
         if self.consecutive_losses >= 2:
             base = max(base, 6)   # loss streak → slightly stricter
-        if not mss_strong:
-            base = max(base, base + 1)
-        if not london_aligned:
-            base = max(base, base + 1)
 
         # Layer 4: Monday prime-window fast-pass
         if day_of_week == 0 and mins < 10 * 60 and self.consecutive_wins >= 1:

@@ -34,7 +34,7 @@ if __name__ == "__main__":
         print("  24-MONTH BACKTEST  |  1-hour bars  |  Approximate")
         print("  (1h resolution: less precise but multi-regime validated)")
         print("=" * 60)
-        result_1h = run_backtest(interval="1h", period="730d")
+        result_1h = run_backtest(interval="1h", period="2y")
         stats_1h  = analyze(result_1h)
 
         if stats_1h:
