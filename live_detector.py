@@ -267,11 +267,13 @@ class LiveDetector:
             )
 
             dow = datetime.now(tz=EST).weekday()
+            sig_dir = "long" if direction == "bullish" else "short"
             min_score = smart.min_score_required(
                 hour, minute, dow,
                 london_aligned=london_ok,
                 mss_strong=mss_strong,
                 sweep_depth=sweep_d,
+                signal_direction=sig_dir,
             )
             if confluence.score < min_score:
                 _print_event(

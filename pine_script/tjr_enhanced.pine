@@ -587,17 +587,24 @@ long_score  = lp1 + lp2 + lp3 + lp4 + lp5 + lp6 + lp7 + lp8 + lp9 + lp10 + lp11 
 short_score = sp1 + sp2 + sp3 + sp4 + sp5 + sp6 + sp7 + sp8 + sp9 + sp10 + sp11 + sp12
 
 // Day-of-week minimum (Sun=1 Mon=2 Tue=3 Wed=4 Thu=5 Fri=6)
-dow_min = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 5 ? min_thu : dow == 6 ? min_fri : min_score
+// Tuesday: hard block (0% WR on 6 trades — both directions)
+// Friday longs: hard block (0% WR on 4 trades)
+// Shorts: minimum 7 regardless of DOW (score 5-6 shorts = 22-29% WR)
+// Longs: minimum 4 (score 4-6 longs = 53-73% WR — the better direction)
+dow_min = dow == 2 ? min_mon : dow == 4 ? min_wed : dow == 5 ? min_thu : dow == 6 ? min_fri : min_score
 
-long_req  = math.max(min_score, dow_min)
-short_req = math.max(min_score, dow_min)
+tue_blocked      = (dow == 3)               // Tuesday: hard block, both directions
+fri_long_blocked = (dow == 6)               // Friday longs: 0% WR — block
+
+long_req  = math.max(min_score, dow_min)    // longs: global floor (4+)
+short_req = math.max(7, dow_min)            // shorts always need 7+ (scores 5-6 = 22-29% WR)
 
 // Thursday: bot blocks shorts (17% WR); Pine shows visual warning only
-thu_short_blocked = (dow == 5) and bear_mss  // visually flag it — bot handles the block
+thu_short_blocked = (dow == 5) and bear_mss
 
 // Signal fires only if score meets threshold AND SMT is not divergent
-long_signal  = bull_mss and long_score  >= long_req  and in_trade and not (smt_enable and bull_smt_divergent)
-short_signal = bear_mss and short_score >= short_req and in_trade and not (smt_enable and bear_smt_divergent) and not thu_short_blocked
+long_signal  = bull_mss and long_score  >= long_req  and in_trade and not (smt_enable and bull_smt_divergent) and not tue_blocked and not fri_long_blocked
+short_signal = bear_mss and short_score >= short_req and in_trade and not (smt_enable and bear_smt_divergent) and not thu_short_blocked and not tue_blocked
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENTRY / STOP / TARGETS
@@ -668,8 +675,9 @@ if show_dow and in_trade and not in_trade[1] and not dow_shown
     _dname = dow == 2 ? "MON  ACCUMULATION" : dow == 3 ? "TUE  MANIPULATION" : dow == 4 ? "WED  DISTRIBUTION" : dow == 5 ? "THU  CONTINUATION" : "FRI  CLOSE"
     _dthr  = dow == 2 ? min_mon : dow == 3 ? min_tue : dow == 4 ? min_wed : dow == 5 ? min_thu : min_fri
     _dcol  = dow == 3 ? color.red : dow == 5 ? color.orange : dow == 2 ? color.green : dow == 4 ? color.aqua : color.blue
-    _note  = dow == 3 ? "  (Judas — high threshold)" : dow == 5 ? "  Claims 8:30 AM — SHORTS BLOCKED" : ""
-    label.new(bar_index, na(today_lo) ? low : today_lo - (na(today_hi) ? 10 : (today_hi - today_lo) * 0.25), _dname + _note + "  Min: " + str.tostring(_dthr) + "/12", color=color.new(_dcol, 75), textcolor=_dcol, style=label.style_label_right, size=size.small)
+    _note  = dow == 3 ? "  1st sweep BLOCKED — wait for Judas reversal (8+)" : dow == 5 ? "  Claims 8:30 AM — SHORTS BLOCKED" : dow == 6 ? "  (longs blocked — 0% WR)" : ""
+    _min_display = dow == 3 ? "Judas 2nd sweep: 8/12" : (str.tostring(_dthr) + "/12  |  shorts min 7/12")
+    label.new(bar_index, na(today_lo) ? low : today_lo - (na(today_hi) ? 10 : (today_hi - today_lo) * 0.25), _dname + _note + "  " + _min_display, color=color.new(_dcol, 75), textcolor=_dcol, style=label.style_label_right, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LIVE SCORE TABLE  (top-right, 12-point system)
@@ -713,10 +721,10 @@ if barstate.islast
     table.cell(tbl, 1, 14, london_dir,                                             text_color=_ldc,                      text_size=size.small, bgcolor=color.new(color.black, 75))
     table.cell(tbl, 2, 14, or_done ? "OR: " + or_dir : "OR: wait",                text_color=color.new(color.yellow, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
 
-    _thu_c = (dow == 5) ? color.orange : color.new(color.gray, 60)
     table.cell(tbl, 0, 15, "Day filter",                                                              text_color=color.new(color.gray, 10), text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 1, 15, dow == 3 ? "high thr" : dow == 5 ? "longs ok" : "ok",                    text_color=_thu_c,                    text_size=size.small, bgcolor=color.new(color.black, 75))
-    table.cell(tbl, 2, 15, dow == 3 ? "high thr" : dow == 5 ? "THU SHORT BLOCKED" : "ok",           text_color=dow == 5 ? color.orange : (dow == 3 ? color.orange : color.new(color.gray, 50)), text_size=size.small, bgcolor=color.new(color.black, 75))
+    _tue_c = (dow == 3) ? color.red : color.new(color.gray, 60)
+    table.cell(tbl, 1, 15, dow == 3 ? "Judas 2nd only" : dow == 6 ? "BLOCKED" : "ok",                         text_color=dow == 3 ? color.orange : (dow == 6 ? color.red : color.new(color.gray, 50)), text_size=size.small, bgcolor=color.new(color.black, 75))
+    table.cell(tbl, 2, 15, dow == 3 ? "Judas 2nd only" : dow == 5 ? "THU SHORT BLOCKED" : "min 7/12",        text_color=dow == 3 ? color.orange : (dow == 5 ? color.orange : color.new(color.gray, 50)), text_size=size.small, bgcolor=color.new(color.black, 75))
 
     _bull_smt_c = bull_smt_divergent ? color.orange : color.new(color.gray, 40)
     _bear_smt_c = bear_smt_divergent ? color.orange : color.new(color.gray, 40)

@@ -109,6 +109,7 @@ class SmartFilter:
         market_context: dict | None = None,
         judas_reversal_mode: bool = False,  # True = 2nd sweep opposite confirmed Judas
         threshold_boost: int = 0,           # Extra points required for secondary levels (PDH/PDL, PM range)
+        signal_direction: str = "",         # "long" or "short" — used for direction-specific blocks
     ) -> int:
         """
         Returns the minimum confluence score required to fire a signal.
@@ -130,21 +131,29 @@ class SmartFilter:
         """
         mins = bar_hour * 60 + bar_minute
 
-        # Layer 1: DOW base — balanced for volume AND quality
+        # Layer 1: DOW base — calibrated from 35-day 5m backtest (Round 6)
         if memory is not None:
             base = memory.min_score_for_dow(day_of_week)
         else:
-            if day_of_week == 1:    # Tuesday: Judas swing day — high score required
-                base = 7   # only near-perfect setups (Judas reversals still allowed)
+            if day_of_week == 1:    # Tuesday: block first sweep (the Judas trap)
+                if judas_reversal_mode:
+                    base = 8   # confirmed 2nd sweep opposite direction — allow at 8+
+                else:
+                    return 99  # 1st sweep on Tuesday = 0% WR — wait for the reversal
+            elif day_of_week == 4 and signal_direction == "long":  # Friday longs: 0% WR (0/4)
+                return 99
             elif day_of_week == 3:  # Thursday: jobless claims
                 if mins >= 10 * 60:
-                    base = 4  # post-claims: open
+                    base = 4  # post-claims
                 else:
                     base = 5  # pre-claims: slight caution
-            elif day_of_week == 4:  # Friday
-                base = 4
             else:
-                base = 4   # Mon / Wed: best days
+                base = 4   # Mon / Wed / Fri
+
+        # Short trades require higher confluence — score 5-6 shorts had 22-29% WR
+        # Long trades are fine at score 4+ (57% WR in backtest at score 4-6)
+        if signal_direction == "short":
+            base = max(base, 7)
 
         # Level-type boost: secondary reference levels require more confluence
         base += threshold_boost

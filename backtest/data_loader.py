@@ -20,7 +20,7 @@ def load_nq(interval: str = "5m", period: str = "60d") -> pd.DataFrame:
     Download NQ futures 5-minute bars.
     Returns DataFrame with DatetimeIndex (UTC) and standard OHLCV columns.
     """
-    ticker = yf.Ticker("NQ=F")
+    ticker = yf.Ticker("MNQ=F")  # same price as NQ=F; NQ=F intermittently delisted on yfinance
     df = ticker.history(period=period, interval=interval, auto_adjust=True)
 
     if df.empty:

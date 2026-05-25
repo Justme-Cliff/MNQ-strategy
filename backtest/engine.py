@@ -1011,6 +1011,7 @@ def run_backtest(interval: str = BACKTEST_INTERVAL, period: str = "60d") -> Back
                 market_context=market_ctx,
                 judas_reversal_mode=judas_mode,
                 threshold_boost=state.threshold_boost,
+                signal_direction=signal_dir,
             )
 
             if min_score >= 99 or confluence.score < min_score:
