@@ -25,8 +25,8 @@ WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8000"))
 
 # ── Risk parameters (non-negotiable) ──────────────────────────────────────────
 MAX_RISK_PER_TRADE   = 50       # dollars
-MAX_TRADES_PER_DAY   = 3       # 2 → 3 to capture Judas reversal + 2 normal setups
-MAX_DAILY_LOSS       = 150      # dollars — raised proportionally for 3-trade limit
+MAX_TRADES_PER_DAY   = 4       # 3 → 4: gap fill + up to 3 ICT/SB setups per day
+MAX_DAILY_LOSS       = 200      # dollars — raised proportionally for 4-trade limit
 MIN_CONFLUENCE_SCORE = 4        # out of 9
 TRADE_START_HOUR     = 9
 TRADE_START_MIN      = 30

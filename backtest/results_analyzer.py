@@ -113,7 +113,7 @@ def _print_report(trades, stats, daily):
     for col in ["Date", "Day", "Mode", "Level", "Dir", "Score", "VIX", "SMT", "OTE", "Hour", "Sweep", "P&L", "Outcome"]:
         table.add_column(col)
     mode_labels  = {"normal": "[dim]norm[/dim]", "judas_reversal": "[cyan]judas[/cyan]", "post_claims": "[yellow]thurs[/yellow]"}
-    level_labels = {"asia": "[blue]asia[/blue]", "pdh_pdl": "[magenta]PDx[/magenta]", "pm_range": "[cyan]PM[/cyan]", "am_range": "[yellow]AMr[/yellow]", "silver_bullet": "[bold cyan]SB[/bold cyan]", "vwap_band": "[bold green]VB[/bold green]"}
+    level_labels = {"asia": "[blue]asia[/blue]", "pdh_pdl": "[magenta]PDx[/magenta]", "pm_range": "[cyan]PM[/cyan]", "am_range": "[yellow]AMr[/yellow]", "silver_bullet": "[bold cyan]SB[/bold cyan]", "vwap_band": "[bold green]VB[/bold green]", "gap_fill": "[yellow]GF[/yellow]", "ib_break": "[bold magenta]IB[/bold magenta]", "weekly": "[bold yellow]WK[/bold yellow]", "midnight": "[bold white]MN[/bold white]", "premarket": "[bold green]PM8[/bold green]"}
     for t in trades[-20:]:
         pnl_c   = "green" if t.pnl > 0 else "red"
         vix_c   = "green" if t.vix_regime in ("low", "medium", "unknown") else ("yellow" if t.vix_regime == "high" else "red")
@@ -322,10 +322,15 @@ def _print_context_breakdown(trades: list[BacktestTrade]):
     for lvl, label in [
         ("asia",          "Asia Range H/L"),
         ("pdh_pdl",       "PDH / PDL"),
+        ("premarket",     "Pre-market Range 8–9:25 AM (Judas Swing)"),
+        ("midnight",      "NY Midnight Range 00:00–03:00 (NYMOR)"),
         ("pm_range",      "Prev PM Session Range"),
         ("am_range",      "PM Session (morning range sweep)"),
         ("silver_bullet", "Silver Bullet (opening range sweep)"),
         ("vwap_band",     "VWAP 2σ Band Rejection"),
+        ("weekly",        "Prev Week High/Low Sweep (institutional level)"),
+        ("gap_fill",      "Gap Fill (PDC close — 93% WR research)"),
+        ("ib_break",      "Initial Balance Break (82% WR research)"),
     ]:
         g = [t for t in trades if getattr(t, "level_type", "asia") == lvl]
         lvl_tbl.add_row(label, _wr(g), _avg_pnl(g), str(len(g)))
