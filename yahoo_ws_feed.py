@@ -70,10 +70,11 @@ class YahooWsFeed:
     """Real-time NQ price via ^NDX Yahoo Finance WebSocket + basis correction."""
 
     def __init__(self):
-        self._ndx:     float | None    = None   # raw ^NDX index price
-        self._basis:   float           = 0.0    # NQ futures - NDX offset
+        self._ndx:      float | None    = None   # raw ^NDX index price
+        self._basis:    float          = 0.0    # NQ futures - NDX offset
         self._calibrated               = False
-        self._updated: datetime | None = None
+        self._last_cal: datetime       = datetime.now(tz=EST)
+        self._updated:  datetime | None = None
         self._lock     = threading.Lock()
         self._running  = True
         self.connected = False
@@ -136,8 +137,10 @@ class YahooWsFeed:
                 with self._lock:
                     self._ndx     = p
                     self._updated = datetime.now(tz=EST)
-                    if not self._calibrated:
+                    # Recalibrate basis every 15 min (basis drifts as expiry approaches)
+                    if not self._calibrated or (datetime.now(tz=EST) - self._last_cal).total_seconds() > 900:
                         self._basis      = _calibrate_basis(p)
                         self._calibrated = True
+                        self._last_cal   = datetime.now(tz=EST)
 
         self.connected = False
