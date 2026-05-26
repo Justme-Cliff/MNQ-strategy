@@ -36,7 +36,7 @@ from backtest.data_loader import load_nq, label_sessions
 from backtest.quant_engine import _load_vix
 from notifications import (
     alert_signal, alert_session_start, alert_session_end, alert_risk_warning,
-    alert_breakeven,
+    alert_breakeven, alert_warning,
 )
 
 EST       = ZoneInfo("America/New_York")
@@ -234,8 +234,9 @@ def run_monitor():
                 side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
                 console.print(
                     f"\n  [bold yellow]⚡ {name} {lvl:.1f} CROSSED → {side}[/bold yellow]  "
-                    f"[dim]signal likely on next bar close[/dim]"
+                    f"[dim]signal likely on next bar close — get ready[/dim]"
                 )
+                alert_warning(name, f"Price crossed {lvl:.1f} → {direction.upper()} setup forming")
 
         # ── Live price ticker (overwrites same line) ───────────────────────
         if 9 <= h < 12 and price:
