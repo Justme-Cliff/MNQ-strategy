@@ -116,13 +116,7 @@ def run_monitor():
     # Show which feed is active
     from yahoo_ws_feed import YahooWsFeed
     if isinstance(feed, YahooWsFeed):
-        src = getattr(feed, "source", "connecting")
-        if src == "NQ=F":
-            feed_name = "[bold green]Yahoo WS NQ=F (exact real-time)[/bold green]"
-        elif src == "^NDX+basis":
-            feed_name = "[yellow]Yahoo WS ^NDX + basis (~$5 approx)[/yellow]"
-        else:
-            feed_name = "[cyan]Yahoo WS (connecting...)[/cyan]"
+        feed_name = "[bold green]Yahoo WS ^NDX + basis (real-time, ~$2-5 approx)[/bold green]"
     else:
         feed_name = "[yellow]yfinance (15-min delayed)[/yellow]"
     console.print(f"Price feed: {feed_name}")
@@ -169,7 +163,7 @@ def run_monitor():
             )
 
         # ── 12:00 PM session end ─────────────────────────────────────────
-        if h >= 12 and not warned_end:
+        if h >= 23 and not warned_end:
             warned_end = True
             alert_session_end()
             console.print(f"\n[bold red]12:00[/bold red]  Session over — stop trading.")
@@ -191,7 +185,7 @@ def run_monitor():
                     )
 
         # ── Live price ticker (overwrites same line) ───────────────────────
-        if 9 <= h < 12 and price:
+        if 9 <= h and price:
             age     = feed.age_seconds
             stale   = "[red]STALE[/red]" if age > 10 else ""
             console.print(
@@ -202,7 +196,7 @@ def run_monitor():
 
         # ── Bar close check ───────────────────────────────────────────────
         cur_bar = _bar_minute(now)
-        if cur_bar != last_bar_min and h >= 9 and h < 12:
+        if cur_bar != last_bar_min and h >= 9:
             last_bar_min = cur_bar
             t0 = time.monotonic()
             console.print()
