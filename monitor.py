@@ -116,7 +116,13 @@ def run_monitor():
     # Show which feed is active
     from yahoo_ws_feed import YahooWsFeed
     if isinstance(feed, YahooWsFeed):
-        feed_name = "[bold green]Yahoo WS ^NDX (real-time)[/bold green]"
+        src = getattr(feed, "source", "connecting")
+        if src == "NQ=F":
+            feed_name = "[bold green]Yahoo WS NQ=F (exact real-time)[/bold green]"
+        elif src == "^NDX+basis":
+            feed_name = "[yellow]Yahoo WS ^NDX + basis (~$5 approx)[/yellow]"
+        else:
+            feed_name = "[cyan]Yahoo WS (connecting...)[/cyan]"
     else:
         feed_name = "[yellow]yfinance (15-min delayed)[/yellow]"
     console.print(f"Price feed: {feed_name}")
