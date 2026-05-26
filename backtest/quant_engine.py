@@ -226,6 +226,127 @@ def _add_trade(
     return pnl, True
 
 
+# ── Core day scanner (shared by backtest and live monitor) ───────────────────
+
+def _scan_day(
+    df: pd.DataFrame,
+    vix_cache: dict,
+    today: date,
+    trades: list[QuantTrade],
+    day_names: list[str],
+) -> None:
+    """Scan one trading day and append any signals found to `trades`."""
+    dow = today.weekday()
+    if dow >= 5:
+        return
+
+    vix    = _get_vix(vix_cache, today)
+    market = classify_market_full(df, today, vix)
+    atr    = market["atr"]
+    trend  = market["ema_trend"]
+
+    trades_today = 0
+    daily_pnl    = 0.0
+    used_strats: set[str] = set()
+
+    est_idx  = df.index.tz_convert(EST)
+    today_df = df[est_idx.date == today].copy()
+
+    def _can_trade() -> bool:
+        return trades_today < MAX_TRADES_DAY and daily_pnl > -MAX_DAILY_LOSS
+
+    def _try(strategy, sig, detail="", max_hour=12) -> bool:
+        nonlocal trades_today, daily_pnl
+        if sig is None or not _can_trade():
+            return False
+        pnl, added = _add_trade(
+            trades, df, today, dow, strategy, sig, market, day_names, detail,
+            max_hour=max_hour,
+        )
+        if added:
+            trades_today += 1
+            daily_pnl    += pnl
+            used_strats.add(strategy)
+            return True
+        return False
+
+    def _1h_bias_ok(sig) -> bool:
+        try:
+            signal_ts = df.index[sig.signal_bar_idx]
+            pre = today_df[today_df.index < signal_ts]
+            if len(pre) < 6:
+                return True
+            hourly = pre.resample("1h").agg(
+                {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+            ).dropna()
+            if hourly.empty:
+                return True
+            last_h = hourly.iloc[-1]
+            o, c = float(last_h["Open"]), float(last_h["Close"])
+            if c > o * 1.0001:
+                return sig.direction == "long"
+            elif c < o * 0.9999:
+                return sig.direction == "short"
+            return True
+        except Exception:
+            return True
+
+    vix_ok_breakout = market["vix"] < 25
+
+    if _can_trade():
+        gap = detect_gap(df, today, atr, dow=dow)
+        if gap and direction_allowed(gap.direction, trend, strict=True):
+            _try("gap_fill", gap, f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
+
+    fvg_ok_trend = trend["direction"] == "neutral"
+    if _can_trade() and vix_ok_breakout and fvg_ok_trend and dow != 0:
+        fvg = detect_fvg(df, today, atr, trend["direction"])
+        if fvg and direction_allowed(fvg.direction, trend, strict=True):
+            _try("fvg", fvg, f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
+
+    if _can_trade() and vix_ok_breakout:
+        orb = detect_orb(df, today, atr, dow)
+        if orb:
+            ok = (trend["direction"] == "strong_bear" if orb.direction == "short"
+                  else trend["direction"] in ("strong_bull", "neutral"))
+            if ok and _1h_bias_ok(orb):
+                _try("orb", orb, f"ORB={orb.orb_range:.0f}pts [{orb.entry_type}]")
+
+    if _can_trade() and vix_ok_breakout and dow != 0 and "orb" not in used_strats:
+        ib = detect_ib(df, today, atr)
+        if ib and direction_allowed(ib.direction, trend, strict=True) and _1h_bias_ok(ib):
+            _try("ib_breakout", ib, f"IB={ib.ib_range:.0f}pts bias={ib.ib_bias}")
+
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap(df, today, vix, atr, max_signals=MAX_TRADES_DAY - trades_today):
+            if not _can_trade(): break
+            if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
+                _try("vwap_rev", vs, f"dev={vs.deviation_pts:.1f}pts")
+
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap(df, today, vix, atr,
+                               max_signals=MAX_TRADES_DAY - trades_today,
+                               start_min=13*60+30, end_min=15*60+30):
+            if not _can_trade(): break
+            if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
+                _try("vwap_pm", vs, f"PM dev={vs.deviation_pts:.1f}pts", max_hour=16)
+
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
+                                      max_signals=MAX_TRADES_DAY - trades_today):
+            if not _can_trade(): break
+            if direction_allowed(vs.direction, trend, strict=True):
+                _try("vwap_bounce", vs, f"bounce {trend['direction']}")
+
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
+                                      max_signals=MAX_TRADES_DAY - trades_today,
+                                      start_min=13*60+30, end_min=15*60+30):
+            if not _can_trade(): break
+            if direction_allowed(vs.direction, trend, strict=True):
+                _try("vwap_bounce_pm", vs, f"PM bounce {trend['direction']}", max_hour=16)
+
+
 # ── Main backtest ─────────────────────────────────────────────────────────────
 
 def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantTrade]:
@@ -240,173 +361,22 @@ def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantT
 
     est_idx   = df.index.tz_convert(EST)
     all_dates = sorted(set(est_idx.date))
-    trades: list[QuantTrade] = []
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    trades: list[QuantTrade] = []
 
     print(f"Scanning {len(all_dates)} trading days ...")
-
     for today in all_dates:
-        dow = today.weekday()
-        if dow >= 5:     # skip weekend timezone artifacts
-            continue
+        _scan_day(df, vix_cache, today, trades, day_names)
 
-        vix    = _get_vix(vix_cache, today)
-        market = classify_market_full(df, today, vix)
-        atr    = market["atr"]
-        trend  = market["ema_trend"]
+    return trades
 
-        trades_today = 0
-        daily_pnl    = 0.0
-        used_strats: set[str] = set()
 
-        def _can_trade() -> bool:
-            return trades_today < MAX_TRADES_DAY and daily_pnl > -MAX_DAILY_LOSS
-
-        def _try(strategy, sig, detail="", max_hour=12) -> bool:
-            nonlocal trades_today, daily_pnl
-            if sig is None:
-                return False
-            if not _can_trade():
-                return False
-            pnl, added = _add_trade(
-                trades, df, today, dow, strategy, sig, market, day_names, detail,
-                max_hour=max_hour,
-            )
-            if added:
-                trades_today += 1
-                daily_pnl += pnl
-                used_strats.add(strategy)
-                return True
-            return False
-
-        today_mask = est_idx.date == today
-        today_df   = df[today_mask].copy()
-
-        # ── 1h MTF bias helper ─────────────────────────────────────────────────
-        def _1h_bias_ok(sig) -> bool:
-            """
-            Returns False only if the completed 1h bar directly before the signal
-            contradicts the trade direction. Gap fill is exempt (fires before
-            any 1h bar completes). Neutral 1h → always OK.
-            """
-            try:
-                signal_ts = df.index[sig.signal_bar_idx]
-                # Only look at bars before the signal timestamp
-                pre = today_df[today_df.index < signal_ts]
-                if len(pre) < 6:     # less than 30 min of data → neutral
-                    return True
-                hourly = pre.resample("1h").agg(
-                    {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
-                ).dropna()
-                if hourly.empty:
-                    return True
-                last_h = hourly.iloc[-1]
-                o, c = float(last_h["Open"]), float(last_h["Close"])
-                if c > o * 1.0001:   # bullish 1h bar
-                    return sig.direction == "long"
-                elif c < o * 0.9999: # bearish 1h bar
-                    return sig.direction == "short"
-                return True          # flat → neutral → allow
-            except Exception:
-                return True
-
-        # ── Priority 1: Gap Fill ───────────────────────────────────────────────
-        if _can_trade():
-            gap = detect_gap(df, today, atr, dow=dow)   # now passes dow (Monday filter)
-            if gap and direction_allowed(gap.direction, trend, strict=True):
-                _try("gap_fill", gap,
-                     f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
-
-        # Breakout strategies: VIX < 25 (was 22 — mildly elevated VIX still ok in strong trend)
-        vix_ok_breakout = market["vix"] < 25
-
-        # ── Priority 2: FVG ───────────────────────────────────────────────────
-        fvg_ok_trend = trend["direction"] == "neutral"
-        if _can_trade() and vix_ok_breakout and fvg_ok_trend and dow != 0:
-            fvg = detect_fvg(df, today, atr, trend["direction"])
-            if fvg and direction_allowed(fvg.direction, trend, strict=True):
-                _try("fvg", fvg,
-                     f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
-
-        # ── Priority 3: ORB ───────────────────────────────────────────────────
-        if _can_trade() and vix_ok_breakout:
-            orb = detect_orb(df, today, atr, dow)
-            if orb:
-                if orb.direction == "short":
-                    ok = trend["direction"] == "strong_bear"
-                else:
-                    ok = trend["direction"] in ("strong_bull", "neutral")
-                if ok and _1h_bias_ok(orb):
-                    _try("orb", orb,
-                         f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
-
-        # ── Priority 4: IB Breakout ───────────────────────────────────────────
-        # Any trend direction: direction_allowed(strict=True) gates alignment
-        if _can_trade() and vix_ok_breakout and dow != 0 and "orb" not in used_strats:
-            ib = detect_ib(df, today, atr)
-            if ib and direction_allowed(ib.direction, trend, strict=True) and _1h_bias_ok(ib):
-                _try("ib_breakout", ib,
-                     f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR) bias={ib.ib_bias}")
-
-        # ── Priority 5: AM VWAP Reversion (9:45–11:30) ────────────────────────
-        if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
-            vwap_sigs = detect_vwap(df, today, vix, atr, max_signals=remaining)
-            for vs in vwap_sigs:
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
-                    _try("vwap_rev", vs,
-                         f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s) ATR={atr:.0f}")
-
-        # ── Priority 6: PM VWAP Reversion (1:30–3:30 PM) ────────────────────
-        if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
-            pm_sigs = detect_vwap(
-                df, today, vix, atr,
-                max_signals=remaining,
-                start_min=13 * 60 + 30,
-                end_min=15 * 60 + 30,
-            )
-            for vs in pm_sigs:
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
-                    _try("vwap_pm", vs,
-                         f"PM dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)",
-                         max_hour=16)
-
-        # ── Priority 7: AM VWAP Bounce (trending markets, 10:00–11:30) ────────
-        # VWAP acts as dynamic support/resistance in strong trends.
-        # Different from reversion: enters WITH the trend when price tests VWAP.
-        if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
-            bounce_sigs = detect_vwap_bounce(
-                df, today, vix, atr, trend["direction"],
-                max_signals=remaining,
-            )
-            for vs in bounce_sigs:
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True):
-                    _try("vwap_bounce", vs,
-                         f"VWAP bounce {trend['direction']} dev={vs.deviation_pts:.1f}pts")
-
-        # ── Priority 8: PM VWAP Bounce (trending markets, 1:30–3:30) ─────────
-        if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
-            pm_bounce = detect_vwap_bounce(
-                df, today, vix, atr, trend["direction"],
-                max_signals=remaining,
-                start_min=13 * 60 + 30,
-                end_min=15 * 60 + 30,
-            )
-            for vs in pm_bounce:
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True):
-                    _try("vwap_bounce_pm", vs,
-                         f"PM VWAP bounce {trend['direction']}",
-                         max_hour=16)
-
+def run_quant_today(df: pd.DataFrame, vix_cache: dict) -> list[QuantTrade]:
+    """
+    Scan only today using pre-loaded data — no download, runs in <100ms.
+    Used by the live monitor so it doesn't re-download on every bar close.
+    """
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    trades: list[QuantTrade] = []
+    _scan_day(df, vix_cache, date.today(), trades, day_names)
     return trades

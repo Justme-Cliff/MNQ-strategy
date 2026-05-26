@@ -1,29 +1,30 @@
 //@version=6
-indicator("NQ Quant System v2 — MNQ Day Trading", overlay=true,
-     max_boxes_count=60, max_labels_count=150, max_lines_count=60)
+indicator("NQ Quant System v3 — MNQ Day Trading", overlay=true,
+     max_boxes_count=100, max_labels_count=200, max_lines_count=80)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INPUTS
 // ═══════════════════════════════════════════════════════════════════════════
 
 g_disp = "Display"
-show_orb   = input.bool(true,  "ORB Box (9:30 bar)",          group=g_disp)
-show_ib    = input.bool(true,  "IB Box (9:30-10:00)",          group=g_disp)
-show_vwap  = input.bool(true,  "VWAP + 2-sigma Bands",         group=g_disp)
-show_prev  = input.bool(true,  "Prior Close (gap fill lvl)",   group=g_disp)
-show_fvg   = input.bool(true,  "FVG Zones",                    group=g_disp)
-show_sigs  = input.bool(true,  "Signal Labels",                group=g_disp)
-show_dash  = input.bool(true,  "Regime Dashboard",             group=g_disp)
-shade_rth  = input.bool(false, "Shade Trade Window (9:30-12)", group=g_disp)
+show_orb      = input.bool(true,  "ORB Box (9:30 bar)",           group=g_disp)
+show_ib       = input.bool(true,  "IB Box (9:30-10:00)",           group=g_disp)
+show_vwap     = input.bool(true,  "VWAP + Bands",                  group=g_disp)
+show_prev     = input.bool(true,  "Prior Close (gap fill lvl)",    group=g_disp)
+show_fvg      = input.bool(true,  "FVG Zones",                     group=g_disp)
+show_sigs     = input.bool(true,  "Signal Labels",                 group=g_disp)
+show_dash     = input.bool(true,  "Regime Dashboard",              group=g_disp)
+shade_rth     = input.bool(false, "Shade Trade Window (9:30-12)",  group=g_disp)
+show_pm       = input.bool(true,  "Show PM Session (1:30-3:30)",   group=g_disp)
 
 g_par = "Strategy Parameters"
-vix_elev    = input.float(22.0, "VIX Elevated Threshold", group=g_par, minval=15.0, maxval=35.0)
-ema_strong  = input.float(3.0,  "EMA% Threshold - strong", group=g_par, minval=1.0,  maxval=5.0)
-ema_mild    = input.float(1.0,  "EMA% Threshold - trend",  group=g_par, minval=0.25, maxval=3.0)
-orb_min_atr = input.float(0.025,"ORB Min (x ATR)",         group=g_par, minval=0.01, maxval=0.10)
-orb_max_atr = input.float(0.50, "ORB Max (x ATR)",         group=g_par, minval=0.10, maxval=1.00)
-ib_min_atr  = input.float(0.05, "IB Min (x ATR)",          group=g_par, minval=0.02, maxval=0.15)
-ib_max_atr  = input.float(0.65, "IB Max (x ATR)",          group=g_par, minval=0.20, maxval=1.00)
+vix_elev    = input.float(25.0, "VIX Threshold (strategies off above)", group=g_par, minval=15.0, maxval=40.0)
+ema_strong  = input.float(3.0,  "EMA% Threshold - strong",  group=g_par, minval=1.0,  maxval=5.0)
+ema_mild    = input.float(1.0,  "EMA% Threshold - trend",   group=g_par, minval=0.25, maxval=3.0)
+orb_min_atr = input.float(0.025,"ORB Min (x ATR)",          group=g_par, minval=0.01, maxval=0.10)
+orb_max_atr = input.float(0.50, "ORB Max (x ATR)",          group=g_par, minval=0.10, maxval=1.00)
+ib_min_atr  = input.float(0.05, "IB Min (x ATR)",           group=g_par, minval=0.02, maxval=0.15)
+ib_max_atr  = input.float(0.65, "IB Max (x ATR)",           group=g_par, minval=0.20, maxval=1.00)
 
 g_src = "Data Sources"
 vix_sym = input.string("TVC:VIX", "VIX Symbol", group=g_src)
@@ -40,7 +41,7 @@ d_prev_cls = request.security(syminfo.tickerid, "D", close[1],          lookahea
 d_open     = request.security(syminfo.tickerid, "D", open,              lookahead=barmerge.lookahead_off)
 d_vix      = request.security(vix_sym,          "D", close,             lookahead=barmerge.lookahead_off)
 
-// Adaptive ATR: max(5-day, 20-day)
+// Adaptive ATR: max(5-day, 20-day) — never stale during a spike
 atr_adapt = math.max(nz(d_atr5, 200.0), nz(d_atr20, 200.0))
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -56,7 +57,7 @@ trend_dir = (ema_spread > ema_strong  ? "STRONG BULL" :
 
 vix_now    = nz(d_vix, 18.0)
 vix_regime = (vix_now >= 35 ? "CRISIS" :
-              vix_now >= 22 ? "ELEVATED" :
+              vix_now >= 25 ? "ELEVATED" :
               vix_now >= 15 ? "NORMAL" : "LOW")
 
 vix_ok = vix_now < vix_elev
@@ -66,13 +67,23 @@ trend_bear        = str.contains(trend_dir, "BEAR") or trend_dir == "bear"
 trend_strong_bull = trend_dir == "STRONG BULL"
 trend_strong_bear = trend_dir == "STRONG BEAR"
 trend_neutral     = trend_dir == "neutral"
+trend_trending    = trend_bull or trend_bear  // any directional trend
 
-// ORB: strong trend + neutral only (83%+ WR in those regimes)
-orb_long_regime  = vix_ok and (trend_strong_bull or trend_neutral)
-orb_short_regime = vix_ok and trend_strong_bear
+// ORB: all non-Monday/Tuesday longs; any trend
+orb_long_regime  = vix_ok and (trend_strong_bull or trend_bull or trend_neutral)
+orb_short_regime = vix_ok and (trend_strong_bear or trend_bear)
 
-// FVG / IB / VWAP: neutral markets only
-mean_rev_regime = vix_ok and trend_neutral
+// IB Breakout: any trend (direction_allowed handles alignment)
+ib_regime = vix_ok
+
+// VWAP reversion: any trend, VIX < 25 (direction filter handles alignment)
+vwap_rev_regime = vix_ok
+
+// VWAP bounce: trending markets only (bull or bear), VIX < 25
+vwap_bounce_regime = vix_ok and trend_trending
+
+// FVG: neutral trend only, VIX < 25
+fvg_regime_ok = vix_ok and trend_neutral
 
 // Gap Fill direction gates
 gap_long_ok  = not trend_bear and not trend_strong_bear
@@ -85,25 +96,29 @@ gap_short_ok = trend_neutral or trend_bear or trend_strong_bear
 ET = "America/New_York"
 
 in_rth   = not na(time(timeframe.period, "0930-1200", ET))
+in_pm    = not na(time(timeframe.period, "1330-1530", ET))
 bar_hr   = hour(time, ET)
 bar_min  = minute(time, ET)
 bar_mins = bar_hr * 60 + bar_min
 
 is_930      = in_rth and bar_hr == 9 and bar_min == 30
-is_in_ib    = in_rth and bar_mins < 600
-is_c_period = in_rth and bar_mins >= 600 and bar_mins < 630
+is_in_ib    = in_rth and bar_mins < 600            // 9:30-10:00
+is_c_period = in_rth and bar_mins >= 600 and bar_mins < 630   // 10:00-10:30
 
 new_day = ta.change(time("D")) != 0
 
-var int rth_start_idx = na
-var int ib_end_idx    = na
+var int rth_open_time = na
 if is_930
-    rth_start_idx := bar_index
-if is_in_ib
-    ib_end_idx := bar_index
+    rth_open_time := time
+
+// Time windows
+vwap_am_window = in_rth and bar_mins >= 585 and bar_mins < 690   // 9:45-11:30
+vwap_pm_window = in_pm and bar_mins >= 810 and bar_mins < 930     // 1:30-3:30
+bounce_am_window = in_rth and bar_mins >= 600 and bar_mins < 690  // 10:00-11:30
+bounce_pm_window = in_pm                                           // 1:30-3:30
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SESSION VWAP + 2-SIGMA BANDS
+// SESSION VWAP + BANDS
 // ═══════════════════════════════════════════════════════════════════════════
 
 var float cum_tp_vol = na
@@ -117,7 +132,7 @@ if new_day or na(cum_tp_vol)
     cum_sq_dev := 0.0
     vwap_bars  := 0
 
-if in_rth and volume > 0
+if (in_rth or in_pm) and volume > 0
     tp = (high + low + close) / 3.0
     cum_tp_vol += tp * volume
     cum_volume += volume
@@ -125,12 +140,22 @@ if in_rth and volume > 0
 
 vwap_val = cum_volume > 0 ? cum_tp_vol / cum_volume : close
 
-if in_rth and vwap_bars > 1
+if (in_rth or in_pm) and vwap_bars > 1
     cum_sq_dev += math.pow(close - vwap_val, 2)
 
 rolling_std = vwap_bars > 1 ? math.sqrt(cum_sq_dev / math.max(vwap_bars - 1, 1)) : 0.0
-vwap_upper  = vwap_val + 2.0 * rolling_std
-vwap_lower  = vwap_val - 2.0 * rolling_std
+
+// 1.5σ = signal bands (reversion entry)
+vwap_upper_15 = vwap_val + 1.5 * rolling_std
+vwap_lower_15 = vwap_val - 1.5 * rolling_std
+
+// 2.5σ = stop reference (outer bands)
+vwap_upper_25 = vwap_val + 2.5 * rolling_std
+vwap_lower_25 = vwap_val - 2.5 * rolling_std
+
+// 0.5σ = bounce zone (price "at VWAP")
+vwap_upper_05 = vwap_val + 0.5 * rolling_std
+vwap_lower_05 = vwap_val - 0.5 * rolling_std
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GAP FILL DETECTION
@@ -141,7 +166,9 @@ gap_size  = math.abs(gap_pts)
 gap_pct   = nz(d_prev_cls) > 0 ? gap_size / nz(d_prev_cls) : 0.0
 gap_ratio = atr_adapt > 0 ? gap_size / atr_adapt : 0.0
 
-gap_valid = gap_size >= 2.0 and gap_ratio < 0.30 and gap_pct < 0.0055
+// Tiny gap: 2pt min, < 0.20× ATR, < 0.55% of price, not Monday
+gap_valid = (gap_size >= 2.0 and gap_ratio < 0.20 and gap_pct < 0.0055 and
+             dayofweek != dayofweek.monday)
 
 first_bar_bullish = close[1] > open[1]
 first_bar_bearish = close[1] < open[1]
@@ -151,7 +178,7 @@ gap_long  = prev_was_930 and gap_valid[1] and gap_pts[1] < 0 and first_bar_bulli
 gap_short = prev_was_930 and gap_valid[1] and gap_pts[1] > 0 and first_bar_bearish and gap_short_ok
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ORB (Opening Range Breakout)
+// ORB (Opening Range Breakout) — pullback entry
 // ═══════════════════════════════════════════════════════════════════════════
 
 var float orb_hi   = na
@@ -166,12 +193,10 @@ if is_930
     if show_orb and not na(orb_box)
         box.delete(orb_box)
     if show_orb
-        orb_box := box.new(bar_index, orb_hi, bar_index + 80, orb_lo,
+        orb_box := box.new(time, orb_hi, time + 150 * 60 * 1000, orb_lo,
+             xloc=xloc.bar_time,
              border_color=color.blue, border_width=1, border_style=line.style_dashed,
              bgcolor=color.new(color.blue, 90))
-
-if show_orb and not na(orb_box) and not is_930
-    box.set_right(orb_box, bar_index + 10)
 
 orb_range   = nz(orb_hi) - nz(orb_lo)
 orb_ok_size = (atr_adapt > 0 and
@@ -179,11 +204,12 @@ orb_ok_size = (atr_adapt > 0 and
                orb_range <= atr_adapt * orb_max_atr)
 
 dow = dayofweek
-orb_not_mon_tue_long = dow != dayofweek.monday and dow != dayofweek.tuesday
+// Mon + Tue longs blocked (historically weak ORB days)
+orb_not_mon_tue = dow != dayofweek.monday and dow != dayofweek.tuesday
 
 orb_long_sig = (not orb_done and in_rth and not is_in_ib and
                 not na(orb_hi) and orb_ok_size and orb_long_regime and
-                close > orb_hi and close > vwap_val and orb_not_mon_tue_long)
+                close > orb_hi and close > vwap_val and orb_not_mon_tue)
 
 orb_short_sig = (not orb_done and in_rth and not is_in_ib and
                  not na(orb_lo) and orb_ok_size and orb_short_regime and
@@ -223,82 +249,139 @@ if is_in_ib
         ib_lo     := low
         ib_lo_idx := bar_index
 
-if not ib_box_drawn and not is_in_ib and in_rth and not na(ib_hi) and not na(rth_start_idx)
+if not ib_box_drawn and not is_in_ib and in_rth and not na(ib_hi) and not na(rth_open_time)
     ib_bias      := ib_hi_idx <= ib_lo_idx ? "bearish" : "bullish"
     ib_box_drawn := true
     if show_ib
-        ib_box := box.new(rth_start_idx, ib_hi, bar_index + 80, ib_lo,
+        ib_box := box.new(rth_open_time, ib_hi, rth_open_time + 30 * 60 * 1000, ib_lo,
+             xloc=xloc.bar_time,
              border_color=color.purple, border_width=1, border_style=line.style_dashed,
              bgcolor=color.new(color.purple, 92))
-
-if show_ib and not na(ib_box)
-    box.set_right(ib_box, bar_index + 10)
 
 ib_range   = nz(ib_hi) - nz(ib_lo)
 ib_ok_size = (atr_adapt > 0 and
               ib_range >= math.max(5.0, atr_adapt * ib_min_atr) and
               ib_range <= atr_adapt * ib_max_atr)
 
+// IB fires in any trend (direction_allowed gates per-trade direction)
 ib_long_sig = (not ib_done and is_c_period and not na(ib_hi) and ib_ok_size and
-               mean_rev_regime and ib_bias == "bullish" and
-               close > ib_hi and (close - ib_hi) <= 20.0)
+               ib_regime and ib_bias == "bullish" and
+               close > ib_hi and (close - ib_hi) <= 20.0 and
+               (trend_bull or trend_strong_bull or trend_neutral))
 
 ib_short_sig = (not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and
-                mean_rev_regime and ib_bias == "bearish" and
-                close < ib_lo and (ib_lo - close) <= 20.0)
+                ib_regime and ib_bias == "bearish" and
+                close < ib_lo and (ib_lo - close) <= 20.0 and
+                (trend_bear or trend_strong_bear or trend_neutral))
 
 if ib_long_sig or ib_short_sig
     ib_done := true
 
 // ═══════════════════════════════════════════════════════════════════════════
-// VWAP REVERSION SIGNALS (neutral trend only)
+// VWAP REVERSION — 1.5σ signal, AM + PM sessions
 // ═══════════════════════════════════════════════════════════════════════════
 
-var bool vwap_l_done = false
-var bool vwap_s_done = false
+var bool vwap_l_done    = false
+var bool vwap_s_done    = false
+var bool vwap_pm_l_done = false
+var bool vwap_pm_s_done = false
 
 if new_day
-    vwap_l_done := false
-    vwap_s_done := false
+    vwap_l_done    := false
+    vwap_s_done    := false
+    vwap_pm_l_done := false
+    vwap_pm_s_done := false
 
-vwap_min_dev   = math.max(5.0, atr_adapt * 0.025)
-vwap_max_dev   = math.min(50.0, atr_adapt * 0.18)
-vwap_dev       = math.abs(close - vwap_val)
-vwap_in_window = in_rth and bar_mins >= 585 and bar_mins < 690
+vwap_min_dev = math.max(5.0, atr_adapt * 0.025)
+vwap_max_dev = math.min(50.0, atr_adapt * 0.18)
+vwap_dev     = math.abs(close - vwap_val)
 
-vwap_long_sig = (not vwap_l_done and vwap_in_window and mean_rev_regime and
-                 close < vwap_lower and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
+// AM reversion (9:45-11:30)
+vwap_long_sig = (not vwap_l_done and vwap_am_window and vwap_rev_regime and
+                 (trend_neutral or trend_bull or trend_strong_bull) and   // long-friendly trends
+                 close < vwap_lower_15 and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
 
-vwap_short_sig = (not vwap_s_done and vwap_in_window and mean_rev_regime and
-                  close > vwap_upper and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
+vwap_short_sig = (not vwap_s_done and vwap_am_window and vwap_rev_regime and
+                  (trend_neutral or trend_bear or trend_strong_bear) and
+                  close > vwap_upper_15 and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
 
 if vwap_long_sig
     vwap_l_done := true
 if vwap_short_sig
     vwap_s_done := true
 
+// PM reversion (1:30-3:30)
+vwap_pm_long_sig = (not vwap_pm_l_done and vwap_pm_window and vwap_rev_regime and
+                    (trend_neutral or trend_bull or trend_strong_bull) and
+                    close < vwap_lower_15 and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
+
+vwap_pm_short_sig = (not vwap_pm_s_done and vwap_pm_window and vwap_rev_regime and
+                     (trend_neutral or trend_bear or trend_strong_bear) and
+                     close > vwap_upper_15 and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
+
+if vwap_pm_long_sig
+    vwap_pm_l_done := true
+if vwap_pm_short_sig
+    vwap_pm_s_done := true
+
 // ═══════════════════════════════════════════════════════════════════════════
-// FVG ZONE DETECTION (neutral + VIX ok + 9:45-11:30)
+// VWAP BOUNCE — trend continuation at VWAP, AM + PM
 // ═══════════════════════════════════════════════════════════════════════════
 
-fvg_window = in_rth and bar_mins >= 585 and bar_mins < 690
-fvg_regime = mean_rev_regime and fvg_window
-fvg_min_sz = math.max(6.0, atr_adapt * 0.04)
-fvg_max_sz = atr_adapt * 0.15
+var bool bounce_am_done    = false
+var bool bounce_pm_done    = false
 
-bull_fvg_sz = low - high[2]
-bull_fvg_ok = fvg_regime and bull_fvg_sz >= fvg_min_sz and bull_fvg_sz <= fvg_max_sz
+if new_day
+    bounce_am_done := false
+    bounce_pm_done := false
 
-bear_fvg_sz = low[2] - high
-bear_fvg_ok = fvg_regime and bear_fvg_sz >= fvg_min_sz and bear_fvg_sz <= fvg_max_sz
+// Price "at VWAP": within ±0.5σ band
+at_vwap = close >= vwap_lower_05 and close <= vwap_upper_05
+
+// AM bounce (10:00-11:30)
+bounce_am_long_sig  = (not bounce_am_done and bounce_am_window and vwap_bounce_regime and
+                       (trend_bull or trend_strong_bull) and at_vwap)
+
+bounce_am_short_sig = (not bounce_am_done and bounce_am_window and vwap_bounce_regime and
+                       (trend_bear or trend_strong_bear) and at_vwap)
+
+if bounce_am_long_sig or bounce_am_short_sig
+    bounce_am_done := true
+
+// PM bounce (1:30-3:30)
+bounce_pm_long_sig  = (not bounce_pm_done and bounce_pm_window and vwap_bounce_regime and
+                       (trend_bull or trend_strong_bull) and at_vwap)
+
+bounce_pm_short_sig = (not bounce_pm_done and bounce_pm_window and vwap_bounce_regime and
+                       (trend_bear or trend_strong_bear) and at_vwap)
+
+if bounce_pm_long_sig or bounce_pm_short_sig
+    bounce_pm_done := true
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FVG ZONE DETECTION (neutral + VIX ok + 9:45-11:30, no Monday)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fvg_window   = vwap_am_window and dow != dayofweek.monday
+fvg_active   = fvg_regime_ok and fvg_window
+fvg_min_sz   = math.max(6.0, atr_adapt * 0.04)
+fvg_max_sz   = atr_adapt * 0.15
+
+bull_fvg_sz  = low - high[2]
+bull_fvg_ok  = fvg_active and bull_fvg_sz >= fvg_min_sz and bull_fvg_sz <= fvg_max_sz
+
+bear_fvg_sz  = low[2] - high
+bear_fvg_ok  = fvg_active and bear_fvg_sz >= fvg_min_sz and bear_fvg_sz <= fvg_max_sz
 
 if show_fvg and bull_fvg_ok
-    box.new(bar_index - 2, low, bar_index + 25, high[2],
+    box.new(time[2], low, time + 120 * 60 * 1000, high[2],
+         xloc=xloc.bar_time,
          border_color=color.new(color.lime, 30), border_width=1,
          bgcolor=color.new(color.lime, 82))
 
 if show_fvg and bear_fvg_ok
-    box.new(bar_index - 2, low[2], bar_index + 25, high,
+    box.new(time[2], low[2], time + 120 * 60 * 1000, high,
+         xloc=xloc.bar_time,
          border_color=color.new(color.red, 30), border_width=1,
          bgcolor=color.new(color.red, 82))
 
@@ -306,21 +389,41 @@ if show_fvg and bear_fvg_ok
 // PLOTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-plot(show_vwap and in_rth ? vwap_val   : na, "VWAP",     color=color.orange,                linewidth=2)
-plot(show_vwap and in_rth ? vwap_upper : na, "VWAP+2sd", color=color.new(color.orange, 45), linewidth=1)
-plot(show_vwap and in_rth ? vwap_lower : na, "VWAP-2sd", color=color.new(color.orange, 45), linewidth=1)
+plot_active = in_rth or (show_pm and in_pm)
+
+// VWAP
+plot(show_vwap and plot_active ? vwap_val      : na, "VWAP",      color=color.orange, linewidth=2)
+// 1.5σ signal bands (solid)
+plot(show_vwap and plot_active ? vwap_upper_15 : na, "VWAP+1.5sd", color=color.new(color.orange, 35), linewidth=1)
+plot(show_vwap and plot_active ? vwap_lower_15 : na, "VWAP-1.5sd", color=color.new(color.orange, 35), linewidth=1)
+// 2.5σ outer bands (faint, stop reference)
+plot(show_vwap and plot_active ? vwap_upper_25 : na, "VWAP+2.5sd", color=color.new(color.orange, 75), linewidth=1, style=plot.style_circles)
+plot(show_vwap and plot_active ? vwap_lower_25 : na, "VWAP-2.5sd", color=color.new(color.orange, 75), linewidth=1, style=plot.style_circles)
+// 0.5σ bounce zone (dashed — shaded when bounce regime active)
+vwap_bounce_upper_plot = show_vwap and vwap_bounce_regime and plot_active ? vwap_upper_05 : na
+vwap_bounce_lower_plot = show_vwap and vwap_bounce_regime and plot_active ? vwap_lower_05 : na
+p_bu = plot(vwap_bounce_upper_plot, "VWAP+0.5sd (bounce)", color=color.new(color.teal, 60), linewidth=1, style=plot.style_stepline)
+p_bl = plot(vwap_bounce_lower_plot, "VWAP-0.5sd (bounce)", color=color.new(color.teal, 60), linewidth=1, style=plot.style_stepline)
+fill(p_bu, p_bl, color=color.new(color.teal, 92), title="VWAP Bounce Zone")
 
 bgcolor(shade_rth and in_rth ? color.new(color.blue, 97) : na, title="Trade Window")
+bgcolor(show_pm and in_pm    ? color.new(color.purple, 97) : na, title="PM Window")
 
 if show_prev and is_930 and not na(d_prev_cls)
-    line.new(bar_index, d_prev_cls, bar_index + 90, d_prev_cls,
+    line.new(time, d_prev_cls, time + 150 * 60 * 1000, d_prev_cls,
+         xloc=xloc.bar_time,
          color=color.new(color.gray, 20), width=1, style=line.style_dashed)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SIGNAL LABELS
 // ═══════════════════════════════════════════════════════════════════════════
 
+stop_atr = math.max(8.0, atr_adapt * 0.06)
+bounce_stop_dist   = math.max(5.0,  atr_adapt * 0.03)
+bounce_target_dist = math.max(12.0, atr_adapt * 0.08)
+
 if show_sigs
+    // ── Gap Fill ──────────────────────────────────────────────────────────
     if gap_long
         entry_p = open
         stop_p  = low[1] - 2.0
@@ -345,10 +448,12 @@ if show_sigs
              color=color.new(color.maroon, 15), textcolor=color.white,
              style=label.style_label_down, size=size.small)
 
+    // ── ORB ───────────────────────────────────────────────────────────────
     if orb_long_sig
         entry_p = close
-        stop_p  = math.max(orb_hi - orb_range * 0.5, entry_p - 25)
-        tgt_p   = entry_p + orb_range
+        risk_p  = entry_p - math.max(orb_hi - 2.0, entry_p - 25)
+        tgt_p   = entry_p + math.min(orb_range, risk_p * 3.0)
+        stop_p  = entry_p - risk_p
         label.new(bar_index, high + atr_adapt * 0.01,
              "ORB LONG  [" + trend_dir + "]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
@@ -359,8 +464,9 @@ if show_sigs
 
     if orb_short_sig
         entry_p = close
-        stop_p  = math.min(orb_lo + orb_range * 0.5, entry_p + 25)
-        tgt_p   = entry_p - orb_range
+        risk_p  = math.min(orb_lo + 2.0, entry_p + 25) - entry_p
+        tgt_p   = entry_p - math.min(orb_range, risk_p * 3.0)
+        stop_p  = entry_p + risk_p
         label.new(bar_index, low - atr_adapt * 0.01,
              "ORB SHORT  [" + trend_dir + "]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
@@ -369,15 +475,16 @@ if show_sigs
              color=color.new(color.red, 10), textcolor=color.white,
              style=label.style_label_up, size=size.small)
 
+    // ── IB Breakout ───────────────────────────────────────────────────────
     if ib_long_sig
         entry_p = close
         stop_p  = ib_hi - 2.0
         tgt_p   = ib_hi + ib_range * 0.75
         label.new(bar_index, high + atr_adapt * 0.01,
-             "IB BREAKOUT LONG  [" + ib_bias + "]\nE:" + str.tostring(entry_p, "#.0") +
+             "IB BREAKOUT LONG  [" + trend_dir + "]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
              "  T:" + str.tostring(tgt_p, "#.0") +
-             "\nIB=" + str.tostring(ib_range, "#.0") + "pt",
+             "\nIB=" + str.tostring(ib_range, "#.0") + "pt  bias=" + ib_bias,
              color=color.new(color.purple, 10), textcolor=color.white,
              style=label.style_label_down, size=size.small)
 
@@ -386,44 +493,118 @@ if show_sigs
         stop_p  = ib_lo + 2.0
         tgt_p   = ib_lo - ib_range * 0.75
         label.new(bar_index, low - atr_adapt * 0.01,
-             "IB BREAKOUT SHORT  [" + ib_bias + "]\nE:" + str.tostring(entry_p, "#.0") +
+             "IB BREAKOUT SHORT  [" + trend_dir + "]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
              "  T:" + str.tostring(tgt_p, "#.0") +
-             "\nIB=" + str.tostring(ib_range, "#.0") + "pt",
+             "\nIB=" + str.tostring(ib_range, "#.0") + "pt  bias=" + ib_bias,
              color=color.new(color.purple, 10), textcolor=color.white,
              style=label.style_label_up, size=size.small)
 
+    // ── VWAP Reversion AM ─────────────────────────────────────────────────
     if vwap_long_sig
-        entry_p   = close
-        stop_dist = math.max(8.0, atr_adapt * 0.06)
-        stop_p    = entry_p - stop_dist
-        tgt_p     = vwap_val
+        entry_p = close
+        stop_p  = entry_p - stop_atr
+        tgt_p   = vwap_val
         label.new(bar_index, low - atr_adapt * 0.01,
-             "VWAP REV LONG\nE:" + str.tostring(entry_p, "#.0") +
+             "VWAP REV LONG  [AM]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
              "  T:" + str.tostring(tgt_p, "#.0") +
-             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (-2sd)",
+             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (-1.5sd)",
              color=color.new(color.teal, 10), textcolor=color.white,
              style=label.style_label_up, size=size.small)
 
     if vwap_short_sig
-        entry_p   = close
-        stop_dist = math.max(8.0, atr_adapt * 0.06)
-        stop_p    = entry_p + stop_dist
-        tgt_p     = vwap_val
+        entry_p = close
+        stop_p  = entry_p + stop_atr
+        tgt_p   = vwap_val
         label.new(bar_index, high + atr_adapt * 0.01,
-             "VWAP REV SHORT\nE:" + str.tostring(entry_p, "#.0") +
+             "VWAP REV SHORT  [AM]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
              "  T:" + str.tostring(tgt_p, "#.0") +
-             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (+2sd)",
+             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (+1.5sd)",
              color=color.new(color.teal, 10), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+
+    // ── VWAP Reversion PM ─────────────────────────────────────────────────
+    if show_pm and vwap_pm_long_sig
+        entry_p = close
+        stop_p  = entry_p - stop_atr
+        tgt_p   = vwap_val
+        label.new(bar_index, low - atr_adapt * 0.01,
+             "VWAP REV LONG  [PM]\nE:" + str.tostring(entry_p, "#.0") +
+             "  S:" + str.tostring(stop_p, "#.0") +
+             "  T:" + str.tostring(tgt_p, "#.0") +
+             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (-1.5sd)",
+             color=color.new(color.teal, 20), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+
+    if show_pm and vwap_pm_short_sig
+        entry_p = close
+        stop_p  = entry_p + stop_atr
+        tgt_p   = vwap_val
+        label.new(bar_index, high + atr_adapt * 0.01,
+             "VWAP REV SHORT  [PM]\nE:" + str.tostring(entry_p, "#.0") +
+             "  S:" + str.tostring(stop_p, "#.0") +
+             "  T:" + str.tostring(tgt_p, "#.0") +
+             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (+1.5sd)",
+             color=color.new(color.teal, 20), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+
+    // ── VWAP Bounce AM ────────────────────────────────────────────────────
+    if bounce_am_long_sig
+        entry_p = close
+        stop_p  = entry_p - bounce_stop_dist
+        tgt_p   = entry_p + bounce_target_dist
+        label.new(bar_index, low - atr_adapt * 0.012,
+             "VWAP BOUNCE LONG  [AM]\nE:" + str.tostring(entry_p, "#.0") +
+             "  S:" + str.tostring(stop_p, "#.0") +
+             "  T:" + str.tostring(tgt_p, "#.0") +
+             "\n" + trend_dir + " trend — VWAP support",
+             color=color.new(color.green, 5), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+
+    if bounce_am_short_sig
+        entry_p = close
+        stop_p  = entry_p + bounce_stop_dist
+        tgt_p   = entry_p - bounce_target_dist
+        label.new(bar_index, high + atr_adapt * 0.012,
+             "VWAP BOUNCE SHORT  [AM]\nE:" + str.tostring(entry_p, "#.0") +
+             "  S:" + str.tostring(stop_p, "#.0") +
+             "  T:" + str.tostring(tgt_p, "#.0") +
+             "\n" + trend_dir + " trend — VWAP resistance",
+             color=color.new(color.maroon, 5), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+
+    // ── VWAP Bounce PM ────────────────────────────────────────────────────
+    if show_pm and bounce_pm_long_sig
+        entry_p = close
+        stop_p  = entry_p - bounce_stop_dist
+        tgt_p   = entry_p + bounce_target_dist
+        label.new(bar_index, low - atr_adapt * 0.012,
+             "VWAP BOUNCE LONG  [PM]\nE:" + str.tostring(entry_p, "#.0") +
+             "  S:" + str.tostring(stop_p, "#.0") +
+             "  T:" + str.tostring(tgt_p, "#.0") +
+             "\n" + trend_dir + " trend — VWAP support",
+             color=color.new(color.green, 25), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+
+    if show_pm and bounce_pm_short_sig
+        entry_p = close
+        stop_p  = entry_p + bounce_stop_dist
+        tgt_p   = entry_p - bounce_target_dist
+        label.new(bar_index, high + atr_adapt * 0.012,
+             "VWAP BOUNCE SHORT  [PM]\nE:" + str.tostring(entry_p, "#.0") +
+             "  S:" + str.tostring(stop_p, "#.0") +
+             "  T:" + str.tostring(tgt_p, "#.0") +
+             "\n" + trend_dir + " trend — VWAP resistance",
+             color=color.new(color.maroon, 25), textcolor=color.white,
              style=label.style_label_down, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REGIME DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════
 
-var table dash = table.new(position.top_right, 2, 9,
+var table dash = table.new(position.top_right, 2, 11,
      border_width=1, border_color=color.new(color.gray, 60),
      frame_width=2,  frame_color=color.new(color.gray, 40))
 
@@ -433,6 +614,7 @@ c_green  = color.new(#1b5e20, 10)
 c_red    = color.new(#b71c1c, 10)
 c_orange = color.new(#e65100, 10)
 c_gray   = color.new(color.gray, 60)
+c_teal   = color.new(#004d40, 15)
 
 trend_col = (trend_strong_bull ? c_green :
              trend_bull        ? color.new(color.green, 30) :
@@ -441,12 +623,12 @@ trend_col = (trend_strong_bull ? c_green :
              trend_strong_bear ? c_red : c_gray)
 
 vix_col = (vix_now < 15 ? c_green :
-           vix_now < 22 ? color.new(color.green, 30) :
+           vix_now < 25 ? color.new(color.green, 30) :
            vix_now < 35 ? c_orange : c_red)
 
 if show_dash and barstate.islast
-    table.cell(dash, 0, 0, "QUANT SYSTEM",      text_color=color.white, bgcolor=c_header, text_size=size.small)
-    table.cell(dash, 1, 0, "NQ / MNQ  $50 max", text_color=color.white, bgcolor=c_header, text_size=size.small)
+    table.cell(dash, 0, 0, "QUANT SYSTEM v3",     text_color=color.white, bgcolor=c_header, text_size=size.small)
+    table.cell(dash, 1, 0, "NQ/MNQ  max 3/day",   text_color=color.white, bgcolor=c_header, text_size=size.small)
 
     table.cell(dash, 0, 1, "Trend", text_color=color.white, bgcolor=c_key, text_size=size.small)
     table.cell(dash, 1, 1, trend_dir + "  (" + str.tostring(ema_spread, "#.1") + "%)",
@@ -461,41 +643,55 @@ if show_dash and barstate.islast
          text_color=color.white, bgcolor=c_header, text_size=size.small)
 
     table.cell(dash, 0, 4, "Gap Fill", text_color=color.white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 4, gap_long_ok ? "ACTIVE   58% WR" : "off",
-         text_color=color.white, bgcolor=gap_long_ok ? c_green : c_gray, text_size=size.small)
+    table.cell(dash, 1, 4, vix_ok ? "ACTIVE  78% WR" : "off (VIX)",
+         text_color=color.white, bgcolor=vix_ok ? c_green : c_gray, text_size=size.small)
 
-    table.cell(dash, 0, 5, "ORB (5m)", text_color=color.white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 5, orb_long_regime ? "ACTIVE   83% WR" : orb_short_regime ? "SHORT active" : "off",
+    table.cell(dash, 0, 5, "ORB (pullback)", text_color=color.white, bgcolor=c_key, text_size=size.small)
+    table.cell(dash, 1, 5, orb_long_regime ? "ACTIVE  78% WR" : orb_short_regime ? "SHORT  78% WR" : "off",
          text_color=color.white, bgcolor=(orb_long_regime or orb_short_regime) ? c_green : c_gray, text_size=size.small)
 
-    table.cell(dash, 0, 6, "FVG / IB / VWAP", text_color=color.white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 6, mean_rev_regime ? "ACTIVE (neutral)" : "off (need neutral)",
-         text_color=color.white, bgcolor=mean_rev_regime ? c_green : c_gray, text_size=size.small)
+    table.cell(dash, 0, 6, "IB Breakout", text_color=color.white, bgcolor=c_key, text_size=size.small)
+    table.cell(dash, 1, 6, ib_regime ? "ACTIVE (any trend)" : "off (VIX)",
+         text_color=color.white, bgcolor=ib_regime ? c_green : c_gray, text_size=size.small)
+
+    table.cell(dash, 0, 7, "VWAP Rev", text_color=color.white, bgcolor=c_key, text_size=size.small)
+    table.cell(dash, 1, 7, vwap_rev_regime ? "ACTIVE  1.5sd  AM+PM" : "off (VIX)",
+         text_color=color.white, bgcolor=vwap_rev_regime ? c_teal : c_gray, text_size=size.small)
+
+    table.cell(dash, 0, 8, "VWAP Bounce", text_color=color.white, bgcolor=c_key, text_size=size.small)
+    table.cell(dash, 1, 8, vwap_bounce_regime ? "ACTIVE  90% WR  AM+PM" : "off (need trend)",
+         text_color=color.white, bgcolor=vwap_bounce_regime ? c_teal : c_gray, text_size=size.small)
+
+    table.cell(dash, 0, 9, "FVG", text_color=color.white, bgcolor=c_key, text_size=size.small)
+    table.cell(dash, 1, 9, fvg_regime_ok ? "ACTIVE (neutral only)" : "off",
+         text_color=color.white, bgcolor=fvg_regime_ok ? c_green : c_gray, text_size=size.small)
 
     ib_bias_txt = (ib_bias == "" ? "building..." :
-                   ib_bias == "bullish" ? "bullish (long bias)" : "bearish (short bias)")
-    table.cell(dash, 0, 7, "IB Bias", text_color=color.white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 7, ib_bias_txt,
+                   ib_bias == "bullish" ? "bullish -> long" : "bearish -> short")
+    table.cell(dash, 0, 10, "IB Bias", text_color=color.white, bgcolor=c_key, text_size=size.small)
+    table.cell(dash, 1, 10, ib_bias_txt,
          text_color=color.white,
          bgcolor=(ib_bias == "bullish" ? color.new(color.green, 40) :
                   ib_bias == "bearish" ? color.new(color.red, 40) : c_gray),
          text_size=size.small)
 
-    table.cell(dash, 0, 8, "Risk limit", text_color=color.white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 8, "25 pts = $50 / 1 MNQ",
-         text_color=color.white, bgcolor=c_header, text_size=size.small)
-
 // ═══════════════════════════════════════════════════════════════════════════
 // ALERTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-alertcondition(gap_long,       title="Gap Fill LONG",          message="GAP FILL LONG — tiny gap-down confirmed. Enter next bar open, target prior close.")
-alertcondition(gap_short,      title="Gap Fill SHORT",         message="GAP FILL SHORT — tiny gap-up confirmed. Enter next bar open, target prior close.")
-alertcondition(orb_long_sig,   title="ORB LONG",               message="ORB BREAKOUT LONG — close above ORB high + VWAP, strong bull trend. Enter next bar open.")
-alertcondition(orb_short_sig,  title="ORB SHORT",              message="ORB BREAKOUT SHORT — close below ORB low + VWAP, strong bear trend. Enter next bar open.")
-alertcondition(ib_long_sig,    title="IB Breakout LONG",       message="IB BREAKOUT LONG — C-period, bullish bias, neutral trend. Enter next bar open.")
-alertcondition(ib_short_sig,   title="IB Breakout SHORT",      message="IB BREAKOUT SHORT — C-period, bearish bias, neutral trend. Enter next bar open.")
-alertcondition(vwap_long_sig,  title="VWAP Rev LONG",          message="VWAP REVERSION LONG — price at -2sd, neutral trend. Enter next bar, target VWAP.")
-alertcondition(vwap_short_sig, title="VWAP Rev SHORT",         message="VWAP REVERSION SHORT — price at +2sd, neutral trend. Enter next bar, target VWAP.")
-alertcondition(bull_fvg_ok,    title="Bullish FVG Detected",   message="Bullish FVG formed — watch for price to return and test zone.")
-alertcondition(bear_fvg_ok,    title="Bearish FVG Detected",   message="Bearish FVG formed — watch for price to return and test zone.")
+alertcondition(gap_long,           title="Gap Fill LONG",            message="GAP FILL LONG — tiny gap-down + premarket bias. Enter next bar open, target prior close.")
+alertcondition(gap_short,          title="Gap Fill SHORT",           message="GAP FILL SHORT — tiny gap-up + premarket bias. Enter next bar open, target prior close.")
+alertcondition(orb_long_sig,       title="ORB LONG",                 message="ORB LONG — pullback to ORB high in bull trend. Tight stop, 3:1 target. Enter next bar.")
+alertcondition(orb_short_sig,      title="ORB SHORT",                message="ORB SHORT — pullback to ORB low in bear trend. Tight stop, 3:1 target. Enter next bar.")
+alertcondition(ib_long_sig,        title="IB Breakout LONG",         message="IB BREAKOUT LONG — C-period, bullish IB bias. Enter next bar, target IB top + 75%.")
+alertcondition(ib_short_sig,       title="IB Breakout SHORT",        message="IB BREAKOUT SHORT — C-period, bearish IB bias. Enter next bar, target IB bottom − 75%.")
+alertcondition(vwap_long_sig,      title="VWAP Rev LONG (AM)",       message="VWAP REVERSION LONG AM — price at −1.5sd. Enter next bar, target VWAP.")
+alertcondition(vwap_short_sig,     title="VWAP Rev SHORT (AM)",      message="VWAP REVERSION SHORT AM — price at +1.5sd. Enter next bar, target VWAP.")
+alertcondition(vwap_pm_long_sig,   title="VWAP Rev LONG (PM)",       message="VWAP REVERSION LONG PM — price at −1.5sd. Enter next bar, target VWAP. Close by 4 PM.")
+alertcondition(vwap_pm_short_sig,  title="VWAP Rev SHORT (PM)",      message="VWAP REVERSION SHORT PM — price at +1.5sd. Enter next bar, target VWAP. Close by 4 PM.")
+alertcondition(bounce_am_long_sig, title="VWAP Bounce LONG (AM)",    message="VWAP BOUNCE LONG AM — price testing VWAP in bull trend. Enter next bar, ATR-based target.")
+alertcondition(bounce_am_short_sig,title="VWAP Bounce SHORT (AM)",   message="VWAP BOUNCE SHORT AM — price testing VWAP in bear trend. Enter next bar, ATR-based target.")
+alertcondition(bounce_pm_long_sig, title="VWAP Bounce LONG (PM)",    message="VWAP BOUNCE LONG PM — price testing VWAP in bull trend. Enter next bar. Close by 4 PM.")
+alertcondition(bounce_pm_short_sig,title="VWAP Bounce SHORT (PM)",   message="VWAP BOUNCE SHORT PM — price testing VWAP in bear trend. Enter next bar. Close by 4 PM.")
+alertcondition(bull_fvg_ok,        title="Bullish FVG",              message="Bullish FVG formed — watch for price to return and test zone (neutral trend only).")
+alertcondition(bear_fvg_ok,        title="Bearish FVG",              message="Bearish FVG formed — watch for price to return and test zone (neutral trend only).")

@@ -1,0 +1,6 @@
+{
+  "starting_balance": 25000.0,
+  "current_balance": 24669.80,
+  "peak_eod_balance": 25000.0,
+  "note": "Update current_balance and peak_eod_balance after each session"
+}

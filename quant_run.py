@@ -10,6 +10,7 @@ Strategies:
 from __future__ import annotations
 from collections import defaultdict
 from backtest.quant_engine import run_quant_backtest, QuantTrade
+from strategy.bot_memory import log_trade, print_status, get_sizing, is_paused
 
 PROFIT_TARGET = 1_500
 MAX_DRAWDOWN  = 1_000
@@ -148,6 +149,38 @@ if __name__ == "__main__":
     print("  QUANT SYSTEM  |  5-minute bars  |  60-day backtest")
     print("  Strategies: Gap Fill · ORB · IB Breakout · VWAP Reversion")
     print("=" * 70)
+
+    # Show bot memory status before running
+    print_status()
+
+    paused, reason = is_paused()
+    if paused:
+        print(f"\n  ⚠  Bot is paused today: {reason}")
+        print("  To override, edit journal/bot_memory.json and set 'paused' to false.\n")
+
+    contracts = get_sizing()
+    if contracts > 1:
+        print(f"\n  ✓ Bot memory: running {contracts} contracts (hot streak)\n")
+
     trades = run_quant_backtest(interval="5m", period="60d")
     analyze(trades)
-    print(f"\nDone. {len(trades)} trades found.")
+
+    # Log all backtest trades into memory so the bot learns from them
+    for t in trades:
+        log_trade(
+            strategy=t.strategy,
+            direction=t.direction,
+            entry=t.entry,
+            stop=t.stop,
+            target=t.target,
+            outcome=t.outcome,
+            pnl=t.pnl,
+            contracts=contracts,
+            vix=getattr(t, "vix", 0.0),
+            atr=0.0,
+            trend=getattr(t, "trend_dir", ""),
+            day_name=getattr(t, "day_name", ""),
+        )
+
+    print(f"\nDone. {len(trades)} trades logged to bot memory.")
+    print_status()
