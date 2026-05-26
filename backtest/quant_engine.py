@@ -39,7 +39,7 @@ from strategy.quant_regime import (
 from strategy.quant_gap  import detect as detect_gap
 from strategy.quant_orb  import detect as detect_orb
 from strategy.quant_ib   import detect as detect_ib
-from strategy.quant_vwap import detect_all as detect_vwap
+from strategy.quant_vwap import detect_all as detect_vwap, detect_bounce as detect_vwap_bounce
 from strategy.quant_fvg  import detect as detect_fvg
 
 EST = ZoneInfo("America/New_York")
@@ -47,8 +47,8 @@ EST = ZoneInfo("America/New_York")
 MNQ_PER_POINT  = 2.0
 MAX_RISK_USD   = 50.0
 MAX_STOP_PTS   = 25.0
-MAX_TRADES_DAY = 2
-MAX_DAILY_LOSS = 100.0
+MAX_TRADES_DAY = 3
+MAX_DAILY_LOSS = 150.0
 
 
 # ── Result dataclass ──────────────────────────────────────────────────────────
@@ -110,12 +110,13 @@ def _simulate_trade(
     stop: float,
     target: float,
     be_mult: float = 1.0,
+    max_hour: int = 12,
 ) -> tuple[float, float, str]:
     """
     Simulate bar-by-bar outcome with trailing stop.
     Stop moves to breakeven once be_mult × risk_pts profit is reached.
-    be_mult=1.0 for mean-reversion (gap_fill, vwap), 2.0 for breakouts (orb).
-    Tie-break: candle direction determines stop vs. target on same bar.
+    be_mult=1.0 for mean-reversion, 2.0 for breakouts (orb).
+    max_hour: close all positions at this hour (12 for AM, 16 for PM sessions).
     """
     if direction == "long":
         risk_pts   = entry - stop
@@ -135,7 +136,7 @@ def _simulate_trade(
         open_ = float(row["Open"])
 
         ts_est = df.index[i].astimezone(EST)
-        if ts_est.hour >= 12:
+        if ts_est.hour >= max_hour:
             pnl = (close - entry) * MNQ_PER_POINT if direction == "long" \
                   else (entry - close) * MNQ_PER_POINT
             return close, pnl, "LOSS" if pnl < 0 else "WIN"
@@ -193,19 +194,21 @@ def _add_trade(
     market: dict,
     day_names: list,
     signal_detail: str = "",
+    max_hour: int = 12,
 ) -> tuple[float, bool]:
     """
     Simulate and record a trade. Returns (pnl, trade_added).
+    max_hour=12 for AM strategies, 16 for PM VWAP.
     """
     risk_pts = abs(sig.entry - sig.stop)
     if risk_pts < 1.0:
         return 0.0, False
 
-    # Breakout strategies get more room before trailing stop (2× vs 1× for mean-rev)
     be_mult = 2.0 if strategy == "orb" else 1.0
     exit_p, pnl, outcome = _simulate_trade(
         df, sig.signal_bar_idx,
-        sig.direction, sig.entry, sig.stop, sig.target, be_mult=be_mult,
+        sig.direction, sig.entry, sig.stop, sig.target,
+        be_mult=be_mult, max_hour=max_hour,
     )
     reward_pts = abs(sig.target - sig.entry)
     rr = reward_pts / risk_pts if risk_pts > 0 else 0
@@ -259,14 +262,15 @@ def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantT
         def _can_trade() -> bool:
             return trades_today < MAX_TRADES_DAY and daily_pnl > -MAX_DAILY_LOSS
 
-        def _try(strategy, sig, detail="") -> bool:
+        def _try(strategy, sig, detail="", max_hour=12) -> bool:
             nonlocal trades_today, daily_pnl
             if sig is None:
                 return False
             if not _can_trade():
                 return False
             pnl, added = _add_trade(
-                trades, df, today, dow, strategy, sig, market, day_names, detail
+                trades, df, today, dow, strategy, sig, market, day_names, detail,
+                max_hour=max_hour,
             )
             if added:
                 trades_today += 1
@@ -337,14 +341,14 @@ def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantT
                          f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
 
         # ── Priority 4: IB Breakout ───────────────────────────────────────────
-        ib_ok_trend = trend["direction"] == "neutral"
-        if _can_trade() and vix_ok_breakout and dow != 0 and "orb" not in used_strats and ib_ok_trend:
+        # Any trend direction: direction_allowed(strict=True) gates alignment
+        if _can_trade() and vix_ok_breakout and dow != 0 and "orb" not in used_strats:
             ib = detect_ib(df, today, atr)
             if ib and direction_allowed(ib.direction, trend, strict=True) and _1h_bias_ok(ib):
                 _try("ib_breakout", ib,
                      f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR) bias={ib.ib_bias}")
 
-        # ── Priority 5: AM VWAP Reversion ─────────────────────────────────────
+        # ── Priority 5: AM VWAP Reversion (9:45–11:30) ────────────────────────
         if _can_trade() and market["vwap_ok"]:
             remaining = MAX_TRADES_DAY - trades_today
             vwap_sigs = detect_vwap(df, today, vix, atr, max_signals=remaining)
@@ -356,21 +360,53 @@ def run_quant_backtest(interval: str = "5m", period: str = "60d") -> list[QuantT
                          f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s) ATR={atr:.0f}")
 
         # ── Priority 6: PM VWAP Reversion (1:30–3:30 PM) ────────────────────
-        # Same conditions as AM VWAP but in the afternoon session.
-        # Only fires if < 2 AM trades taken (shared daily trade budget).
         if _can_trade() and market["vwap_ok"]:
             remaining = MAX_TRADES_DAY - trades_today
             pm_sigs = detect_vwap(
                 df, today, vix, atr,
                 max_signals=remaining,
-                start_min=13 * 60 + 30,   # 1:30 PM
-                end_min=15 * 60 + 30,     # 3:30 PM
+                start_min=13 * 60 + 30,
+                end_min=15 * 60 + 30,
             )
             for vs in pm_sigs:
                 if not _can_trade():
                     break
                 if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
                     _try("vwap_pm", vs,
-                         f"PM dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
+                         f"PM dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)",
+                         max_hour=16)
+
+        # ── Priority 7: AM VWAP Bounce (trending markets, 10:00–11:30) ────────
+        # VWAP acts as dynamic support/resistance in strong trends.
+        # Different from reversion: enters WITH the trend when price tests VWAP.
+        if _can_trade() and market["vwap_ok"]:
+            remaining = MAX_TRADES_DAY - trades_today
+            bounce_sigs = detect_vwap_bounce(
+                df, today, vix, atr, trend["direction"],
+                max_signals=remaining,
+            )
+            for vs in bounce_sigs:
+                if not _can_trade():
+                    break
+                if direction_allowed(vs.direction, trend, strict=True):
+                    _try("vwap_bounce", vs,
+                         f"VWAP bounce {trend['direction']} dev={vs.deviation_pts:.1f}pts")
+
+        # ── Priority 8: PM VWAP Bounce (trending markets, 1:30–3:30) ─────────
+        if _can_trade() and market["vwap_ok"]:
+            remaining = MAX_TRADES_DAY - trades_today
+            pm_bounce = detect_vwap_bounce(
+                df, today, vix, atr, trend["direction"],
+                max_signals=remaining,
+                start_min=13 * 60 + 30,
+                end_min=15 * 60 + 30,
+            )
+            for vs in pm_bounce:
+                if not _can_trade():
+                    break
+                if direction_allowed(vs.direction, trend, strict=True):
+                    _try("vwap_bounce_pm", vs,
+                         f"PM VWAP bounce {trend['direction']}",
+                         max_hour=16)
 
     return trades

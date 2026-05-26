@@ -262,11 +262,11 @@ def classify_market_full(df: pd.DataFrame, today: date, vix: float) -> dict:
     ema_trend   = get_ema_trend(df, today)
     trend_dir   = ema_trend["direction"]
 
-    # VWAP reversion: only in non-trending, non-crisis environment
+    # VWAP reversion: any trend direction (direction_allowed handles alignment),
+    # VIX < 25 and not in crisis volatility regime
     vwap_ok = (
-        trend_dir == "neutral"
-        and vol_regime in ("normal", "compressed")
-        and vix < 22
+        vol_regime in ("normal", "compressed", "elevated")
+        and vix < 25
     )
 
     # ORB: valid in all regimes — ATR-normalized range is the quality gate
@@ -299,7 +299,7 @@ def ib_ok(vix: float) -> bool:
     return True  # ATR filter in quant_ib.py handles quality now
 
 def vwap_reversion_ok(vix: float) -> bool:
-    return vix < 22
+    return vix < 25
 
 def gap_fill_ok(vix: float) -> bool:
     return True

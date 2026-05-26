@@ -34,8 +34,8 @@ from strategy.quant_regime import session_vwap, vwap_std_bands
 
 EST = ZoneInfo("America/New_York")
 
-SIGNAL_STD = 2.0    # σ bands for signal
-STOP_STD   = 2.5    # σ bands for stop (fallback if ATR stop is wider)
+SIGNAL_STD = 1.5    # σ bands for signal (was 2.0 — 1.5 fires more often)
+STOP_STD   = 2.0    # σ bands for stop
 
 
 @dataclass
@@ -153,3 +153,98 @@ def detect_all(
                 break
 
     return signals
+
+
+def detect_bounce(
+    df: pd.DataFrame,
+    today: date,
+    vix: float,
+    atr: float,
+    trend_dir: str,
+    max_signals: int = 1,
+    start_min: int | None = None,
+    end_min: int | None = None,
+) -> list[VWAPSignal]:
+    """
+    VWAP bounce — trend continuation when price tests VWAP as support/resistance.
+
+    In bull/strong_bull: price dips to touch VWAP (within ±0.5σ), enter long.
+    In bear/strong_bear: price rallies to touch VWAP from below, enter short.
+    Target = ATR-based extension (0.08× daily ATR).
+    Only fires in trending markets — reversion handles neutral.
+    """
+    from strategy.quant_regime import vwap_reversion_ok
+    if trend_dir not in ("bull", "strong_bull", "bear", "strong_bear"):
+        return []
+    if not vwap_reversion_ok(vix):
+        return []
+
+    est_idx = df.index.tz_convert(EST)
+    today_mask = est_idx.date == today
+    today_df = df[today_mask].copy()
+    if len(today_df) < 10:
+        return []
+
+    vwap, upper, lower = vwap_std_bands(today_df, n_std=0.5)
+
+    stop_dist   = max(5.0, atr * 0.03)
+    target_dist = max(12.0, atr * 0.08)
+
+    _start = start_min if start_min is not None else 10 * 60      # 10:00 AM
+    _end   = end_min   if end_min   is not None else 11 * 60 + 30  # 11:30 AM
+
+    signals: list[VWAPSignal] = []
+    fired = False
+
+    for pos, (ts, row) in enumerate(today_df.iterrows()):
+        dt   = ts.astimezone(EST)
+        mins = dt.hour * 60 + dt.minute
+        if mins < _start:
+            continue
+        if mins >= _end:
+            break
+        if fired:
+            break
+
+        close     = float(row["Close"])
+        vwap_val  = float(vwap.iloc[pos])
+        lower_val = float(lower.iloc[pos])  # VWAP − 0.5σ
+        upper_val = float(upper.iloc[pos])  # VWAP + 0.5σ
+
+        if trend_dir in ("bull", "strong_bull"):
+            if lower_val <= close <= upper_val:
+                fired = True
+                if pos + 1 >= len(today_df):
+                    break
+                entry_bar = today_df.iloc[pos + 1]
+                entry  = float(entry_bar["Open"])
+                stop   = entry - stop_dist
+                target = entry + target_dist
+                if target - entry < 5.0 or entry <= stop:
+                    continue
+                global_idx = df.index.get_loc(entry_bar.name)
+                signals.append(VWAPSignal(
+                    direction="long", entry=entry, stop=stop, target=target,
+                    vwap=vwap_val, deviation_pts=abs(close - vwap_val),
+                    deviation_std=0.5, signal_bar_idx=global_idx,
+                ))
+
+        elif trend_dir in ("bear", "strong_bear"):
+            if lower_val <= close <= upper_val:
+                fired = True
+                if pos + 1 >= len(today_df):
+                    break
+                entry_bar = today_df.iloc[pos + 1]
+                entry  = float(entry_bar["Open"])
+                stop   = entry + stop_dist
+                target = entry - target_dist
+                if entry - target < 5.0 or entry >= stop:
+                    continue
+                global_idx = df.index.get_loc(entry_bar.name)
+                signals.append(VWAPSignal(
+                    direction="short", entry=entry, stop=stop, target=target,
+                    vwap=vwap_val, deviation_pts=abs(close - vwap_val),
+                    deviation_std=0.5, signal_bar_idx=global_idx,
+                ))
+
+    return signals[:max_signals]
