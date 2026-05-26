@@ -129,11 +129,17 @@ def detect(
     if direction == "short" and entry <= prior_close:
         return None
 
+    # Target: gap fill + 50% extension — research shows 40%+ of fills continue past prior_close
+    if direction == "long":
+        target = prior_close + gap_size * 0.5
+    else:
+        target = prior_close - gap_size * 0.5
+
     return GapFillSignal(
         direction=direction,
         entry=entry,
         stop=stop,
-        target=prior_close,
+        target=target,
         gap_size=gap_size,
         gap_pct=gap_pct,
         gap_ratio=gap_ratio,

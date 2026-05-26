@@ -164,7 +164,7 @@ def detect(
                     entry  = float(entry_bar["Open"])
                     # Proximity filter: entry must be within 20 pts of ib_high
                     # Far entries (>20 pts) indicate extended breakout, stop gets capped above ib_high
-                    if entry - ib_high > 20.0:
+                    if entry - ib_high > 30.0:
                         break
                     # Stop: 2 pts below IB high — if price returns below breakout level, trade failed
                     stop = ib_high - 2.0
@@ -172,8 +172,8 @@ def detect(
                         stop = entry - MAX_RISK_PTS
                     if entry <= stop:  # price has already fallen back below IB high
                         break
-                    # 0.75× IB range extension — conservative but more reachable than 1×
-                    target = ib_high + ib_range * 0.75
+                    # 1.5× IB range — research shows trend days travel 2–3× IB range
+                    target = ib_high + ib_range * 1.5
                     global_idx = df.index.get_loc(entry_bar.name)
                     return IBSignal(
                         direction="long", entry=entry, stop=stop, target=target,
@@ -202,8 +202,8 @@ def detect(
                         break
                     entry_bar = today_df.iloc[pos + 1]
                     entry  = float(entry_bar["Open"])
-                    # Proximity filter: entry must be within 20 pts of ib_low
-                    if ib_low - entry > 20.0:
+                    # Proximity filter: entry must be within 30 pts of ib_low
+                    if ib_low - entry > 30.0:
                         break
                     # Stop: 2 pts above IB low — if price returns above breakout level, trade failed
                     stop = ib_low + 2.0
@@ -211,7 +211,7 @@ def detect(
                         stop = entry + MAX_RISK_PTS
                     if entry >= stop:  # price has already risen back above IB low
                         break
-                    target = ib_low - ib_range * 0.75
+                    target = ib_low - ib_range * 1.5
                     global_idx = df.index.get_loc(entry_bar.name)
                     return IBSignal(
                         direction="short", entry=entry, stop=stop, target=target,

@@ -69,7 +69,7 @@ class TradeifyState:
             return False, f"Daily loss limit hit (${self.daily_pnl:.0f})"
         if self.trades_today >= MAX_TRADES_PER_DAY:
             return False, f"Max {MAX_TRADES_PER_DAY} trades/day reached"
-        if self.total_profit > 0 and self.daily_pnl >= self.max_allowed_today:
+        if self.total_profit > 100 and self.daily_pnl >= self.max_allowed_today:
             return False, f"Consistency cap hit (${self.daily_pnl:.0f} today, max ${self.max_allowed_today:.0f})"
         return True, "OK"
 

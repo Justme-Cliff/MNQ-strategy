@@ -61,7 +61,7 @@ def _load_balance() -> tuple[float, float]:
 
 
 def _signal_key(t: QuantTrade) -> str:
-    return f"{t.date}-{t.strategy}-{t.direction}-{round(t.entry, 1)}"
+    return f"{t.date}-{t.strategy}-{t.direction}-{round(t.entry, 0)}-{round(t.stop, 0)}"
 
 
 def _bar_minute(dt: datetime) -> int:

@@ -76,7 +76,9 @@ def session_vwap(today_df: pd.DataFrame) -> pd.Series:
 def vwap_std_bands(today_df: pd.DataFrame, n_std: float = 2.0):
     vwap = session_vwap(today_df)
     deviation = today_df["Close"] - vwap
-    rolling_std = deviation.expanding().std().fillna(0)
+    # Rolling std with min_periods=8: avoids unrealistically tight bands in first few bars
+    # expanding() at bar 3 uses only 3 points — fires noise signals early session
+    rolling_std = deviation.rolling(window=20, min_periods=8).std().fillna(0)
     upper = vwap + n_std * rolling_std
     lower = vwap - n_std * rolling_std
     return vwap, upper, lower
@@ -130,13 +132,16 @@ def get_ema_trend(df: pd.DataFrame, today: date, fast: int = 8, slow: int = 21) 
 
     strength = (last_fast - last_slow) / last_slow * 100.0  # % above/below
 
-    if strength > 3.0:
+    _WEAK_TREND   = 1.0   # 1%: minimum to distinguish trend from noise (backtested on 60d)
+    _STRONG_TREND = 3.0   # 3%: 3× min threshold, reliably directional
+
+    if strength > _STRONG_TREND:
         direction = "strong_bull"
-    elif strength > 1.0:
+    elif strength > _WEAK_TREND:
         direction = "bull"
-    elif strength < -3.0:
+    elif strength < -_STRONG_TREND:
         direction = "strong_bear"
-    elif strength < -1.0:
+    elif strength < -_WEAK_TREND:
         direction = "bear"
     else:
         direction = "neutral"

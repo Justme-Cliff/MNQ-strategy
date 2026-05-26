@@ -61,6 +61,10 @@ class TradeJournal:
 
     def log_trade(self, data: dict) -> int:
         """Insert a new trade record. Returns the new row ID."""
+        _REQUIRED = ["entry_price", "stop_price", "direction"]
+        for field in _REQUIRED:
+            if data.get(field) is None:
+                raise ValueError(f"log_trade: missing required field '{field}'")
         ts = data.get("timestamp", datetime.utcnow().isoformat())
         with self._connect() as conn:
             cur = conn.execute("""

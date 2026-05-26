@@ -115,7 +115,8 @@ def detect(
         # ── Phase 1: detect initial breakout ──────────────────────────────────
         if breakout_dir is None:
             if close > orb_high and close >= vwap_val:
-                if day_of_week in (0, 1):       # Mon/Tue longs blocked
+                # Block Mon/Tue longs: weekend repositioning creates false gap-up setups
+                if day_of_week in (0, 1):
                     return None
                 breakout_dir = "long"
                 bars_since_breakout = 0
@@ -140,6 +141,13 @@ def detect(
             if breakout_dir == "long":
                 pullback_ceiling = orb_high + orb_range * PULLBACK_ZONE
                 in_pullback_zone = orb_high <= close <= pullback_ceiling
+
+                # Depth filter: price must have retraced ≥75% of the extension back toward ORB high
+                # Shallow pullbacks (e.g. 5pt from ORB high on a 10pt ORB) = poor R:R, skip
+                if in_pullback_zone and orb_range > 0:
+                    retrace_depth = (close - orb_low) / orb_range
+                    if retrace_depth < 0.75:
+                        in_pullback_zone = False
 
                 if in_pullback_zone and close >= vwap_val:
                     # Pullback entry: enter at next bar open
@@ -188,6 +196,12 @@ def detect(
             elif breakout_dir == "short":
                 pullback_floor = orb_low - orb_range * PULLBACK_ZONE
                 in_pullback_zone = pullback_floor <= close <= orb_low
+
+                # Depth filter: price must have retraced ≥75% of the extension back toward ORB low
+                if in_pullback_zone and orb_range > 0:
+                    retrace_depth = (orb_high - close) / orb_range
+                    if retrace_depth < 0.75:
+                        in_pullback_zone = False
 
                 if in_pullback_zone and close <= vwap_val:
                     if pos + 1 >= len(today_df):

@@ -100,26 +100,35 @@ def print_dashboard(state: TradeifyState, journal: TradeJournal) -> None:
 
 if __name__ == "__main__":
     import json
+    import os
+    import time
     from pathlib import Path
     from datetime import date as _date
 
     j     = TradeJournal()
     state = TradeifyState()
 
-    # Load real balance from account.json
     acct_path = Path(__file__).parent / "account.json"
-    if acct_path.exists():
-        acct = json.loads(acct_path.read_text())
-        state.starting_balance    = acct["starting_balance"]
-        state.current_balance     = acct["current_balance"]
-        state.peak_eod_balance    = acct.get("peak_eod_balance", acct["starting_balance"])
-        state.total_realized_pnl  = acct["current_balance"] - acct["starting_balance"]
 
-    # Add today's logged trades on top
-    today = str(_date.today())
-    for t in j.get_all_trades():
-        if t.get("status") == "CLOSED" and t.get("pnl_dollars") is not None:
-            if str(t.get("timestamp", ""))[:10] == today:
-                state.record_trade(t["pnl_dollars"])
+    def _reload_state() -> TradeifyState:
+        s = TradeifyState()
+        if acct_path.exists():
+            acct = json.loads(acct_path.read_text())
+            s.starting_balance    = acct["starting_balance"]
+            s.current_balance     = acct["current_balance"]
+            s.peak_eod_balance    = acct.get("peak_eod_balance", acct["starting_balance"])
+            s.total_realized_pnl  = acct["current_balance"] - acct["starting_balance"]
+        today = str(_date.today())
+        for t in TradeJournal().get_all_trades():
+            if t.get("status") == "CLOSED" and t.get("pnl_dollars") is not None:
+                if str(t.get("timestamp", ""))[:10] == today:
+                    s.record_trade(t["pnl_dollars"])
+        return s
 
-    print_dashboard(state, j)
+    while True:
+        try:
+            state = _reload_state()
+            print_dashboard(state, TradeJournal())
+            time.sleep(5)
+        except KeyboardInterrupt:
+            break

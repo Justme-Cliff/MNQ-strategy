@@ -67,9 +67,9 @@ def detect_all(
     if not vwap_reversion_ok(vix):
         return []
 
-    # ATR-normalized deviation bounds
-    min_dev = max(5.0,  atr * 0.025)   # at least 2.5% of daily ATR
-    max_dev = min(50.0, atr * 0.18)    # at most 18% of daily ATR
+    # ATR-normalized deviation bounds — tightened to filter noise entries
+    min_dev = max(15.0, atr * 0.05)    # at least 5% of daily ATR (5pt = noise in 150pt session)
+    max_dev = min(30.0, atr * 0.12)    # at most 12% of daily ATR (>30pt = crash, not reversion)
     stop_dist = max(8.0, atr * 0.06)   # proportional stop
 
     est_idx = df.index.tz_convert(EST)
@@ -86,7 +86,7 @@ def detect_all(
     short_fired = False
 
     _start = start_min if start_min is not None else 9 * 60 + 45
-    _end   = end_min   if end_min   is not None else 11 * 60 + 30
+    _end   = end_min   if end_min   is not None else 12 * 60       # prop firm window ends at noon
 
     for pos, (ts, row) in enumerate(today_df.iterrows()):
         dt = ts.astimezone(EST)
@@ -190,8 +190,8 @@ def detect_bounce(
     stop_dist   = max(5.0, atr * 0.03)
     target_dist = max(12.0, atr * 0.08)
 
-    _start = start_min if start_min is not None else 10 * 60      # 10:00 AM
-    _end   = end_min   if end_min   is not None else 11 * 60 + 30  # 11:30 AM
+    _start = start_min if start_min is not None else 10 * 60  # 10:00 AM
+    _end   = end_min   if end_min   is not None else 12 * 60  # noon — full prop firm window
 
     signals: list[VWAPSignal] = []
     fired = False

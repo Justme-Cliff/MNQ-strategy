@@ -75,7 +75,13 @@ def _theoretical_basis(ndx_price: float) -> float:
     expiry  = _date(exp_year, exp_month, fridays[2])
 
     T     = (expiry - today).days / 365.0
-    r, q  = 0.045, 0.005          # risk-free rate (~4.5%), NDX dividend yield (~0.5%)
+    try:
+        import yfinance as yf
+        irx = yf.Ticker("^IRX").fast_info.last_price
+        r = irx / 100 if irx and irx > 0 else 0.045
+    except Exception:
+        r = 0.045
+    q = 0.005  # NDX dividend yield (~0.5%)
     basis = ndx_price * (math.exp((r - q) * T) - 1)
     log.info("NQ-NDX theoretical basis: +%.1f (T=%.0fd expiry=%s)", basis, T*365, expiry)
     return basis
@@ -154,7 +160,7 @@ class YahooWsFeed:
                 with self._lock:
                     self._ndx     = p
                     self._updated = now
-                    if not self._calibrated or (now - self._last_cal).total_seconds() > 900:
+                    if not self._calibrated or (now - self._last_cal).total_seconds() > 300:
                         self._basis      = _theoretical_basis(p)
                         self._calibrated = True
                         self._last_cal   = now

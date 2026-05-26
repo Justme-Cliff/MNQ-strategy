@@ -15,8 +15,10 @@ def _sound(name: str):
 
 def _popup(title: str, message: str, sound: str = "Hero"):
     try:
+        message = message.replace('\\', '\\\\').replace('"', '\\"').replace("'", "\\'")
+        title   = title.replace('\\', '\\\\').replace('"', '\\"').replace("'", "\\'")
         script = f'display notification "{message}" with title "{title}" sound name "{sound}"'
-        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=3)
+        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=0.5)
     except Exception:
         pass
 

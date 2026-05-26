@@ -307,6 +307,10 @@ def _scan_day(
     if _can_trade() and vix_ok_breakout:
         orb = detect_orb(df, today, atr, dow)
         if orb:
+            # ORB uses custom inline trend logic intentionally — stricter than direction_allowed():
+            # longs require strong_bull/neutral (not just "not strong_bear");
+            # shorts require strong_bear only (not general bear).
+            # This matches ORB's mean-reversion character: we need confirmed momentum, not any trend.
             ok = (trend["direction"] == "strong_bear" if orb.direction == "short"
                   else trend["direction"] in ("strong_bull", "neutral"))
             if ok and _1h_bias_ok(orb):
@@ -322,14 +326,18 @@ def _scan_day(
             if not _can_trade(): break
             if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
                 _try("vwap_rev", vs, f"dev={vs.deviation_pts:.1f}pts")
+                if not _can_trade(): break
 
-    if _can_trade() and market["vwap_ok"]:
+    # PM VWAP: require strong trend alignment — backtested at barely profitable (62.5% WR, -$1 PnL)
+    pm_trend_ok = trend["direction"] in ("strong_bull", "strong_bear")
+    if _can_trade() and market["vwap_ok"] and pm_trend_ok:
         for vs in detect_vwap(df, today, vix, atr,
                                max_signals=MAX_TRADES_DAY - trades_today,
                                start_min=13*60+30, end_min=15*60+30):
             if not _can_trade(): break
             if direction_allowed(vs.direction, trend, strict=True) and _1h_bias_ok(vs):
                 _try("vwap_pm", vs, f"PM dev={vs.deviation_pts:.1f}pts", max_hour=16)
+                if not _can_trade(): break
 
     if _can_trade() and market["vwap_ok"]:
         for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
@@ -337,6 +345,7 @@ def _scan_day(
             if not _can_trade(): break
             if direction_allowed(vs.direction, trend, strict=True):
                 _try("vwap_bounce", vs, f"bounce {trend['direction']}")
+                if not _can_trade(): break
 
     if _can_trade() and market["vwap_ok"]:
         for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
@@ -345,6 +354,7 @@ def _scan_day(
             if not _can_trade(): break
             if direction_allowed(vs.direction, trend, strict=True):
                 _try("vwap_bounce_pm", vs, f"PM bounce {trend['direction']}", max_hour=16)
+                if not _can_trade(): break
 
 
 # ── Main backtest ─────────────────────────────────────────────────────────────

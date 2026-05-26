@@ -78,8 +78,8 @@ def _detect_fvg_zones(
     Scan today's bars for Fair Value Gap formations.
     Returns all valid (unfiltered-for-fills) FVG zones in chronological order.
     """
-    min_size = max(6.0, atr * 0.04)   # at least 4% of ATR — filter out noise FVGs
-    max_size = atr * 0.15             # at most 15% of ATR — wide zones are news spikes
+    min_size = max(12.0, atr * 0.06)  # at least 6% of ATR — institutions don't leave 6pt imbalances
+    max_size = min(60.0, atr * 0.30)  # at most 30% of ATR — wider = news spike, not institution
 
     zones: list[FVGZone] = []
     bars = today_df.reset_index(drop=True)
