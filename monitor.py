@@ -216,27 +216,52 @@ def run_monitor():
                         f"({watch['strategy'].upper()} — you are now risk-free)[/bold cyan]"
                     )
 
-        # ── Real-time level crossing alerts (fires mid-bar, before bar close) ──
+        # ── Real-time level alerts: approaching + crossing ────────────────
+        # Our price is ~$5 below real NQ (NDX basis gap).
+        # "Approaching" fires when we're 10pts below level → real NQ is ~5pts away.
+        # → Place your limit order at the level NOW to get the best fill.
+        # "Crossed" fires when our price hits the level → real NQ already through it.
+        _APPROACH = 10.0   # pts below/above level to pre-alert
         if price and key_levels and 9 <= h < 12:
             checks = [
-                ("ORB HIGH", key_levels.get("orb_high"), "long",  lambda p, l: p >= l),
-                ("ORB LOW",  key_levels.get("orb_low"),  "short", lambda p, l: p <= l),
-                ("IB HIGH",  key_levels.get("ib_high"),  "long",  lambda p, l: p >= l),
-                ("IB LOW",   key_levels.get("ib_low"),   "short", lambda p, l: p <= l),
+                ("ORB HIGH", key_levels.get("orb_high"), "long"),
+                ("ORB LOW",  key_levels.get("orb_low"),  "short"),
+                ("IB HIGH",  key_levels.get("ib_high"),  "long"),
+                ("IB LOW",   key_levels.get("ib_low"),   "short"),
             ]
-            for name, lvl, direction, test in checks:
-                if not lvl or not test(price, lvl):
+            for name, lvl, direction in checks:
+                if not lvl:
                     continue
-                key = f"{name}_{lvl:.0f}"
-                if key in level_alerts:
-                    continue
-                level_alerts.add(key)
-                side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
-                console.print(
-                    f"\n  [bold yellow]⚡ {name} {lvl:.1f} CROSSED → {side}[/bold yellow]  "
-                    f"[dim]signal likely on next bar close — get ready[/dim]"
-                )
-                alert_warning(name, f"Price crossed {lvl:.1f} → {direction.upper()} setup forming")
+                if direction == "long":
+                    approaching = (lvl - _APPROACH) <= price < lvl
+                    crossed     = price >= lvl
+                else:
+                    approaching = lvl < price <= (lvl + _APPROACH)
+                    crossed     = price <= lvl
+
+                # Stage 1 — approaching: place limit order now
+                app_key = f"APPROACH_{name}_{lvl:.0f}"
+                if approaching and app_key not in level_alerts:
+                    level_alerts.add(app_key)
+                    side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
+                    console.print(
+                        f"\n  [bold cyan]🎯 {name} {lvl:.1f} APPROACHING → {side}[/bold cyan]  "
+                        f"[bold]Set limit at {lvl:.1f} NOW[/bold]"
+                    )
+                    alert_warning(
+                        f"SET LIMIT AT {lvl:.1f}",
+                        f"{name} approaching — place {direction.upper()} limit NOW before breakout"
+                    )
+
+                # Stage 2 — crossed: level hit, filling or already through
+                cross_key = f"CROSS_{name}_{lvl:.0f}"
+                if crossed and cross_key not in level_alerts:
+                    level_alerts.add(cross_key)
+                    side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
+                    console.print(
+                        f"\n  [bold yellow]⚡ {name} {lvl:.1f} HIT → {side}[/bold yellow]  "
+                        f"[dim]limit should be filling — bar close confirms[/dim]"
+                    )
 
         # ── Live price ticker (overwrites same line) ───────────────────────
         if 9 <= h < 12 and price:
