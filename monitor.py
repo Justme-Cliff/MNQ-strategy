@@ -68,6 +68,36 @@ def _bar_minute(dt: datetime) -> int:
     return (dt.minute // 5) * 5
 
 
+def _compute_levels(bar_cache: pd.DataFrame) -> dict:
+    """ORB high/low, IB high/low, VWAP from today's completed bars."""
+    today   = date.today()
+    est_idx = bar_cache.index.tz_convert(EST)
+    mask    = est_idx.date == today
+    td      = bar_cache[mask]
+    ti      = est_idx[mask]
+    if td.empty:
+        return {}
+
+    levels: dict = {}
+
+    orb = td[(ti.hour == 9) & (ti.minute >= 30) & (ti.minute < 35)]
+    if not orb.empty:
+        levels["orb_high"] = float(orb["High"].max())
+        levels["orb_low"]  = float(orb["Low"].min())
+
+    ib = td[((ti.hour == 9) & (ti.minute >= 30)) | ((ti.hour == 10) & (ti.minute < 30))]
+    if not ib.empty:
+        levels["ib_high"] = float(ib["High"].max())
+        levels["ib_low"]  = float(ib["Low"].min())
+
+    if "Volume" in td.columns and td["Volume"].sum() > 0:
+        typ  = (td["High"] + td["Low"] + td["Close"]) / 3
+        vol  = td["Volume"].replace(0, 1)
+        levels["vwap"] = float((typ * vol).sum() / vol.sum())
+
+    return levels
+
+
 def _fetch_latest_bars() -> pd.DataFrame:
     """Fetch only the most recent bars — fast (~80ms)."""
     df = TICKER.history(period="2d", interval="5m", auto_adjust=True)
@@ -146,6 +176,8 @@ def run_monitor():
     warned_start            = False
     warned_end              = False
     last_bar_min: int       = -1
+    key_levels:   dict      = _compute_levels(bar_cache)
+    level_alerts: set[str]  = set()   # level crossings already notified
 
     while True:
         now   = _now()
@@ -163,7 +195,7 @@ def run_monitor():
             )
 
         # ── 12:00 PM session end ─────────────────────────────────────────
-        if h >= 23 and not warned_end:
+        if h >= 12 and not warned_end:
             warned_end = True
             alert_session_end()
             console.print(f"\n[bold red]12:00[/bold red]  Session over — stop trading.")
@@ -184,8 +216,29 @@ def run_monitor():
                         f"({watch['strategy'].upper()} — you are now risk-free)[/bold cyan]"
                     )
 
+        # ── Real-time level crossing alerts (fires mid-bar, before bar close) ──
+        if price and key_levels and 9 <= h < 12:
+            checks = [
+                ("ORB HIGH", key_levels.get("orb_high"), "long",  lambda p, l: p >= l),
+                ("ORB LOW",  key_levels.get("orb_low"),  "short", lambda p, l: p <= l),
+                ("IB HIGH",  key_levels.get("ib_high"),  "long",  lambda p, l: p >= l),
+                ("IB LOW",   key_levels.get("ib_low"),   "short", lambda p, l: p <= l),
+            ]
+            for name, lvl, direction, test in checks:
+                if not lvl or not test(price, lvl):
+                    continue
+                key = f"{name}_{lvl:.0f}"
+                if key in level_alerts:
+                    continue
+                level_alerts.add(key)
+                side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
+                console.print(
+                    f"\n  [bold yellow]⚡ {name} {lvl:.1f} CROSSED → {side}[/bold yellow]  "
+                    f"[dim]signal likely on next bar close[/dim]"
+                )
+
         # ── Live price ticker (overwrites same line) ───────────────────────
-        if 9 <= h and price:
+        if 9 <= h < 12 and price:
             age     = feed.age_seconds
             stale   = "[red]STALE[/red]" if age > 10 else ""
             console.print(
@@ -196,7 +249,7 @@ def run_monitor():
 
         # ── Bar close check ───────────────────────────────────────────────
         cur_bar = _bar_minute(now)
-        if cur_bar != last_bar_min and h >= 9:
+        if cur_bar != last_bar_min and h >= 9 and h < 12:
             last_bar_min = cur_bar
             t0 = time.monotonic()
             console.print()
@@ -262,7 +315,9 @@ def run_monitor():
             except Exception as e:
                 console.print(f"[red]error: {e}[/red]")
 
-        time.sleep(2)
+            key_levels = _compute_levels(bar_cache)
+
+        time.sleep(0.5)
 
 
 if __name__ == "__main__":
