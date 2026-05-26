@@ -19,7 +19,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import websockets
-import yfinance as yf
 
 log = logging.getLogger(__name__)
 EST = ZoneInfo("America/New_York")
@@ -53,17 +52,32 @@ def _decode_price(msg: str) -> float | None:
     return None
 
 
-def _calibrate_basis(ndx_price: float) -> float:
-    """Calculate NQ futures - NDX basis using yfinance snapshot."""
-    try:
-        nq = yf.Ticker("NQ=F").fast_info.last_price
-        if nq and nq > 0:
-            basis = nq - ndx_price
-            log.info("NQ-NDX basis calibrated: +%.1f (NQ=%.1f NDX=%.1f)", basis, nq, ndx_price)
-            return basis
-    except Exception as e:
-        log.warning("Basis calibration failed: %s — using 0", e)
-    return 0.0
+def _theoretical_basis(ndx_price: float) -> float:
+    """
+    Cost-of-carry basis: F = S * e^((r-q)*T)
+    r = risk-free rate (~4.5%), q = Nasdaq dividend yield (~0.5%)
+    T = days to NQ quarterly expiry (3rd Friday of Mar/Jun/Sep/Dec)
+    """
+    import math
+    from datetime import date as _date
+
+    today = _date.today()
+    y, m = today.year, today.month
+    # Find next quarterly expiry month
+    exp_months = [3, 6, 9, 12]
+    exp_month  = next((em for em in exp_months if em > m or (em == m and today.day < 15)), exp_months[0])
+    exp_year   = y if exp_month > m else y + 1
+
+    # Third Friday of expiry month
+    from calendar import monthcalendar
+    fridays = [w[4] for w in monthcalendar(exp_year, exp_month) if w[4]]
+    expiry  = _date(exp_year, exp_month, fridays[2])
+
+    T     = (expiry - today).days / 365.0
+    r, q  = 0.045, 0.019          # risk-free rate, NDX implied dividend yield
+    basis = ndx_price * (math.exp((r - q) * T) - 1)
+    log.info("NQ-NDX theoretical basis: +%.1f (T=%.0fd expiry=%s)", basis, T*365, expiry)
+    return basis
 
 
 class YahooWsFeed:
@@ -139,7 +153,7 @@ class YahooWsFeed:
                     self._updated = datetime.now(tz=EST)
                     # Recalibrate basis every 15 min (basis drifts as expiry approaches)
                     if not self._calibrated or (datetime.now(tz=EST) - self._last_cal).total_seconds() > 900:
-                        self._basis      = _calibrate_basis(p)
+                        self._basis      = _theoretical_basis(p)
                         self._calibrated = True
                         self._last_cal   = datetime.now(tz=EST)
 
