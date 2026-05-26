@@ -295,6 +295,49 @@ def run_monitor():
                         f"[dim]limit should be filling — bar close confirms[/dim]"
                     )
 
+            # ── VWAP bounce pre-alert (separate logic — price comes TO vwap) ──
+            vwap = key_levels.get("vwap")
+            atr  = key_levels.get("atr", 50.0)
+            if vwap:
+                dist = price - vwap   # positive = above VWAP, negative = below
+                vwap_key = round(vwap / 5) * 5   # bucket by 5pts so VWAP drift doesn't spam
+
+                if 0 < dist <= _APPROACH:
+                    # Price just above VWAP, dropping toward it → LONG bounce setup
+                    app_key = f"APPROACH_VWAP_LONG_{vwap_key}"
+                    if app_key not in level_alerts:
+                        level_alerts.add(app_key)
+                        sl = vwap - atr * 0.5
+                        tp = vwap + atr * 1.5
+                        risk = vwap - sl
+                        console.print(
+                            f"\n  [bold cyan]🎯 VWAP {vwap:.1f} APPROACHING → [green]LONG ▲[/green][/bold cyan]\n"
+                            f"  [bold]  Entry ~{vwap:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
+                            f"[dim](risk {risk:.0f}pts — price dropping to VWAP)[/dim]"
+                        )
+                        alert_warning(
+                            f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
+                            f"Price dropping to VWAP {vwap:.1f} — LONG bounce setup forming"
+                        )
+
+                elif -_APPROACH <= dist < 0:
+                    # Price just below VWAP, rising toward it → SHORT bounce setup
+                    app_key = f"APPROACH_VWAP_SHORT_{vwap_key}"
+                    if app_key not in level_alerts:
+                        level_alerts.add(app_key)
+                        sl = vwap + atr * 0.5
+                        tp = vwap - atr * 1.5
+                        risk = sl - vwap
+                        console.print(
+                            f"\n  [bold cyan]🎯 VWAP {vwap:.1f} APPROACHING → [red]SHORT ▼[/red][/bold cyan]\n"
+                            f"  [bold]  Entry ~{vwap:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
+                            f"[dim](risk {risk:.0f}pts — price rising to VWAP)[/dim]"
+                        )
+                        alert_warning(
+                            f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
+                            f"Price rising to VWAP {vwap:.1f} — SHORT bounce setup forming"
+                        )
+
         # ── Live price ticker (overwrites same line) ───────────────────────
         if 9 <= h < 12 and price:
             age     = feed.age_seconds
