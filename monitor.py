@@ -95,6 +95,16 @@ def _compute_levels(bar_cache: pd.DataFrame) -> dict:
         vol  = td["Volume"].replace(0, 1)
         levels["vwap"] = float((typ * vol).sum() / vol.sum())
 
+    # ATR from recent bars (14-period true range)
+    recent = bar_cache.tail(20)
+    if len(recent) >= 2:
+        tr = pd.concat([
+            recent["High"] - recent["Low"],
+            (recent["High"] - recent["Close"].shift()).abs(),
+            (recent["Low"]  - recent["Close"].shift()).abs(),
+        ], axis=1).max(axis=1)
+        levels["atr"] = float(tr.tail(14).mean())
+
     return levels
 
 
@@ -243,14 +253,36 @@ def run_monitor():
                 app_key = f"APPROACH_{name}_{lvl:.0f}"
                 if approaching and app_key not in level_alerts:
                     level_alerts.add(app_key)
+                    atr = key_levels.get("atr", 50.0)
+
+                    # Estimate SL / TP based on strategy
+                    if "ORB" in name:
+                        orb_h = key_levels.get("orb_high", lvl)
+                        orb_l = key_levels.get("orb_low",  lvl)
+                        if direction == "long":
+                            sl = orb_l - 2
+                            tp = lvl + (lvl - sl) * 2
+                        else:
+                            sl = orb_h + 2
+                            tp = lvl - (sl - lvl) * 2
+                    else:  # IB
+                        if direction == "long":
+                            sl = lvl - atr * 0.5
+                            tp = lvl + atr * 1.5
+                        else:
+                            sl = lvl + atr * 0.5
+                            tp = lvl - atr * 1.5
+
+                    risk = abs(lvl - sl)
                     side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
                     console.print(
-                        f"\n  [bold cyan]🎯 {name} {lvl:.1f} APPROACHING → {side}[/bold cyan]  "
-                        f"[bold]Set limit at {lvl:.1f} NOW[/bold]"
+                        f"\n  [bold cyan]🎯 {name} {lvl:.1f} APPROACHING → {side}[/bold cyan]\n"
+                        f"  [bold]  Entry ~{lvl:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
+                        f"[dim](risk {risk:.0f}pts — exact levels on bar close)[/dim]"
                     )
                     alert_warning(
-                        f"SET LIMIT AT {lvl:.1f}",
-                        f"{name} approaching — place {direction.upper()} limit NOW before breakout"
+                        f"SET LIMIT  E:{lvl:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
+                        f"{name} approaching — place {direction.upper()} limit NOW"
                     )
 
                 # Stage 2 — crossed: level hit, filling or already through
