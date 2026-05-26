@@ -113,6 +113,14 @@ def run_monitor():
         border_style="cyan"
     ))
 
+    # Show which feed is active
+    from yahoo_ws_feed import YahooWsFeed
+    if isinstance(feed, YahooWsFeed):
+        feed_name = "[bold green]Yahoo WS ^NDX (real-time)[/bold green]"
+    else:
+        feed_name = "[yellow]yfinance (15-min delayed)[/yellow]"
+    console.print(f"Price feed: {feed_name}")
+
     # Wait for first price
     console.print("Connecting...", end=" ")
     for _ in range(20):
