@@ -36,6 +36,7 @@ from backtest.data_loader import load_nq, label_sessions
 from backtest.quant_engine import _load_vix
 from notifications import (
     alert_signal, alert_session_start, alert_session_end, alert_risk_warning,
+    alert_breakeven,
 )
 
 EST       = ZoneInfo("America/New_York")
@@ -133,6 +134,7 @@ def run_monitor():
     )
 
     seen_signals:  set[str] = set()
+    be_watches:    list     = []   # tracks open signals for breakeven alerts
     warned_start            = False
     warned_end              = False
     last_bar_min: int       = -1
@@ -158,6 +160,21 @@ def run_monitor():
             alert_session_end()
             console.print(f"\n[bold red]12:00[/bold red]  Session over — stop trading.")
             break
+
+        # ── Breakeven watcher ─────────────────────────────────────────────
+        if price and be_watches:
+            for watch in be_watches:
+                if watch["notified"]:
+                    continue
+                hit = (watch["direction"] == "long"  and price >= watch["be_trigger"]) or \
+                      (watch["direction"] == "short" and price <= watch["be_trigger"])
+                if hit:
+                    watch["notified"] = True
+                    alert_breakeven(watch["strategy"], watch["direction"], watch["entry"])
+                    console.print(
+                        f"\n  [bold cyan]🔒 MOVE SL → {watch['entry']:.1f}  "
+                        f"({watch['strategy'].upper()} — you are now risk-free)[/bold cyan]"
+                    )
 
         # ── Live price ticker (overwrites same line) ───────────────────────
         if 9 <= h < 12 and price:
@@ -206,6 +223,24 @@ def run_monitor():
                         console.print(
                             f"  [dim]Enter next bar open · "
                             f"~{5 - now.second//60} min window[/dim]"
+                        )
+                        # Register breakeven watcher for this signal
+                        risk_pts = abs(t.entry - t.stop)
+                        be_mult  = 2.0 if t.strategy == "orb" else 1.0
+                        if t.direction == "long":
+                            be_trigger = t.entry + risk_pts * be_mult
+                        else:
+                            be_trigger = t.entry - risk_pts * be_mult
+                        be_watches.append({
+                            "strategy":   t.strategy,
+                            "direction":  t.direction,
+                            "entry":      t.entry,
+                            "be_trigger": be_trigger,
+                            "notified":   False,
+                        })
+                        console.print(
+                            f"  [dim]BE alert set: move SL → {t.entry:.1f} "
+                            f"when price hits {be_trigger:.1f}[/dim]"
                         )
                 else:
                     console.print(f"[dim]none ({check_ms}ms · {len(seen_signals)} fired today)[/dim]")

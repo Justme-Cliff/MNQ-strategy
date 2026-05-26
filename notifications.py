@@ -49,6 +49,17 @@ def alert_session_end():
     _popup("🏁 Session Over — 12:00 PM", "Stop trading. Review your trades.", sound="Glass")
 
 
+def alert_breakeven(strategy: str, direction: str, entry: float):
+    side = "LONG" if direction == "long" else "SHORT"
+    _sound("Pop")
+    _sound("Pop")
+    _popup(
+        f"🔒 MOVE STOP TO ENTRY — {strategy.upper()} {side}",
+        f"Move SL → {entry:.1f}  (your entry price)\nYou are now risk-free on this trade.",
+        sound="Pop"
+    )
+
+
 def alert_risk_warning(msg: str):
     _sound("Basso")
     _popup("⛔ RISK WARNING", msg, sound="Basso")
