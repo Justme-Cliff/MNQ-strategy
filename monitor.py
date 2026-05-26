@@ -162,7 +162,7 @@ def run_monitor():
                 f"NQ ${price:,.1f}  Buffer ${buf:.0f}"
             )
 
-        # ── 12:00 PM session end ──────────────────────────────────────────
+        # ── 12:00 PM session end ─────────────────────────────────────────
         if h >= 12 and not warned_end:
             warned_end = True
             alert_session_end()

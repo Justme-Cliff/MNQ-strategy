@@ -74,7 +74,7 @@ def _theoretical_basis(ndx_price: float) -> float:
     expiry  = _date(exp_year, exp_month, fridays[2])
 
     T     = (expiry - today).days / 365.0
-    r, q  = 0.045, 0.019          # risk-free rate, NDX implied dividend yield
+    r, q  = 0.045, 0.005          # risk-free rate (~4.5%), NDX dividend yield (~0.5%)
     basis = ndx_price * (math.exp((r - q) * T) - 1)
     log.info("NQ-NDX theoretical basis: +%.1f (T=%.0fd expiry=%s)", basis, T*365, expiry)
     return basis
