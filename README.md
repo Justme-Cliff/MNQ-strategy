@@ -64,10 +64,19 @@ The script shows:
 - **ORB box** — first 5-min bar range
 - **IB box** — 9:30–10:00 initial balance range
 - **VWAP + bands** — session anchored; 1.5σ signal, 2.5σ stop reference, 0.5σ bounce zone (teal fill)
-- **FVG zones** — bullish (green) and bearish (red) imbalances
-- **Signal labels** — entry / stop / target printed on the chart for all 8 strategies
-- **PM signals** — afternoon VWAP reversion and bounce alerts (toggle with `Show PM signals` input)
+- **FVG zones** — bullish (green) and bearish (red) imbalances ≥12pts only
+- **Signal labels** — entry / stop / target printed on the chart for all strategies
+- **PM signals** — afternoon VWAP bounce alerts (toggle with `Show PM signals` input); PM reversion requires strong trend
 - **Regime dashboard** — top-right table: trend direction, VIX regime, ATR, active strategies, max trades/day
+
+Parameters synced with Python backtest engine:
+- VWAP deviation: min 15pts / max 30pts (was 5/50 — filters noise entries)
+- IB target: 1.5× IB range (was 0.75×); proximity filter ≤30pts (was 20)
+- Gap fill target: prior close + 50% extension (was prior close only)
+- AM windows extended to noon (was 11:30)
+- ORB shorts require strong_bear only (was bear or strong_bear)
+- PM VWAP reversion requires strong_bull / strong_bear (was any trend)
+- FVG min 12pts / max min(60, 30% ATR) (was 6pts / 15% ATR)
 
 Set TradingView alerts on any of the **16 alert conditions** to get notified when a setup fires:
 

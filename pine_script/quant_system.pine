@@ -69,9 +69,9 @@ trend_strong_bear = trend_dir == "STRONG BEAR"
 trend_neutral     = trend_dir == "neutral"
 trend_trending    = trend_bull or trend_bear  // any directional trend
 
-// ORB: all non-Monday/Tuesday longs; any trend
+// ORB: longs need strong_bull/neutral; shorts need strong_bear only (stricter — avoids weak-bear chop)
 orb_long_regime  = vix_ok and (trend_strong_bull or trend_bull or trend_neutral)
-orb_short_regime = vix_ok and (trend_strong_bear or trend_bear)
+orb_short_regime = vix_ok and trend_strong_bear
 
 // IB Breakout: any trend (direction_allowed handles alignment)
 ib_regime = vix_ok
@@ -111,10 +111,10 @@ var int rth_open_time = na
 if is_930
     rth_open_time := time
 
-// Time windows
-vwap_am_window = in_rth and bar_mins >= 585 and bar_mins < 690   // 9:45-11:30
-vwap_pm_window = in_pm and bar_mins >= 810 and bar_mins < 930     // 1:30-3:30
-bounce_am_window = in_rth and bar_mins >= 600 and bar_mins < 690  // 10:00-11:30
+// Time windows — AM extended to noon (prop firm session ends 12:00 PM)
+vwap_am_window   = in_rth and bar_mins >= 585 and bar_mins < 720  // 9:45-12:00
+vwap_pm_window   = in_pm and bar_mins >= 810 and bar_mins < 930   // 1:30-3:30
+bounce_am_window = in_rth and bar_mins >= 600 and bar_mins < 720  // 10:00-12:00
 bounce_pm_window = in_pm                                           // 1:30-3:30
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -266,12 +266,12 @@ ib_ok_size = (atr_adapt > 0 and
 // IB fires in any trend (direction_allowed gates per-trade direction)
 ib_long_sig = (not ib_done and is_c_period and not na(ib_hi) and ib_ok_size and
                ib_regime and ib_bias == "bullish" and
-               close > ib_hi and (close - ib_hi) <= 20.0 and
+               close > ib_hi and (close - ib_hi) <= 30.0 and
                (trend_bull or trend_strong_bull or trend_neutral))
 
 ib_short_sig = (not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and
                 ib_regime and ib_bias == "bearish" and
-                close < ib_lo and (ib_lo - close) <= 20.0 and
+                close < ib_lo and (ib_lo - close) <= 30.0 and
                 (trend_bear or trend_strong_bear or trend_neutral))
 
 if ib_long_sig or ib_short_sig
@@ -292,8 +292,8 @@ if new_day
     vwap_pm_l_done := false
     vwap_pm_s_done := false
 
-vwap_min_dev = math.max(5.0, atr_adapt * 0.025)
-vwap_max_dev = math.min(50.0, atr_adapt * 0.18)
+vwap_min_dev = math.max(15.0, atr_adapt * 0.05)   // tightened: 5pt = noise in 150pt session
+vwap_max_dev = math.min(30.0, atr_adapt * 0.12)   // tightened: >30pt = crash, not reversion
 vwap_dev     = math.abs(close - vwap_val)
 
 // AM reversion (9:45-11:30)
@@ -310,13 +310,13 @@ if vwap_long_sig
 if vwap_short_sig
     vwap_s_done := true
 
-// PM reversion (1:30-3:30)
+// PM reversion (1:30-3:30) — requires strong trend only (backtested: barely profitable without filter)
 vwap_pm_long_sig = (not vwap_pm_l_done and vwap_pm_window and vwap_rev_regime and
-                    (trend_neutral or trend_bull or trend_strong_bull) and
+                    trend_strong_bull and
                     close < vwap_lower_15 and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
 
 vwap_pm_short_sig = (not vwap_pm_s_done and vwap_pm_window and vwap_rev_regime and
-                     (trend_neutral or trend_bear or trend_strong_bear) and
+                     trend_strong_bear and
                      close > vwap_upper_15 and vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev)
 
 if vwap_pm_long_sig
@@ -364,8 +364,8 @@ if bounce_pm_long_sig or bounce_pm_short_sig
 
 fvg_window   = vwap_am_window and dow != dayofweek.monday
 fvg_active   = fvg_regime_ok and fvg_window
-fvg_min_sz   = math.max(6.0, atr_adapt * 0.04)
-fvg_max_sz   = atr_adapt * 0.15
+fvg_min_sz   = math.max(12.0, atr_adapt * 0.06)   // institutions don't leave 6pt imbalances
+fvg_max_sz   = math.min(60.0, atr_adapt * 0.30)   // wider = news spike, not institution
 
 bull_fvg_sz  = low - high[2]
 bull_fvg_ok  = fvg_active and bull_fvg_sz >= fvg_min_sz and bull_fvg_sz <= fvg_max_sz
@@ -427,24 +427,24 @@ if show_sigs
     if gap_long
         entry_p = open
         stop_p  = low[1] - 2.0
-        tgt_p   = nz(d_prev_cls)
+        tgt_p   = nz(d_prev_cls) + gap_size[1] * 0.5   // fill + 50% extension (40%+ of fills continue)
         label.new(bar_index, low - atr_adapt * 0.015,
              "GAP FILL LONG\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
              "  T:" + str.tostring(tgt_p, "#.0") +
-             "\n" + str.tostring(gap_size[1], "#.1") + "pt gap",
+             "\n" + str.tostring(gap_size[1], "#.1") + "pt gap (+50% ext)",
              color=color.new(color.green, 15), textcolor=color.white,
              style=label.style_label_up, size=size.small)
 
     if gap_short
         entry_p = open
         stop_p  = high[1] + 2.0
-        tgt_p   = nz(d_prev_cls)
+        tgt_p   = nz(d_prev_cls) - gap_size[1] * 0.5   // fill + 50% extension
         label.new(bar_index, high + atr_adapt * 0.015,
              "GAP FILL SHORT\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
              "  T:" + str.tostring(tgt_p, "#.0") +
-             "\n" + str.tostring(gap_size[1], "#.1") + "pt gap",
+             "\n" + str.tostring(gap_size[1], "#.1") + "pt gap (+50% ext)",
              color=color.new(color.maroon, 15), textcolor=color.white,
              style=label.style_label_down, size=size.small)
 
@@ -479,7 +479,7 @@ if show_sigs
     if ib_long_sig
         entry_p = close
         stop_p  = ib_hi - 2.0
-        tgt_p   = ib_hi + ib_range * 0.75
+        tgt_p   = ib_hi + ib_range * 1.5   // 1.5× — research: trend days travel 2-3× IB range
         label.new(bar_index, high + atr_adapt * 0.01,
              "IB BREAKOUT LONG  [" + trend_dir + "]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
@@ -491,7 +491,7 @@ if show_sigs
     if ib_short_sig
         entry_p = close
         stop_p  = ib_lo + 2.0
-        tgt_p   = ib_lo - ib_range * 0.75
+        tgt_p   = ib_lo - ib_range * 1.5   // 1.5× target
         label.new(bar_index, low - atr_adapt * 0.01,
              "IB BREAKOUT SHORT  [" + trend_dir + "]\nE:" + str.tostring(entry_p, "#.0") +
              "  S:" + str.tostring(stop_p, "#.0") +
@@ -683,8 +683,8 @@ alertcondition(gap_long,           title="Gap Fill LONG",            message="GA
 alertcondition(gap_short,          title="Gap Fill SHORT",           message="GAP FILL SHORT — tiny gap-up + premarket bias. Enter next bar open, target prior close.")
 alertcondition(orb_long_sig,       title="ORB LONG",                 message="ORB LONG — pullback to ORB high in bull trend. Tight stop, 3:1 target. Enter next bar.")
 alertcondition(orb_short_sig,      title="ORB SHORT",                message="ORB SHORT — pullback to ORB low in bear trend. Tight stop, 3:1 target. Enter next bar.")
-alertcondition(ib_long_sig,        title="IB Breakout LONG",         message="IB BREAKOUT LONG — C-period, bullish IB bias. Enter next bar, target IB top + 75%.")
-alertcondition(ib_short_sig,       title="IB Breakout SHORT",        message="IB BREAKOUT SHORT — C-period, bearish IB bias. Enter next bar, target IB bottom − 75%.")
+alertcondition(ib_long_sig,        title="IB Breakout LONG",         message="IB BREAKOUT LONG — C-period, bullish IB bias. Enter next bar, target IB top + 1.5× range.")
+alertcondition(ib_short_sig,       title="IB Breakout SHORT",        message="IB BREAKOUT SHORT — C-period, bearish IB bias. Enter next bar, target IB bottom − 1.5× range.")
 alertcondition(vwap_long_sig,      title="VWAP Rev LONG (AM)",       message="VWAP REVERSION LONG AM — price at −1.5sd. Enter next bar, target VWAP.")
 alertcondition(vwap_short_sig,     title="VWAP Rev SHORT (AM)",      message="VWAP REVERSION SHORT AM — price at +1.5sd. Enter next bar, target VWAP.")
 alertcondition(vwap_pm_long_sig,   title="VWAP Rev LONG (PM)",       message="VWAP REVERSION LONG PM — price at −1.5sd. Enter next bar, target VWAP. Close by 4 PM.")
