@@ -1,6 +1,9 @@
 """
-Fast price feed — tries Tradovate WebSocket (real-time) first,
-falls back to yfinance (15-min delayed) if Tradovate is unavailable.
+Fast price feed — Yahoo Finance WebSocket (^NDX + basis) with yfinance fallback.
+
+Strategy: both feeds run simultaneously. WS is preferred whenever it has a fresh
+price (age < 30s). yfinance covers the gap while WS is connecting pre-market.
+Once WS gets its first tick, it takes over automatically — no restart needed.
 """
 from __future__ import annotations
 import threading
@@ -68,33 +71,75 @@ class FastPriceFeed:
             time.sleep(self._interval)
 
 
+class HybridFeed:
+    """
+    Runs Yahoo WS and yfinance simultaneously.
+    Returns WS price when fresh (age < 30s), yfinance otherwise.
+    WS takes over automatically once it connects — no restart needed.
+    """
+
+    def __init__(self):
+        from yahoo_ws_feed import YahooWsFeed
+        self._ws       = YahooWsFeed()
+        self._fallback = FastPriceFeed(interval=0.5)
+        self._ws_ever_connected = False
+        self.source    = "hybrid"
+
+    @property
+    def price(self) -> float | None:
+        ws_price = self._ws.price
+        ws_age   = self._ws.age_seconds
+
+        if ws_price and ws_age < 30:
+            self._ws_ever_connected = True
+            self.source = "^NDX+basis"
+            return ws_price
+
+        # WS not ready yet — use yfinance but keep WS running in background
+        fb = self._fallback.price
+        if not self._ws_ever_connected:
+            self.source = "yfinance(delayed)"
+        else:
+            # WS was working but went stale — could be a gap (lunch, etc.)
+            self.source = "yfinance(WS stale)"
+        return fb
+
+    @property
+    def age_seconds(self) -> float:
+        ws_age = self._ws.age_seconds
+        if ws_age < 30:
+            return ws_age
+        return self._fallback.age_seconds
+
+    def is_stale(self, max_age: float = 30.0) -> bool:
+        return self.age_seconds > max_age
+
+    @property
+    def connected(self) -> bool:
+        return self._ws.connected
+
+    def stop(self):
+        self._ws.stop()
+        self._fallback.stop()
+
+
 # ── Feed selector ─────────────────────────────────────────────────────────────
 
 _feed = None
 
 
-def get_feed():
-    """Return Tradovate feed if credentials available, else yfinance."""
+def get_feed() -> HybridFeed | FastPriceFeed:
     global _feed
     if _feed is not None:
         return _feed
 
-    # Try Yahoo Finance WebSocket (real-time ^NDX + basis = NQ price)
     try:
-        from yahoo_ws_feed import YahooWsFeed
-        yws = YahooWsFeed()
-        for _ in range(20):          # wait up to 10s for first tick
-            if yws.price:
-                _feed = yws
-                return _feed
-            time.sleep(0.5)
-        log.warning("Yahoo WS: no tick in 10s — falling back to yfinance")
-        yws.stop()
+        _feed = HybridFeed()
+        log.info("HybridFeed started: WS + yfinance running simultaneously")
     except Exception as e:
-        log.warning("Yahoo WS unavailable (%s) — using yfinance", e)
+        log.warning("HybridFeed failed (%s) — using yfinance only", e)
+        _feed = FastPriceFeed(interval=0.5)
 
-    log.info("Using yfinance feed (15-min delayed)")
-    _feed = FastPriceFeed(interval=0.5)
     return _feed
 
 

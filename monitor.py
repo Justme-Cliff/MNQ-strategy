@@ -153,17 +153,11 @@ def run_monitor():
         border_style="cyan"
     ))
 
-    # Show which feed is active
-    from yahoo_ws_feed import YahooWsFeed
-    if isinstance(feed, YahooWsFeed):
-        feed_name = "[bold green]Yahoo WS ^NDX + basis (real-time, ~$2-5 approx)[/bold green]"
-    else:
-        feed_name = "[yellow]yfinance (15-min delayed)[/yellow]"
-    console.print(f"Price feed: {feed_name}")
+    console.print("Price feed: [dim]WS + yfinance hybrid — WS takes over once connected[/dim]")
 
-    # Wait for first price
+    # Wait for first price (yfinance fallback is immediate, so this should be fast)
     console.print("Connecting...", end=" ")
-    for _ in range(20):
+    for _ in range(40):
         if feed.price:
             break
         time.sleep(0.5)
@@ -340,11 +334,16 @@ def run_monitor():
 
         # ── Live price ticker (overwrites same line) ───────────────────────
         if 9 <= h < 12 and price:
-            age     = feed.age_seconds
-            stale   = "[red]STALE[/red]" if age > 10 else ""
+            age    = feed.age_seconds
+            source = getattr(feed, "source", "")
+            if "NDX" in source:
+                src_tag = "[green]WS[/green]"
+            else:
+                src_tag = "[yellow]delayed[/yellow]"
+            stale = "[red]STALE[/red]" if age > 10 else ""
             console.print(
                 f"[dim]{now.strftime('%H:%M:%S')}[/dim]  "
-                f"[bold]${price:,.1f}[/bold]  {stale}",
+                f"[bold]${price:,.1f}[/bold]  {src_tag}  {stale}",
                 end="\r"
             )
 
