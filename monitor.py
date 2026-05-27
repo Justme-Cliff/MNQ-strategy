@@ -290,17 +290,30 @@ def run_monitor():
                     )
 
             # ── VWAP bounce pre-alert (separate logic — price comes TO vwap) ──
+            # Only fire post-9:30 AM: pre-market VWAP is built from too few bars
+            # Cooldown: track last VWAP alert time, suppress opposite direction for 5 min
             vwap = key_levels.get("vwap")
             atr  = key_levels.get("atr", 50.0)
-            if vwap:
+            if vwap and (h > 9 or (h == 9 and m >= 30)):
                 dist = price - vwap   # positive = above VWAP, negative = below
                 vwap_key = round(vwap / 5) * 5   # bucket by 5pts so VWAP drift doesn't spam
 
-                if 0 < dist <= _APPROACH:
+                # Cooldown: don't fire opposite direction within 5 minutes of last VWAP alert
+                last_vwap_alert = getattr(run_monitor, "_last_vwap_alert", None)
+                last_vwap_dir   = getattr(run_monitor, "_last_vwap_dir", None)
+                cooldown_ok = True
+                if last_vwap_alert is not None:
+                    elapsed = (now - last_vwap_alert).total_seconds()
+                    if elapsed < 300 and last_vwap_dir != (dist > 0):
+                        cooldown_ok = False  # opposite direction within 5 min — skip
+
+                if 0 < dist <= _APPROACH and cooldown_ok:
                     # Price just above VWAP, dropping toward it → LONG bounce setup
                     app_key = f"APPROACH_VWAP_LONG_{vwap_key}"
                     if app_key not in level_alerts:
                         level_alerts.add(app_key)
+                        run_monitor._last_vwap_alert = now
+                        run_monitor._last_vwap_dir   = True   # True = long
                         sl = vwap - atr * 0.5
                         tp = vwap + atr * 1.5
                         risk = vwap - sl
@@ -314,11 +327,13 @@ def run_monitor():
                             f"Price dropping to VWAP {vwap:.1f} — LONG bounce setup forming"
                         )
 
-                elif -_APPROACH <= dist < 0:
+                elif -_APPROACH <= dist < 0 and cooldown_ok:
                     # Price just below VWAP, rising toward it → SHORT bounce setup
                     app_key = f"APPROACH_VWAP_SHORT_{vwap_key}"
                     if app_key not in level_alerts:
                         level_alerts.add(app_key)
+                        run_monitor._last_vwap_alert = now
+                        run_monitor._last_vwap_dir   = False  # False = short
                         sl = vwap + atr * 0.5
                         tp = vwap - atr * 1.5
                         risk = sl - vwap
