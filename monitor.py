@@ -279,15 +279,42 @@ def run_monitor():
                         f"{name} approaching — place {direction.upper()} limit NOW"
                     )
 
-                # Stage 2 — crossed: level hit, filling or already through
+                # Stage 2 — crossed: level broken, enter at market now
                 cross_key = f"CROSS_{name}_{lvl:.0f}"
                 if crossed and cross_key not in level_alerts:
                     level_alerts.add(cross_key)
+                    atr   = key_levels.get("atr", 50.0)
+                    entry = price   # enter at current market price
+
+                    if "ORB" in name:
+                        orb_h = key_levels.get("orb_high", lvl)
+                        orb_l = key_levels.get("orb_low",  lvl)
+                        orb_r = orb_h - orb_l
+                        if direction == "long":
+                            sl = orb_l - 2
+                            tp = orb_h + orb_r * 1.5
+                        else:
+                            sl = orb_h + 2
+                            tp = orb_l - orb_r * 1.5
+                    else:  # IB
+                        ib_h = key_levels.get("ib_high", lvl)
+                        ib_l = key_levels.get("ib_low",  lvl)
+                        ib_r = ib_h - ib_l
+                        if direction == "long":
+                            sl = ib_l - 2
+                            tp = ib_h + ib_r * 1.5
+                        else:
+                            sl = ib_l + 2
+                            tp = ib_l - ib_r * 1.5
+
+                    risk = abs(entry - sl)
                     side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
                     console.print(
-                        f"\n  [bold yellow]⚡ {name} {lvl:.1f} HIT → {side}[/bold yellow]  "
-                        f"[dim]limit should be filling — bar close confirms[/dim]"
+                        f"\n  [bold yellow]⚡ {name} {lvl:.1f} HIT → {side}[/bold yellow]\n"
+                        f"  [bold]  Entry {entry:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
+                        f"[dim](risk {risk:.0f}pts — enter at market NOW)[/dim]"
                     )
+                    alert_signal(name, direction, entry, sl, tp)
 
             # ── VWAP bounce pre-alert (separate logic — price comes TO vwap) ──
             # Only fire post-9:30 AM: pre-market VWAP is built from too few bars
