@@ -44,6 +44,7 @@ from strategy.quant_regime import (
     get_expiry_context,
 )
 from strategy.inst_levels import get_key_levels, KeyLevels
+from strategy.inst_news   import fetch_session_news
 from strategy.bot_memory import (
     log_signal, confirm_signal_taken, report_outcome,
     get_confirmed_trades_today, get_pending_signal_id,
@@ -204,14 +205,65 @@ def _append_latest(cache: pd.DataFrame) -> pd.DataFrame:
 
 # ── Session open summary ──────────────────────────────────────────────────────
 
-def _print_session_open_summary(bar_cache: pd.DataFrame, vix_cache: dict, price: float) -> None:
-    """Print institutional context at session open: day type, key levels, bot insights."""
+def _print_session_open_summary(
+    bar_cache: pd.DataFrame,
+    vix_cache: dict,
+    price: float,
+    session_news: dict | None = None,
+) -> None:
+    """Print institutional context at session open: news, day type, key levels, bot insights."""
     today   = date.today()
     vix     = 18.0
     if today in vix_cache:
         vix = vix_cache[today]
 
     console.print("\n[bold cyan]━━━ SESSION OPEN BRIEF ━━━[/bold cyan]")
+
+    # ── News + economic calendar ──────────────────────────────────────────────
+    if session_news:
+        risk   = session_news.get("risk_level", "low")
+        dtype  = session_news.get("day_type", "normal")
+        brief  = session_news.get("brief", "")
+        events = session_news.get("key_events", [])
+        skips  = session_news.get("skip_strategies", [])
+        size_w = session_news.get("size_warning", False)
+        headlines = session_news.get("headlines_shown", [])
+
+        # Color the brief by risk level
+        if risk == "extreme":
+            risk_col = "bold red"
+        elif risk == "high":
+            risk_col = "red"
+        elif risk == "elevated":
+            risk_col = "yellow"
+        else:
+            risk_col = "green"
+
+        console.print(f"  [{risk_col}]{brief}[/{risk_col}]")
+
+        # Show calendar events (high impact)
+        for event in events[:4]:
+            if event.startswith("[FOMC]") or event.startswith("[DATA]"):
+                console.print(f"    [bold yellow]>> {event}[/bold yellow]")
+            elif event.startswith("[EARNINGS]"):
+                console.print(f"    [bold magenta]>> {event}[/bold magenta]")
+            else:
+                console.print(f"    [dim]>> {event}[/dim]")
+
+        # Show skip warnings
+        if skips:
+            skip_str = ", ".join(s.upper().replace("_", " ") for s in skips)
+            console.print(f"  [bold red]  SKIP TODAY: {skip_str}[/bold red]")
+        if size_w:
+            console.print("  [bold yellow]  REDUCE SIZE: high-impact day — prefer 1 contract[/bold yellow]")
+
+        # Top headlines (dim, compact)
+        if headlines:
+            console.print("  [dim]Top headlines:[/dim]")
+            for hl in headlines[:3]:
+                # Truncate long headlines
+                short = hl[:90] + "..." if len(hl) > 90 else hl
+                console.print(f"  [dim]  · {short}[/dim]")
 
     # Expiry context
     try:
@@ -379,6 +431,10 @@ def run_monitor():
     bar_cache = _load_bar_cache()
     vix_cache = _load_vix_cache()
 
+    console.print("Reading today's news + economic calendar...", end=" ")
+    session_news = fetch_session_news()
+    console.print(f"[green]done.[/green]")
+
     bal, buf = _load_balance()
     buf_col  = "red" if buf < 300 else ("yellow" if buf < 500 else "green")
     console.print(
@@ -389,6 +445,10 @@ def run_monitor():
 
     # Print bot memory status
     print_status()
+
+    # Guard: ensure session_news exists even if fetch above failed
+    if "session_news" not in dir():
+        session_news = None  # type: ignore
 
     seen_signals:  set[str] = set()
     be_watches:    list     = []
@@ -426,7 +486,7 @@ def run_monitor():
         # ── 9:30 AM session open brief ────────────────────────────────────
         if h == 9 and m >= 30 and not session_open_done:
             session_open_done = True
-            _print_session_open_summary(bar_cache, vix_cache, price)
+            _print_session_open_summary(bar_cache, vix_cache, price, session_news)
 
         # ── 12:00 PM session end ─────────────────────────────────────────
         if h >= 12 and not warned_end:
