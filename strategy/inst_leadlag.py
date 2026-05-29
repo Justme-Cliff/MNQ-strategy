@@ -90,3 +90,91 @@ def check_es_confirmation(
         return True     # ES flat → don't block
 
     return es_dir == signal_direction
+
+
+# ── NQ/ES Spread Divergence ───────────────────────────────────────────────────
+
+def get_nq_es_spread_signal(
+    nq_df: pd.DataFrame,
+    es_df: pd.DataFrame,
+    today: date,
+    lookback_days: int = 20,
+) -> dict:
+    """
+    NQ/ES price ratio deviation from rolling mean.
+    NQ and ES are 93% correlated. When ratio diverges, one will correct.
+
+    Returns:
+      ratio         : float  — last NQ close / last ES close
+      z_score       : float  — (ratio - mean) / std over lookback_days
+      signal        : "nq_extended" | "nq_cheap" | "neutral"
+      nq_favor_long : bool   — NQ below fair value vs ES → long NQ favored
+      nq_favor_short: bool   — NQ above fair value vs ES → short NQ favored
+      available     : bool
+    """
+    default = {
+        "ratio": 0.0, "z_score": 0.0, "signal": "neutral",
+        "nq_favor_long": False, "nq_favor_short": False, "available": False,
+    }
+
+    if es_df is None or es_df.empty:
+        return default
+
+    from zoneinfo import ZoneInfo
+    EST_z = ZoneInfo("America/New_York")
+
+    try:
+        nq_est = nq_df.index.tz_convert(EST_z)
+        es_est = es_df.index.tz_convert(EST_z)
+
+        # Daily closes: last bar of each RTH session
+        nq2 = nq_df.copy()
+        nq2["_date"] = nq_est.date
+        es2 = es_df.copy()
+        es2["_date"] = es_est.date
+
+        past_nq = nq2[nq2["_date"] < today].groupby("_date")["Close"].last().sort_index()
+        past_es = es2[es2["_date"] < today].groupby("_date")["Close"].last().sort_index()
+
+        # Align on common dates
+        common = sorted(set(past_nq.index) & set(past_es.index))
+        if len(common) < lookback_days:
+            return default
+
+        nq_s = past_nq.reindex(common).tail(lookback_days)
+        es_s = past_es.reindex(common).tail(lookback_days)
+
+        ratio_series = (nq_s / es_s).dropna()
+        if len(ratio_series) < 5:
+            return default
+
+        mean = float(ratio_series.mean())
+        std  = float(ratio_series.std())
+        current = float(ratio_series.iloc[-1])
+
+        z = (current - mean) / std if std > 1e-8 else 0.0
+
+        if z > 1.5:
+            signal = "nq_extended"
+            nq_favor_long  = False
+            nq_favor_short = True
+        elif z < -1.5:
+            signal = "nq_cheap"
+            nq_favor_long  = True
+            nq_favor_short = False
+        else:
+            signal = "neutral"
+            nq_favor_long  = False
+            nq_favor_short = False
+
+        return {
+            "ratio":          current,
+            "z_score":        z,
+            "signal":         signal,
+            "nq_favor_long":  nq_favor_long,
+            "nq_favor_short": nq_favor_short,
+            "available":      True,
+        }
+
+    except Exception:
+        return default

@@ -8,6 +8,7 @@ Strategies:
   4. VWAP Reversion — 2σ deviation reversion, 66-67% WR (VIX < 22 only)
 """
 from __future__ import annotations
+import sys
 from collections import defaultdict
 from backtest.quant_engine import run_quant_backtest, QuantTrade
 from strategy.bot_memory import log_trade, print_status, get_sizing, is_paused
@@ -184,3 +185,7 @@ if __name__ == "__main__":
 
     print(f"\nDone. {len(trades)} trades logged to bot memory.")
     print_status()
+
+    if "--charts" in sys.argv:
+        from backtest.quant_charts import generate_all_charts
+        generate_all_charts(trades)

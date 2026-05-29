@@ -96,18 +96,20 @@ def print_hybrid(trades: list[HybridTrade], s: dict, blocks: dict) -> None:
 
     _print_strategy_breakdown(trades, show_lots=True)
 
-    # Score distribution
-    print(f"\n  Confidence score breakdown (0–4):")
+    # Score distribution (0–12 point system)
+    print(f"\n  Confidence score distribution (0–12, skip ≤3, 2-lot ≥10):")
     score_groups = defaultdict(list)
     for t in trades:
         score_groups[t.score].append(t)
+    skipped_label = "  [≤3 = SKIP threshold]"
     for sc in sorted(score_groups.keys(), reverse=True):
         sg = score_groups[sc]
         sw = [t for t in sg if t.outcome == "WIN"]
         n2 = sum(1 for t in sg if t.n_contracts == 2)
         lots_label = f"  {n2}×2-lot" if n2 else ""
-        print(f"    score {sc}:  {len(sw)}/{len(sg)} WR={len(sw)/len(sg)*100:.0f}%  "
-              f"P&L ${sum(t.pnl for t in sg):+.0f}{lots_label}")
+        flag = "  ← 2-lot" if sc >= 10 else ""
+        print(f"    score {sc:>2}:  {len(sw)}/{len(sg)} WR={len(sw)/len(sg)*100:.0f}%  "
+              f"P&L ${sum(t.pnl for t in sg):+.0f}{lots_label}{flag}")
 
     # Hard blocks
     total_blocks = sum(blocks.values())
@@ -115,31 +117,32 @@ def print_hybrid(trades: list[HybridTrade], s: dict, blocks: dict) -> None:
         print(f"\n  Hard blocks: {total_blocks} trades skipped")
         for reason, n in blocks.items():
             if n > 0:
-                label = "BNS jump at signal bar" if reason == "bns_jump" \
-                        else "OFI strong opposing flow"
-                print(f"    {label}: {n}")
+                print(f"    {reason}: {n}")
 
-    # Confidence factor hit rate
+    # Confidence factor hit rates (from score_breakdown dict)
     if trades:
-        print(f"\n  Confidence factor hit rates:")
-        factors = [("TSMOM", "tsmom_pt"), ("GEX", "gex_pt"),
-                   ("ES lead-lag", "es_pt"), ("HMM", "hmm_pt")]
-        for label, attr in factors:
-            pts = [getattr(t, attr) for t in trades]
+        print(f"\n  Confidence factor hit rates (12-point system):")
+        all_factors = set()
+        for t in trades:
+            bd = getattr(t, "score_breakdown", {})
+            all_factors.update(bd.keys())
+        for factor in sorted(all_factors):
+            pts = [getattr(t, "score_breakdown", {}).get(factor, 0) for t in trades]
             hit = sum(pts)
-            print(f"    {label:<12}  {hit}/{len(trades)} trades got this point "
-                  f"({hit/len(trades)*100:.0f}%)")
+            print(f"    {factor:<14}  {hit}/{len(trades)} ({hit/len(trades)*100:.0f}%)")
 
     # Trade log
     print(f"\n  ALL TRADES")
-    print(f"  {'Date':<12} {'Day':<4} {'Strategy':<12} {'Dir':<6} "
-          f"{'Lots':<5} {'Score':<6} {'HMM':<10} {'GEX':<9} {'P&L':>8} {'Outcome'}")
-    print("  " + _sep(w=95))
+    print(f"  {'Date':<12} {'Day':<4} {'Strategy':<14} {'Dir':<6} "
+          f"{'Lots':<5} {'Score':<6} {'StMult':<7} {'HMM':<10} {'P&L':>8} {'Outcome'}")
+    print("  " + _sep(w=100))
     for t in trades:
-        two = " ★" if t.n_contracts == 2 else ""
-        print(f"  {str(t.date):<12} {t.day_name:<4} {t.strategy:<12} "
+        two   = " ★" if t.n_contracts == 2 else ""
+        smult = getattr(t, "stop_mult", 1.0)
+        smult_s = f"{smult:.2f}" if smult != 1.0 else "1.00"
+        print(f"  {str(t.date):<12} {t.day_name:<4} {t.strategy:<14} "
               f"{t.direction:<6} {t.n_contracts:<5} {t.score:<6} "
-              f"{t.hmm_state:<10} {t.gex_bias:<9} "
+              f"{smult_s:<7} {t.hmm_state:<10} "
               f"${t.pnl:>+7.0f}  {t.outcome}{two}")
 
 
@@ -247,7 +250,7 @@ def print_comparison(base_s: dict, inst_s: dict, hyb_s: dict) -> None:
 if __name__ == "__main__":
     print("=" * 72)
     print("  NQ QUANT SYSTEM  |  Three-way comparison  |  60d / 5m")
-    print("  Base · Institutional · Hybrid")
+    print("  Base · Institutional · Hybrid (12-pt scoring, HAR stops, CVD, macro)")
     print("=" * 72)
 
     print("\n[1/3] Running BASE system ...")

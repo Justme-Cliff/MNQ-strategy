@@ -3,25 +3,26 @@ Live session monitor — run from 9:20 AM ET.
 
   python3 monitor.py
 
-Speed breakdown:
-  - fast_feed.py:  NQ price updated every 0.5s via fast_info.last_price (real-time)
-  - Bar cache:     Full history loaded ONCE on startup (~2-3s), then only the
-                   latest bar is fetched on each check (~0.1s)
-  - Signal check:  Runs on bar close, completes in <0.5s total
-  - Notification:  Fires within 2-3 seconds of the bar closing
-  - Entry window:  You then have the full next 5-min bar (~4min 57sec) to get in
-
-Timeline:
-  9:20 AM  → start monitor (loads bar cache)
-  9:25 AM  → popup: "Market opens in 5 min"
-  9:30 AM  → session starts
-  each 5m  → bar closes → append latest bar → run signals → popup if new
-  12:00 PM → popup: "Session over"
+Features:
+  - Real-time NQ price every 0.5s via WebSocket + yfinance fallback
+  - Signal detection on each 5-min bar close
+  - Trade confirmation: after each signal asks "Did you take it? (y/n)"
+    → only confirmed trades count toward the 3-trade daily limit
+  - After confirming a trade: "Win or Loss? (w/l/skip)" to teach the bot
+  - Direction lock: once a signal fires, opposite-direction signals are
+    suppressed for 20 minutes (no more LONG + SHORT spam)
+  - Bot memory: every real trade recorded → regime-specific WR improves scoring
+  - PDH/PDL/PMH/PML alert levels
+  - Day type + overnight classification at session open
+  - Bot memory insights shown at session start
 """
 from __future__ import annotations
+import sys
 import time
 import json
-from datetime import datetime, date
+import threading
+import queue
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -38,11 +39,45 @@ from notifications import (
     alert_signal, alert_session_start, alert_session_end, alert_risk_warning,
     alert_breakeven, alert_warning,
 )
+from strategy.quant_regime import (
+    get_atr_adaptive, classify_market_full, get_overnight_range_type,
+    get_expiry_context,
+)
+from strategy.inst_levels import get_key_levels, KeyLevels
+from strategy.bot_memory import (
+    log_signal, confirm_signal_taken, report_outcome,
+    get_confirmed_trades_today, get_pending_signal_id,
+    is_paused, print_status, get_status,
+)
 
 EST       = ZoneInfo("America/New_York")
 console   = Console()
 ACCT_PATH = Path(__file__).parent / "journal" / "account.json"
 TICKER    = yf.Ticker("NQ=F")
+
+# ── Direction lock — prevents contradictory signals ───────────────────────────
+DIRECTION_LOCK_MINUTES = 20   # after a signal, suppress opposite direction for this long
+_session_dir_lock: str | None   = None
+_session_dir_lock_until: datetime | None = None
+
+# ── Input queue — background stdin reader ─────────────────────────────────────
+_input_q: queue.Queue = queue.Queue()
+
+def _stdin_reader():
+    """Background thread: reads user keyboard input without blocking the main loop."""
+    while True:
+        try:
+            line = sys.stdin.readline()
+            if line:
+                _input_q.put(line.strip().lower())
+        except Exception:
+            break
+
+threading.Thread(target=_stdin_reader, daemon=True).start()
+
+# ── Pending confirmation state ────────────────────────────────────────────────
+_pending_confirm: dict | None   = None   # signal waiting for y/n
+_pending_outcome:  dict | None  = None   # confirmed trade waiting for w/l
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -66,6 +101,23 @@ def _signal_key(t: QuantTrade) -> str:
 
 def _bar_minute(dt: datetime) -> int:
     return (dt.minute // 5) * 5
+
+
+def _set_direction_lock(direction: str) -> None:
+    global _session_dir_lock, _session_dir_lock_until
+    _session_dir_lock       = direction
+    _session_dir_lock_until = _now() + timedelta(minutes=DIRECTION_LOCK_MINUTES)
+
+
+def _direction_is_locked(direction: str) -> bool:
+    """Returns True if this direction should be suppressed right now."""
+    global _session_dir_lock, _session_dir_lock_until
+    if _session_dir_lock is None:
+        return False
+    if _now() >= _session_dir_lock_until:
+        _session_dir_lock = None
+        return False
+    return _session_dir_lock != direction   # True = opposite of locked direction
 
 
 def _compute_levels(bar_cache: pd.DataFrame) -> dict:
@@ -95,7 +147,6 @@ def _compute_levels(bar_cache: pd.DataFrame) -> dict:
         vol  = td["Volume"].replace(0, 1)
         levels["vwap"] = float((typ * vol).sum() / vol.sum())
 
-    # ATR from recent bars (14-period true range)
     recent = bar_cache.tail(20)
     if len(recent) >= 2:
         tr = pd.concat([
@@ -105,17 +156,28 @@ def _compute_levels(bar_cache: pd.DataFrame) -> dict:
         ], axis=1).max(axis=1)
         levels["atr"] = float(tr.tail(14).mean())
 
+    # PDH / PDL / PMH / PML
+    try:
+        key_levels = get_key_levels(bar_cache, today)
+        if key_levels:
+            levels["pdh"] = key_levels.pdh
+            levels["pdl"] = key_levels.pdl
+            if key_levels.pmh > 0:
+                levels["pmh"] = key_levels.pmh
+            if key_levels.pml > 0:
+                levels["pml"] = key_levels.pml
+    except Exception:
+        pass
+
     return levels
 
 
 def _fetch_latest_bars() -> pd.DataFrame:
-    """Fetch only the most recent bars — fast (~80ms)."""
     df = TICKER.history(period="2d", interval="5m", auto_adjust=True)
     return df.tail(10)
 
 
 def _load_bar_cache() -> pd.DataFrame:
-    """Full history load done once on startup — gives ATR/EMA enough context."""
     console.print("Loading bar history...", end=" ")
     df = load_nq(interval="5m", period="10d")
     df = label_sessions(df, interval="5m")
@@ -131,9 +193,7 @@ def _load_vix_cache() -> dict:
 
 
 def _append_latest(cache: pd.DataFrame) -> pd.DataFrame:
-    """Append fresh bars, deduplicate — keeps cache current without re-downloading."""
     latest = _fetch_latest_bars()
-    # Align timezone: cache is UTC, raw yfinance bars are ET
     if latest.index.tz is not None and str(latest.index.tz) != "UTC":
         latest = latest.copy()
         latest.index = latest.index.tz_convert("UTC")
@@ -142,20 +202,173 @@ def _append_latest(cache: pd.DataFrame) -> pd.DataFrame:
     return combined.sort_index()
 
 
+# ── Session open summary ──────────────────────────────────────────────────────
+
+def _print_session_open_summary(bar_cache: pd.DataFrame, vix_cache: dict, price: float) -> None:
+    """Print institutional context at session open: day type, key levels, bot insights."""
+    today   = date.today()
+    vix     = 18.0
+    if today in vix_cache:
+        vix = vix_cache[today]
+
+    console.print("\n[bold cyan]━━━ SESSION OPEN BRIEF ━━━[/bold cyan]")
+
+    # Expiry context
+    try:
+        exp = get_expiry_context(today)
+        if exp["is_expiry_day"]:
+            products = "+".join(exp["expiry_products"])
+            risk = exp["gamma_pin_risk"]
+            bias = exp["recommended_bias"].replace("_", "-")
+            risk_col = "red" if risk == "high" else "yellow"
+            console.print(
+                f"  [bold {risk_col}]📅 {products} EXPIRY TODAY[/bold {risk_col}]  "
+                f"Pin risk: [{risk_col}]{risk.upper()}[/{risk_col}]  Bias: {bias}"
+            )
+    except Exception:
+        pass
+
+    # Overnight range / day type
+    try:
+        atr = get_atr_adaptive(bar_cache, today)
+        if atr > 0:
+            ov = get_overnight_range_type(bar_cache, today, atr)
+            bias = ov["day_type_bias"].upper()
+            pct  = ov["overnight_pct_atr"] * 100
+            if ov["breakout_favored"]:
+                col = "green"
+                strats = "ORB/IB/Gap favored"
+            elif ov["meanrev_favored"]:
+                col = "yellow"
+                strats = "VWAP/FVG favored"
+            else:
+                col  = "white"
+                strats = "all strategies valid"
+            console.print(
+                f"  DAY TYPE [bold {col}]{bias}[/bold {col}]  "
+                f"Overnight {ov['overnight_range']:.0f}pts ({pct:.0f}% ATR)  →  {strats}"
+            )
+    except Exception:
+        pass
+
+    # Key levels
+    try:
+        key_levels = get_key_levels(bar_cache, today)
+        if key_levels:
+            console.print(
+                f"  KEY LEVELS  "
+                f"[orange1]PDH {key_levels.pdh:.1f}[/orange1]  "
+                f"[orange1]PDL {key_levels.pdl:.1f}[/orange1]  "
+                + (f"[yellow]PMH {key_levels.pmh:.1f}[/yellow]  " if key_levels.pmh > 0 else "")
+                + (f"[yellow]PML {key_levels.pml:.1f}[/yellow]" if key_levels.pml > 0 else "")
+            )
+    except Exception:
+        pass
+
+    # Bot memory status
+    try:
+        mem = get_status()
+        if mem["total_real_trades"] > 0:
+            wr_str = f"{mem['recent_wr']*100:.0f}%" if mem["recent_wr"] is not None else "n/a"
+            console.print(
+                f"  BOT MEMORY  "
+                f"{mem['total_real_trades']} real trades  WR {wr_str}  "
+                f"Next: {mem['contracts_next']} contract(s)  "
+                f"[dim]{mem['notes']}[/dim]"
+            )
+            for insight in mem["insights"][:3]:
+                col = "green" if "HOT" in insight else "red"
+                console.print(f"    [{col}]{insight}[/{col}]")
+        else:
+            console.print("  BOT MEMORY  No real trades yet — memory building from today")
+    except Exception:
+        pass
+
+    console.print("[bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━[/bold cyan]\n")
+
+
+# ── Input processing: y/n confirmation and w/l outcome ───────────────────────
+
+def _process_input(line: str) -> None:
+    """Handle user keyboard input in the main loop."""
+    global _pending_confirm, _pending_outcome
+
+    if _pending_confirm and line in ("y", "yes", "n", "no"):
+        sig_id   = _pending_confirm["signal_id"]
+        strategy = _pending_confirm["strategy"]
+        taken    = line in ("y", "yes")
+        confirm_signal_taken(sig_id, taken)
+
+        if taken:
+            console.print(
+                f"  [bold green]✓ Logged: {strategy.upper()} taken "
+                f"({get_confirmed_trades_today()}/{3} today)[/bold green]"
+            )
+            # Now ask for outcome
+            _pending_outcome   = _pending_confirm.copy()
+            _pending_outcome["confirmed"] = True
+            console.print(
+                "  [dim]Report outcome when trade closes: [bold]w[/bold] = win  "
+                "[bold]l[/bold] = loss  [bold]s[/bold] = skip[/dim]"
+            )
+        else:
+            console.print(
+                f"  [dim]Skipped — slot still available "
+                f"({get_confirmed_trades_today()}/{3} confirmed today)[/dim]"
+            )
+        _pending_confirm = None
+        return
+
+    if _pending_outcome and line in ("w", "win", "l", "loss", "s", "skip"):
+        if line in ("s", "skip"):
+            console.print("  [dim]Outcome skipped.[/dim]")
+            _pending_outcome = None
+            return
+
+        outcome    = "WIN"  if line in ("w", "win")  else "LOSS"
+        sig_id     = _pending_outcome["signal_id"]
+        entry      = _pending_outcome["entry"]
+        stop       = _pending_outcome["stop"]
+        target     = _pending_outcome["target"]
+        direction  = _pending_outcome["direction"]
+        strategy   = _pending_outcome["strategy"]
+
+        # Estimate P&L (user can refine — best effort from signal levels)
+        if outcome == "WIN":
+            pnl = abs(target - entry) * 2.0   # 1 MNQ contract × $2/pt
+        else:
+            pnl = -abs(entry - stop) * 2.0
+
+        report_outcome(sig_id, outcome, pnl)
+
+        col = "green" if outcome == "WIN" else "red"
+        console.print(
+            f"  [{col}]Bot learned: {strategy.upper()} {direction.upper()} → "
+            f"{outcome}  ${pnl:+.2f}[/{col}]"
+        )
+        _pending_outcome = None
+
+        # Check if session should pause
+        paused, reason = is_paused()
+        if paused:
+            console.print(f"\n  [bold red]⚠  BOT PAUSED: {reason}[/bold red]")
+        return
+
+
 # ── Main monitor loop ─────────────────────────────────────────────────────────
 
 def run_monitor():
+    global _pending_confirm, _pending_outcome
+
     feed = get_feed()
 
     console.print(Panel(
         "[bold cyan]NQ Quant System — Live Monitor[/bold cyan]\n"
-        "[dim]Real-time price every 0.5s · Signal check on each 5-min bar close (<0.5s)[/dim]",
+        "[dim]Real-time price · Signal check on bar close · "
+        "Memory-driven self-improvement · Type y/n after signals[/dim]",
         border_style="cyan"
     ))
 
-    console.print("Price feed: [dim]WS + yfinance hybrid — WS takes over once connected[/dim]")
-
-    # Wait for first price (yfinance fallback is immediate, so this should be fast)
     console.print("Connecting...", end=" ")
     for _ in range(40):
         if feed.price:
@@ -163,7 +376,6 @@ def run_monitor():
         time.sleep(0.5)
     console.print(f"[green]NQ ${feed.price:,.1f}[/green]")
 
-    # Load bar history + VIX once at startup
     bar_cache = _load_bar_cache()
     vix_cache = _load_vix_cache()
 
@@ -175,18 +387,31 @@ def run_monitor():
         f"Floor ${bal - buf:,.0f}\n"
     )
 
+    # Print bot memory status
+    print_status()
+
     seen_signals:  set[str] = set()
-    be_watches:    list     = []   # tracks open signals for breakeven alerts
+    be_watches:    list     = []
     warned_start            = False
     warned_end              = False
+    session_open_done       = False
     last_bar_min: int       = -1
     key_levels:   dict      = _compute_levels(bar_cache)
-    level_alerts: set[str]  = set()   # level crossings already notified
+    level_alerts: set[str]  = set()
 
     while True:
         now   = _now()
         h, m  = now.hour, now.minute
         price = feed.price or 0.0
+
+        # ── Process keyboard input (non-blocking) ─────────────────────────────
+        try:
+            while not _input_q.empty():
+                line = _input_q.get_nowait()
+                if line:
+                    _process_input(line)
+        except queue.Empty:
+            pass
 
         # ── 9:25 AM pre-market warning ────────────────────────────────────
         if h == 9 and m == 25 and not warned_start:
@@ -197,6 +422,11 @@ def run_monitor():
                 f"\n[yellow bold]09:25[/yellow bold]  Market opens in 5 min  "
                 f"NQ ${price:,.1f}  Buffer ${buf:.0f}"
             )
+
+        # ── 9:30 AM session open brief ────────────────────────────────────
+        if h == 9 and m >= 30 and not session_open_done:
+            session_open_done = True
+            _print_session_open_summary(bar_cache, vix_cache, price)
 
         # ── 12:00 PM session end ─────────────────────────────────────────
         if h >= 12 and not warned_end:
@@ -221,21 +451,29 @@ def run_monitor():
                     )
 
         # ── Real-time level alerts: approaching + crossing ────────────────
-        # Our price is ~$5 below real NQ (NDX basis gap).
-        # "Approaching" fires when we're 10pts below level → real NQ is ~5pts away.
-        # → Place your limit order at the level NOW to get the best fill.
-        # "Crossed" fires when our price hits the level → real NQ already through it.
-        _APPROACH = 10.0   # pts below/above level to pre-alert
+        _APPROACH = 10.0
         if price and key_levels and 9 <= h < 12:
+            # Pause if bot says so
+            paused, pause_reason = is_paused()
+
             checks = [
-                ("ORB HIGH", key_levels.get("orb_high"), "long"),
-                ("ORB LOW",  key_levels.get("orb_low"),  "short"),
-                ("IB HIGH",  key_levels.get("ib_high"),  "long"),
-                ("IB LOW",   key_levels.get("ib_low"),   "short"),
+                ("ORB HIGH", key_levels.get("orb_high"), "long",  "[cyan]"),
+                ("ORB LOW",  key_levels.get("orb_low"),  "short", "[cyan]"),
+                ("IB HIGH",  key_levels.get("ib_high"),  "long",  "[blue]"),
+                ("IB LOW",   key_levels.get("ib_low"),   "short", "[blue]"),
+                ("PDH",      key_levels.get("pdh"),      "short", "[orange1]"),
+                ("PDL",      key_levels.get("pdl"),      "long",  "[orange1]"),
+                ("PMH",      key_levels.get("pmh"),      "short", "[yellow]"),
+                ("PML",      key_levels.get("pml"),      "long",  "[yellow]"),
             ]
-            for name, lvl, direction in checks:
+            for name, lvl, direction, col_tag in checks:
                 if not lvl:
                     continue
+
+                # Direction lock check: suppress if opposite direction is locked
+                if _direction_is_locked(direction):
+                    continue
+
                 if direction == "long":
                     approaching = (lvl - _APPROACH) <= price < lvl
                     crossed     = price >= lvl
@@ -243,34 +481,27 @@ def run_monitor():
                     approaching = lvl < price <= (lvl + _APPROACH)
                     crossed     = price <= lvl
 
-                # Stage 1 — approaching: place limit order now
+                col = col_tag.strip("[]")
+
                 app_key = f"APPROACH_{name}_{lvl:.0f}"
                 if approaching and app_key not in level_alerts:
                     level_alerts.add(app_key)
                     atr = key_levels.get("atr", 50.0)
-
-                    # Estimate SL / TP based on strategy
                     if "ORB" in name:
                         orb_h = key_levels.get("orb_high", lvl)
                         orb_l = key_levels.get("orb_low",  lvl)
-                        if direction == "long":
-                            sl = orb_l - 2
-                            tp = lvl + (lvl - sl) * 2
-                        else:
-                            sl = orb_h + 2
-                            tp = lvl - (sl - lvl) * 2
-                    else:  # IB
-                        if direction == "long":
-                            sl = lvl - atr * 0.5
-                            tp = lvl + atr * 1.5
-                        else:
-                            sl = lvl + atr * 0.5
-                            tp = lvl - atr * 1.5
-
+                        sl = (orb_l - 2) if direction == "long" else (orb_h + 2)
+                        tp = lvl + (lvl - sl) * 2 if direction == "long" else lvl - (sl - lvl) * 2
+                    elif "IB" in name:
+                        sl = (lvl - atr * 0.5) if direction == "long" else (lvl + atr * 0.5)
+                        tp = (lvl + atr * 1.5) if direction == "long" else (lvl - atr * 1.5)
+                    else:  # PDH/PDL/PMH/PML
+                        sl = (lvl - atr * 0.04) if direction == "long" else (lvl + atr * 0.04)
+                        tp = (lvl + atr * 0.08) if direction == "long" else (lvl - atr * 0.08)
                     risk = abs(lvl - sl)
                     side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
                     console.print(
-                        f"\n  [bold cyan]🎯 {name} {lvl:.1f} APPROACHING → {side}[/bold cyan]\n"
+                        f"\n  [bold {col}]🎯 {name} {lvl:.1f} APPROACHING → {side}[/bold {col}]\n"
                         f"  [bold]  Entry ~{lvl:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
                         f"[dim](risk {risk:.0f}pts — exact levels on bar close)[/dim]"
                     )
@@ -279,34 +510,26 @@ def run_monitor():
                         f"{name} approaching — place {direction.upper()} limit NOW"
                     )
 
-                # Stage 2 — crossed: level broken, enter at market now
                 cross_key = f"CROSS_{name}_{lvl:.0f}"
                 if crossed and cross_key not in level_alerts:
                     level_alerts.add(cross_key)
                     atr   = key_levels.get("atr", 50.0)
-                    entry = price   # enter at current market price
-
+                    entry = price
                     if "ORB" in name:
                         orb_h = key_levels.get("orb_high", lvl)
                         orb_l = key_levels.get("orb_low",  lvl)
                         orb_r = orb_h - orb_l
-                        if direction == "long":
-                            sl = orb_l - 2
-                            tp = orb_h + orb_r * 1.5
-                        else:
-                            sl = orb_h + 2
-                            tp = orb_l - orb_r * 1.5
-                    else:  # IB
+                        sl = (orb_l - 2) if direction == "long" else (orb_h + 2)
+                        tp = (orb_h + orb_r * 1.5) if direction == "long" else (orb_l - orb_r * 1.5)
+                    elif "IB" in name:
                         ib_h = key_levels.get("ib_high", lvl)
                         ib_l = key_levels.get("ib_low",  lvl)
                         ib_r = ib_h - ib_l
-                        if direction == "long":
-                            sl = ib_l - 2
-                            tp = ib_h + ib_r * 1.5
-                        else:
-                            sl = ib_l + 2
-                            tp = ib_l - ib_r * 1.5
-
+                        sl = (ib_l - 2) if direction == "long" else (ib_h + 2)
+                        tp = (ib_h + ib_r * 1.5) if direction == "long" else (ib_l - ib_r * 1.5)
+                    else:
+                        sl = (lvl - atr * 0.04) if direction == "long" else (lvl + atr * 0.04)
+                        tp = (lvl + atr * 0.08) if direction == "long" else (lvl - atr * 0.08)
                     risk = abs(entry - sl)
                     side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
                     console.print(
@@ -316,76 +539,71 @@ def run_monitor():
                     )
                     alert_signal(name, direction, entry, sl, tp)
 
-            # ── VWAP bounce pre-alert (separate logic — price comes TO vwap) ──
-            # Only fire post-9:30 AM: pre-market VWAP is built from too few bars
-            # Cooldown: track last VWAP alert time, suppress opposite direction for 5 min
+            # ── VWAP bounce pre-alert ─────────────────────────────────────
             vwap = key_levels.get("vwap")
             atr  = key_levels.get("atr", 50.0)
             if vwap and (h > 9 or (h == 9 and m >= 30)):
-                dist = price - vwap   # positive = above VWAP, negative = below
-                vwap_key = round(vwap / 5) * 5   # bucket by 5pts so VWAP drift doesn't spam
+                dist = price - vwap
+                vwap_key = round(vwap / 5) * 5
 
-                # Cooldown: don't fire opposite direction within 5 minutes of last VWAP alert
                 last_vwap_alert = getattr(run_monitor, "_last_vwap_alert", None)
                 last_vwap_dir   = getattr(run_monitor, "_last_vwap_dir", None)
                 cooldown_ok = True
                 if last_vwap_alert is not None:
                     elapsed = (now - last_vwap_alert).total_seconds()
                     if elapsed < 300 and last_vwap_dir != (dist > 0):
-                        cooldown_ok = False  # opposite direction within 5 min — skip
+                        cooldown_ok = False
 
-                if 0 < dist <= _APPROACH and cooldown_ok:
-                    # Price just above VWAP, dropping toward it → LONG bounce setup
+                if 0 < dist <= _APPROACH and cooldown_ok and not _direction_is_locked("long"):
                     app_key = f"APPROACH_VWAP_LONG_{vwap_key}"
                     if app_key not in level_alerts:
                         level_alerts.add(app_key)
                         run_monitor._last_vwap_alert = now
-                        run_monitor._last_vwap_dir   = True   # True = long
-                        sl = vwap - atr * 0.5
-                        tp = vwap + atr * 1.5
+                        run_monitor._last_vwap_dir   = True
+                        sl   = vwap - atr * 0.5
+                        tp   = vwap + atr * 1.5
                         risk = vwap - sl
                         console.print(
                             f"\n  [bold cyan]🎯 VWAP {vwap:.1f} APPROACHING → [green]LONG ▲[/green][/bold cyan]\n"
                             f"  [bold]  Entry ~{vwap:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
-                            f"[dim](risk {risk:.0f}pts — price dropping to VWAP)[/dim]"
+                            f"[dim](risk {risk:.0f}pts)[/dim]"
                         )
                         alert_warning(
                             f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
                             f"Price dropping to VWAP {vwap:.1f} — LONG bounce setup forming"
                         )
 
-                elif -_APPROACH <= dist < 0 and cooldown_ok:
-                    # Price just below VWAP, rising toward it → SHORT bounce setup
+                elif -_APPROACH <= dist < 0 and cooldown_ok and not _direction_is_locked("short"):
                     app_key = f"APPROACH_VWAP_SHORT_{vwap_key}"
                     if app_key not in level_alerts:
                         level_alerts.add(app_key)
                         run_monitor._last_vwap_alert = now
-                        run_monitor._last_vwap_dir   = False  # False = short
-                        sl = vwap + atr * 0.5
-                        tp = vwap - atr * 1.5
+                        run_monitor._last_vwap_dir   = False
+                        sl   = vwap + atr * 0.5
+                        tp   = vwap - atr * 1.5
                         risk = sl - vwap
                         console.print(
                             f"\n  [bold cyan]🎯 VWAP {vwap:.1f} APPROACHING → [red]SHORT ▼[/red][/bold cyan]\n"
                             f"  [bold]  Entry ~{vwap:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
-                            f"[dim](risk {risk:.0f}pts — price rising to VWAP)[/dim]"
+                            f"[dim](risk {risk:.0f}pts)[/dim]"
                         )
                         alert_warning(
                             f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
                             f"Price rising to VWAP {vwap:.1f} — SHORT bounce setup forming"
                         )
 
-        # ── Live price ticker (overwrites same line) ───────────────────────
+        # ── Live price ticker ─────────────────────────────────────────────
         if 9 <= h < 12 and price:
+            confirmed = get_confirmed_trades_today()
             age    = feed.age_seconds
             source = getattr(feed, "source", "")
-            if "NDX" in source:
-                src_tag = "[green]WS[/green]"
-            else:
-                src_tag = "[yellow]delayed[/yellow]"
-            stale = "[red]STALE[/red]" if age > 10 else ""
+            src_tag = "[green]WS[/green]" if "NDX" in source else "[yellow]delayed[/yellow]"
+            stale   = "[red]STALE[/red]" if age > 10 else ""
+            paused_tag = "  [bold red]PAUSED[/bold red]" if is_paused()[0] else ""
             console.print(
                 f"[dim]{now.strftime('%H:%M:%S')}[/dim]  "
-                f"[bold]${price:,.1f}[/bold]  {src_tag}  {stale}",
+                f"[bold]${price:,.1f}[/bold]  {src_tag}  {stale}"
+                f"  [dim]Confirmed {confirmed}/3[/dim]{paused_tag}",
                 end="\r"
             )
 
@@ -396,14 +614,38 @@ def run_monitor():
             t0 = time.monotonic()
             console.print()
 
-            # Append only the latest bars — fast
+            # Check if paused before even trying signals
+            paused, pause_reason = is_paused()
+            confirmed_today = get_confirmed_trades_today()
+
+            if paused:
+                console.print(
+                    f"[dim]{now.strftime('%H:%M')}[/dim]  "
+                    f"[bold red]PAUSED — {pause_reason}[/bold red]"
+                )
+                bar_cache = _append_latest(bar_cache)
+                key_levels = _compute_levels(bar_cache)
+                time.sleep(0.5)
+                continue
+
+            if confirmed_today >= 3:
+                console.print(
+                    f"[dim]{now.strftime('%H:%M')}[/dim]  "
+                    f"[bold yellow]3 confirmed trades today — limit reached[/bold yellow]"
+                )
+                bar_cache = _append_latest(bar_cache)
+                key_levels = _compute_levels(bar_cache)
+                time.sleep(0.5)
+                continue
+
             bar_cache = _append_latest(bar_cache)
             fetch_ms  = int((time.monotonic() - t0) * 1000)
 
             console.print(
                 f"[dim]{now.strftime('%H:%M')}[/dim]  "
                 f"Bar closed · fetched in {fetch_ms}ms · checking signals...",
-                end=" "            )
+                end=" "
+            )
 
             t1 = time.monotonic()
             try:
@@ -412,10 +654,27 @@ def run_monitor():
                                 if _signal_key(t) not in seen_signals]
                 check_ms     = int((time.monotonic() - t1) * 1000)
 
-                if new_trades:
-                    console.print(f"[bold green]{len(new_trades)} SIGNAL(S)! ({check_ms}ms)[/bold green]")
-                    for t in new_trades:
+                # Filter contradictory signals: enforce direction lock
+                filtered_trades = []
+                for t in new_trades:
+                    if _direction_is_locked(t.direction):
+                        # Show a note but don't alert
+                        console.print(
+                            f"\n  [dim]  {t.strategy.upper()} {t.direction.upper()} suppressed "
+                            f"(contradicts direction lock — wait {DIRECTION_LOCK_MINUTES}min)[/dim]"
+                        )
+                        seen_signals.add(_signal_key(t))  # don't repeat it
+                        continue
+                    filtered_trades.append(t)
+
+                if filtered_trades:
+                    console.print(f"[bold green]{len(filtered_trades)} SIGNAL(S)! ({check_ms}ms)[/bold green]")
+                    for t in filtered_trades:
                         seen_signals.add(_signal_key(t))
+
+                        # Set direction lock for this session window
+                        _set_direction_lock(t.direction)
+
                         alert_signal(t.strategy, t.direction, t.entry, t.stop, t.target)
                         side = "[green]LONG ▲[/green]" if t.direction == "long" else "[red]SHORT ▼[/red]"
                         console.print(
@@ -424,16 +683,14 @@ def run_monitor():
                             f"S:{t.stop:.1f}  T:{t.target:.1f}"
                         )
                         console.print(
-                            f"  [dim]Enter next bar open · "
-                            f"~{5 - now.second//60} min window[/dim]"
+                            f"  [dim]Enter next bar open · ~{5 - now.second//60} min window[/dim]"
                         )
-                        # Register breakeven watcher for this signal
+
+                        # Breakeven watcher
                         risk_pts = abs(t.entry - t.stop)
                         be_mult  = 2.0 if t.strategy == "orb" else 1.0
-                        if t.direction == "long":
-                            be_trigger = t.entry + risk_pts * be_mult
-                        else:
-                            be_trigger = t.entry - risk_pts * be_mult
+                        be_trigger = (t.entry + risk_pts * be_mult) if t.direction == "long" \
+                                     else (t.entry - risk_pts * be_mult)
                         be_watches.append({
                             "strategy":   t.strategy,
                             "direction":  t.direction,
@@ -442,11 +699,48 @@ def run_monitor():
                             "notified":   False,
                         })
                         console.print(
-                            f"  [dim]BE alert set: move SL → {t.entry:.1f} "
-                            f"when price hits {be_trigger:.1f}[/dim]"
+                            f"  [dim]BE alert: move SL → {t.entry:.1f} when price hits {be_trigger:.1f}[/dim]"
                         )
+
+                        # Log signal to memory for tracking
+                        try:
+                            vix_val = vix_cache.get(date.today(), 18.0)
+                            atr_val = key_levels.get("atr", 0.0)
+                            sig_id = log_signal(
+                                strategy=t.strategy,
+                                direction=t.direction,
+                                entry=t.entry,
+                                stop=t.stop,
+                                target=t.target,
+                                vix=vix_val,
+                                atr=atr_val,
+                                trend=getattr(t, "trend_dir", ""),
+                                vix_regime="normal" if vix_val < 22 else "elevated",
+                                day_name=date.today().strftime("%a"),
+                            )
+                        except Exception:
+                            sig_id = None
+
+                        # ASK USER IF THEY TOOK IT
+                        console.print(
+                            f"\n  [bold yellow]▶ Did you take this trade?  "
+                            f"[bold]y[/bold] = yes  [bold]n[/bold] = no[/bold yellow]"
+                        )
+                        _pending_confirm = {
+                            "signal_id": sig_id,
+                            "strategy":  t.strategy,
+                            "direction": t.direction,
+                            "entry":     t.entry,
+                            "stop":      t.stop,
+                            "target":    t.target,
+                        }
+                        # Only ask about first signal if multiple fire at once
+                        break
                 else:
-                    console.print(f"[dim]none ({check_ms}ms · {len(seen_signals)} fired today)[/dim]")
+                    if not new_trades:
+                        console.print(f"[dim]none ({check_ms}ms · {len(seen_signals)} fired today)[/dim]")
+                    else:
+                        console.print(f"[dim]filtered ({check_ms}ms)[/dim]")
 
                 # Drawdown warning
                 _, buf = _load_balance()
@@ -467,3 +761,4 @@ if __name__ == "__main__":
         run_monitor()
     except KeyboardInterrupt:
         console.print("\n[dim]Monitor stopped.[/dim]")
+        print_status()

@@ -23,8 +23,11 @@ Direction gating:
 from __future__ import annotations
 import pandas as pd
 import numpy as np
-from datetime import date
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
+from typing import Optional
+
+import yfinance as yf
 
 EST = ZoneInfo("America/New_York")
 
@@ -242,21 +245,27 @@ def direction_allowed(signal_dir: str, trend: dict, strict: bool = False) -> boo
 
 # ── Comprehensive market state ─────────────────────────────────────────────────
 
-def classify_market_full(df: pd.DataFrame, today: date, vix: float) -> dict:
+def classify_market_full(
+    df: pd.DataFrame,
+    today: date,
+    vix: float,
+    vix3m: Optional[float] = None,
+    vvix:  Optional[float] = None,
+    today_df: Optional[pd.DataFrame] = None,
+) -> dict:
     """
     Full market state dictionary used by the adaptive engine.
 
-    Keys:
-      atr          : float — adaptive ATR (max of 5d and 20d)
-      atr_5        : float
-      atr_20       : float
-      vix_regime   : "low" | "normal" | "elevated" | "high"
-      vol_regime   : "compressed" | "normal" | "elevated" | "crisis"
-      ema_trend    : dict from get_ema_trend()
-      vwap_ok      : bool — VWAP reversion allowed?
-      orb_ok       : bool — ORB allowed? (any regime now — ATR filter handles quality)
-      ib_ok        : bool — IB allowed?
-      fvg_ok       : bool — FVG allowed? (always True — works in all regimes)
+    Keys (original):
+      atr, atr_5, atr_20, vix, vix_regime, vol_regime, ema_trend,
+      vwap_ok, orb_ok, ib_ok, fvg_ok
+
+    Keys (new — institutional upgrades):
+      overnight    : dict — overnight range type (expansion/rotation/neutral)
+      vix_term     : dict — VIX term structure (contango/backwardation)
+      vvix_regime  : dict — vol-of-vol gate
+      open_type    : dict — open drive/auction/reversal classification
+      expiry       : dict — 0DTE gamma expiry context
     """
     atr5  = get_daily_atr(df, today, lookback=5)
     atr20 = get_daily_atr(df, today, lookback=20)
@@ -265,20 +274,34 @@ def classify_market_full(df: pd.DataFrame, today: date, vix: float) -> dict:
     vix_regime  = classify_regime(vix)
     vol_regime  = get_volatility_regime(df, today)
     ema_trend   = get_ema_trend(df, today)
-    trend_dir   = ema_trend["direction"]
 
-    # VWAP reversion: any trend direction (direction_allowed handles alignment),
-    # VIX < 25 and not in crisis volatility regime
     vwap_ok = (
         vol_regime in ("normal", "compressed", "elevated")
         and vix < 25
     )
 
-    # ORB: valid in all regimes — ATR-normalized range is the quality gate
-    orb_ok = True
+    # ── New institutional context ──────────────────────────────────────────────
+    overnight   = get_overnight_range_type(df, today, atr)
 
-    # IB: valid in all regimes
-    ib_ok = True
+    # VIX3M and VVIX: try to load if not supplied
+    _vix3m = vix3m
+    _vvix  = vvix
+    if _vix3m is None:
+        _vix3m = _get_cached_extended("^VIX3M", "_vix3m_cache", today)
+    if _vvix is None:
+        _vvix = _get_cached_extended("^VVIX", "_vvix_cache", today)
+
+    vix_term    = get_vix_term_structure(vix, _vix3m or 0.0)
+    vvix_regime = get_vvix_regime(_vvix or 0.0)
+
+    # Open type needs today's bars (available intraday, not at backtest day-start)
+    if today_df is not None and len(today_df) >= 3:
+        open_type = classify_open_type(today_df, atr)
+    else:
+        open_type = {"open_type": "unknown", "initial_dir": "neutral",
+                     "drive_strength": 0.0, "day_type_hint": "mixed"}
+
+    expiry = get_expiry_context(today)
 
     return {
         "atr":        atr,
@@ -289,9 +312,289 @@ def classify_market_full(df: pd.DataFrame, today: date, vix: float) -> dict:
         "vol_regime": vol_regime,
         "ema_trend":  ema_trend,
         "vwap_ok":    vwap_ok,
-        "orb_ok":     orb_ok,
-        "ib_ok":      ib_ok,
+        "orb_ok":     True,
+        "ib_ok":      True,
         "fvg_ok":     True,
+        # New
+        "overnight":   overnight,
+        "vix_term":    vix_term,
+        "vvix_regime": vvix_regime,
+        "open_type":   open_type,
+        "expiry":      expiry,
+    }
+
+
+# ── Overnight range → day type ────────────────────────────────────────────────
+
+def get_overnight_range_type(df: pd.DataFrame, today: date, atr: float) -> dict:
+    """
+    Classify today's overnight range vs. ATR.
+    Overnight window: 6 PM ET prior day → 9:30 AM ET today.
+
+    Returns:
+      overnight_range   : float — pts from overnight low to overnight high
+      overnight_pct_atr : float — overnight_range / atr
+      day_type_bias     : "expansion" | "rotation" | "neutral"
+      breakout_favored  : bool  — tight overnight → ORB/IB/Gap favored
+      meanrev_favored   : bool  — wide overnight → VWAP/FVG favored
+    """
+    est_idx = df.index.tz_convert(EST)
+    df2 = df.copy()
+    df2["_date"] = est_idx.date
+    df2["_hour"] = est_idx.hour
+    df2["_min"]  = est_idx.minute
+
+    prior_day = today - timedelta(days=1)
+    # extend lookback to find last trading day
+    for lag in range(5):
+        check = today - timedelta(days=lag + 1)
+        if any(df2["_date"] == check):
+            prior_day = check
+            break
+
+    overnight_mask = (
+        ((df2["_date"] == prior_day) & (df2["_hour"] >= 18)) |
+        ((df2["_date"] == today) & (
+            (df2["_hour"] < 9) | ((df2["_hour"] == 9) & (df2["_min"] < 30))
+        ))
+    )
+    ov_bars = df[overnight_mask]
+
+    default = {
+        "overnight_range": 0.0, "overnight_pct_atr": 0.5,
+        "day_type_bias": "neutral",
+        "breakout_favored": False, "meanrev_favored": False,
+    }
+
+    if ov_bars.empty or atr <= 0:
+        return default
+
+    ov_range = float(ov_bars["High"].max() - ov_bars["Low"].min())
+    pct_atr  = ov_range / atr
+
+    if pct_atr < 0.25:
+        bias = "expansion"      # coiled → breakout day expected
+    elif pct_atr > 0.60:
+        bias = "rotation"       # wide overnight → mean-rev expected
+    else:
+        bias = "neutral"
+
+    return {
+        "overnight_range":   ov_range,
+        "overnight_pct_atr": pct_atr,
+        "day_type_bias":     bias,
+        "breakout_favored":  bias == "expansion",
+        "meanrev_favored":   bias == "rotation",
+    }
+
+
+# ── VIX term structure ────────────────────────────────────────────────────────
+
+_vix3m_cache: Optional[dict] = None
+_vvix_cache:  Optional[dict] = None
+
+
+def _load_vix_extended(ticker: str, period: str = "90d") -> dict[date, float]:
+    try:
+        hist = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=True)
+        result: dict[date, float] = {}
+        for ts, row in hist.iterrows():
+            d = ts.date() if hasattr(ts, "date") else ts
+            result[d] = float(row["Close"])
+        return result
+    except Exception:
+        return {}
+
+
+def _get_cached_extended(ticker: str, cache_attr: str, d: date) -> Optional[float]:
+    import sys
+    module = sys.modules[__name__]
+    cache = getattr(module, cache_attr, None)
+    if cache is None:
+        loaded = _load_vix_extended(ticker)
+        setattr(module, cache_attr, loaded)
+        cache = loaded
+    if not cache:
+        return None
+    if d in cache:
+        return cache[d]
+    for lag in range(1, 6):
+        key = d - timedelta(days=lag)
+        if key in cache:
+            return cache[key]
+    return None
+
+
+def get_vix_term_structure(vix_spot: float, vix3m: float) -> dict:
+    """
+    Compare spot VIX to 3-month VIX.
+
+    Returns:
+      ratio       : float
+      structure   : "deep_contango" | "contango" | "flat" | "backwardation" | "deep_backwardation"
+      mean_rev_ok : bool  — False in backwardation (mean-rev dangerous)
+      size_mult   : float — 1.0 / 0.75 / 0.5 / 0.0 (skip)
+    """
+    if vix3m is None or vix3m <= 0:
+        return {"ratio": 1.0, "structure": "contango", "mean_rev_ok": True, "size_mult": 1.0}
+
+    ratio = vix_spot / vix3m
+
+    if ratio < 0.85:
+        return {"ratio": ratio, "structure": "deep_contango",        "mean_rev_ok": True,  "size_mult": 1.0}
+    elif ratio < 1.0:
+        return {"ratio": ratio, "structure": "contango",             "mean_rev_ok": True,  "size_mult": 1.0}
+    elif ratio < 1.08:
+        return {"ratio": ratio, "structure": "flat",                 "mean_rev_ok": True,  "size_mult": 0.75}
+    elif ratio < 1.15:
+        return {"ratio": ratio, "structure": "backwardation",        "mean_rev_ok": False, "size_mult": 0.5}
+    else:
+        return {"ratio": ratio, "structure": "deep_backwardation",   "mean_rev_ok": False, "size_mult": 0.0}
+
+
+def get_vvix_regime(vvix: float) -> dict:
+    """
+    VVIX = vol of VIX = vol-of-vol.
+
+    Returns:
+      level    : "low" | "normal" | "elevated" | "extreme"
+      skip_day : bool  — True if VVIX > 130
+      size_mult: float
+    """
+    if vvix is None or vvix <= 0:
+        return {"level": "normal", "skip_day": False, "size_mult": 1.0}
+    if vvix > 130:
+        return {"level": "extreme",  "skip_day": True,  "size_mult": 0.0}
+    elif vvix > 110:
+        return {"level": "elevated", "skip_day": False, "size_mult": 0.5}
+    elif vvix > 90:
+        return {"level": "normal",   "skip_day": False, "size_mult": 0.75}
+    return {"level": "low",          "skip_day": False, "size_mult": 1.0}
+
+
+# ── Open type classification ──────────────────────────────────────────────────
+
+def classify_open_type(today_df: pd.DataFrame, atr: float, lookback_bars: int = 3) -> dict:
+    """
+    Classify opening type from first 3 bars after 9:30 AM (CME auction market theory).
+
+    Open Drive (OD)         : straight directional move, no pullback → trend day
+    Open Test Drive (OTD)   : tests one direction, then drives opposite → trend day
+    Open Rejection Reverse  : extends one way, strong rejection back → reversal day
+    Open Auction (OA)       : oscillates near open price → range day
+    Open Auction Drive (OAD): auctions then breaks late → mixed/IB day
+
+    Returns:
+      open_type      : str
+      initial_dir    : "long" | "short" | "neutral"
+      drive_strength : float — magnitude as % of ATR
+      day_type_hint  : "trend" | "range" | "reversal" | "mixed"
+    """
+    default = {"open_type": "unknown", "initial_dir": "neutral",
+               "drive_strength": 0.0, "day_type_hint": "mixed"}
+
+    est_idx = today_df.index.tz_convert(EST)
+    rth = today_df[(est_idx.hour == 9) & (est_idx.minute >= 30)]
+    if len(rth) < lookback_bars:
+        return default
+
+    first_bars  = rth.iloc[:lookback_bars]
+    bar0_open   = float(first_bars.iloc[0]["Open"])
+    bar0_high   = float(first_bars.iloc[0]["High"])
+    bar0_low    = float(first_bars.iloc[0]["Low"])
+    last_close  = float(first_bars.iloc[-1]["Close"])
+
+    all_high = float(first_bars["High"].max())
+    all_low  = float(first_bars["Low"].min())
+    range_15m = all_high - all_low
+
+    if atr <= 0:
+        return default
+
+    drive_pct = range_15m / atr
+    initial_dir = "long" if last_close > bar0_open else ("short" if last_close < bar0_open else "neutral")
+    net_move = last_close - bar0_open
+
+    # Open Drive: price moves strongly in one direction (>15% ATR) without reversing
+    upper_probe = all_high - bar0_open
+    lower_probe = bar0_open - all_low
+    dominant_side = max(upper_probe, lower_probe)
+    opposing_side = min(upper_probe, lower_probe)
+
+    if dominant_side > atr * 0.12 and opposing_side < atr * 0.04:
+        open_type    = "open_drive"
+        day_type     = "trend"
+
+    # Open Rejection Reverse: price extends one way then slams back through open
+    elif (upper_probe > atr * 0.08 and last_close < bar0_open - atr * 0.04) or \
+         (lower_probe > atr * 0.08 and last_close > bar0_open + atr * 0.04):
+        open_type    = "open_rejection"
+        day_type     = "reversal"
+
+    # Open Test Drive: first bar pokes one way, then resolves the other direction
+    elif abs(net_move) > atr * 0.06 and opposing_side > atr * 0.03:
+        open_type    = "open_test_drive"
+        day_type     = "trend"
+        initial_dir  = "long" if net_move > 0 else "short"
+
+    # Open Auction: price oscillates close to open, no clear direction
+    elif range_15m < atr * 0.10 and abs(net_move) < atr * 0.03:
+        open_type    = "open_auction"
+        day_type     = "range"
+
+    # Open Auction Drive: initial balance then breaks (IB-type)
+    else:
+        open_type    = "open_auction_drive"
+        day_type     = "mixed"
+
+    return {
+        "open_type":      open_type,
+        "initial_dir":    initial_dir,
+        "drive_strength": drive_pct,
+        "day_type_hint":  day_type,
+    }
+
+
+# ── 0DTE expiry day context ───────────────────────────────────────────────────
+
+EXPIRY_DAYS = {
+    0: ["QQQ_w"],
+    1: ["QQQ"],
+    2: ["SPX", "NDX"],
+    3: ["QQQ_w"],
+    4: ["SPX", "NDX", "QQQ"],
+}
+
+
+def get_expiry_context(today: date) -> dict:
+    """
+    Returns gamma expiry context for today.
+
+    Returns:
+      is_expiry_day    : bool
+      expiry_products  : list[str]
+      gamma_pin_risk   : "high" | "medium" | "low"
+      recommended_bias : "mean_rev" | "breakout" | "neutral"
+    """
+    dow      = today.weekday()
+    products = EXPIRY_DAYS.get(dow, [])
+    is_exp   = bool(products)
+
+    if any(p in products for p in ["NDX", "SPX"]):
+        pin_risk = "high"
+        bias     = "mean_rev"
+    elif products:
+        pin_risk = "medium"
+        bias     = "neutral"
+    else:
+        pin_risk = "low"
+        bias     = "neutral"
+
+    return {
+        "is_expiry_day":   is_exp,
+        "expiry_products": products,
+        "gamma_pin_risk":  pin_risk,
+        "recommended_bias": bias,
     }
 
 

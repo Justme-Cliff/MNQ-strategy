@@ -88,3 +88,24 @@ def tsmom_allows(tsmom: dict, signal_direction: str, strategy: str) -> bool:
     if bias == "short" and signal_direction == "long":
         return False
     return True
+
+
+def get_session_conviction(tsmom: dict) -> dict:
+    """
+    Extends TSMOM with session conviction guidance.
+    Based on Gao/Han/Li/Zhou (2018): stronger first 30-min return →
+    higher persistence of directional pressure through session.
+
+    Returns:
+      conviction_level : "high" | "medium" | "low"
+      expected_range   : "trending" | "mixed" | "rotating"
+      size_multiplier  : float — 1.0 normal, 0.75 on low-conviction
+    """
+    ret = abs(tsmom.get("return_30m", 0.0))
+
+    if ret > TSMOM_HIGH_THRESHOLD:   # >30bps — trending day 73% of the time
+        return {"conviction_level": "high",   "expected_range": "trending",  "size_multiplier": 1.0}
+    elif ret > TSMOM_THRESHOLD:      # 10–30bps
+        return {"conviction_level": "medium", "expected_range": "mixed",     "size_multiplier": 1.0}
+    else:                            # <10bps — expect chop
+        return {"conviction_level": "low",    "expected_range": "rotating",  "size_multiplier": 0.75}
