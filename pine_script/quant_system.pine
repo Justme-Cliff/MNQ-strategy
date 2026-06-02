@@ -193,6 +193,7 @@ vwap_l05 = vwap_val - 0.5 * rolling_std
 // First 5-min bar direction → 84% day-continuation documented on NQ (10yr data)
 
 var float occ_bar_open  = na
+var float occ_ret       = 0.0
 var string occ_dir      = "neutral"
 var bool   occ_shown    = false
 
@@ -203,13 +204,13 @@ if is_930
 
 if is_930[1] and not na(occ_bar_open)
     // Bar that closed at 9:35 — classify first 5-min bar direction
-    occ_ret  = (close[1] - occ_bar_open) / occ_bar_open
+    occ_ret  := (close[1] - occ_bar_open) / occ_bar_open
     occ_dir  := occ_ret > 0.0005 ? "long" : occ_ret < -0.0005 ? "short" : "neutral"
 
 if show_occ and not occ_shown and not na(occ_dir) and occ_dir != "neutral" and is_930[2]
     occ_shown := true
     occ_lbl_col = occ_dir == "long" ? color.new(color.lime, 20) : color.new(color.red, 20)
-    occ_lbl_sty = occ_dir == "long" ? label.style_arrow_up : label.style_arrow_down
+    occ_lbl_sty = occ_dir == "long" ? label.style_arrowup : label.style_arrowdown
     occ_lbl_y   = occ_dir == "long" ? low[2]  - atr_adapt * 0.02 : high[2] + atr_adapt * 0.02
     label.new(bar_index[2], occ_lbl_y,
          "OCC " + str.upper(occ_dir) + "\n" + str.tostring(nz(occ_ret * 100, 0.0), "#.2") + "%",
@@ -356,8 +357,10 @@ vwap_long_sig  = not vwap_l_done and am_window and vwap_rev_ok and not no_data_w
 vwap_short_sig = not vwap_s_done and am_window and vwap_rev_ok and not no_data_w and
                  (trend_neutral or trend_any_bear) and close > vwap_u15 and dev_ok
 
-if vwap_long_sig:  vwap_l_done := true
-if vwap_short_sig: vwap_s_done := true
+if vwap_long_sig
+    vwap_l_done := true
+if vwap_short_sig
+    vwap_s_done := true
 
 vwap_pm_long_sig  = not vwap_pm_l_done and pm_window and vwap_rev_ok and
                     trend_strong_bull and close < vwap_l15 and dev_ok
@@ -365,8 +368,10 @@ vwap_pm_long_sig  = not vwap_pm_l_done and pm_window and vwap_rev_ok and
 vwap_pm_short_sig = not vwap_pm_s_done and pm_window and vwap_rev_ok and
                     trend_strong_bear and close > vwap_u15 and dev_ok
 
-if vwap_pm_long_sig:  vwap_pm_l_done := true
-if vwap_pm_short_sig: vwap_pm_s_done := true
+if vwap_pm_long_sig
+    vwap_pm_l_done := true
+if vwap_pm_short_sig
+    vwap_pm_s_done := true
 
 
 // ─── VWAP BOUNCE AM + PM ──────────────────────────────────────────────────────
