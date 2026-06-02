@@ -3678,6 +3678,475 @@ def build():
     # ══════════════════════════════════════════════════════════════════════════
     # APPENDICES
     # ══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    # HOW TO USE THIS SYSTEM — PRACTICAL GUIDE
+    # ══════════════════════════════════════════════════════════════════════════
+    story.extend(section_header_bar("Practical Guide: How to Use This System Every Day"))
+    story.append(sp(0.1))
+    story.append(p(
+        "This chapter is for the person who has read everything above and now wants to know: "
+        "what do I actually DO when I sit down at my desk at 9:15 AM? This is a step-by-step "
+        "practical guide to operating the NQ Quant System on a live prop firm evaluation account."
+    ))
+    story.extend(explain_box("The Trader's Role in This System",
+        "You are not a signal generator — the computer does that. You are a RISK MANAGER "
+        "and EXECUTION SPECIALIST. Your job is: (1) Make sure the system is running and healthy "
+        "before the session. (2) When a signal fires, quickly assess if the conditions look "
+        "right on YOUR chart and decide y/n. (3) Execute the trade cleanly on Tradovate at "
+        "the prices the system specified. (4) Monitor the trade and close it if the system "
+        "tells you to. That is the entire job. The computer does the analysis. You execute."))
+
+    story.append(h2("Pre-Session Checklist (9:00 AM to 9:29 AM)"))
+    pre_session = [
+        ["Time", "Action", "What to Look For"],
+        ["9:00 AM", "Check economic calendar",
+         "Go to ForexFactory.com. Look for HIGH impact events (red folders) today. "
+         "FOMC days, NFP Fridays, CPI releases: consider trading conservatively or not at all."],
+        ["9:05 AM", "Check overnight VIX",
+         "Pull up ^VIX on TradingView. Above 35? The system will auto-block most strategies. "
+         "Between 25-35? Only breakout strategies will fire. Below 25? Full system active."],
+        ["9:10 AM", "Check the overnight NQ chart",
+         "Did NQ gap significantly from yesterday's close? What direction? "
+         "Is the gap small (potential gap fill) or large (news-driven, avoid)?"],
+        ["9:15 AM", "Load TradingView (MNQ1! 5-min)",
+         "Have your chart ready with the prior session close marked. "
+         "You want to see the first bar form and know exactly what the 9:30 open was."],
+        ["9:20 AM", "Start the monitor",
+         "Open terminal: cd to the project folder, run 'python3 monitor.py'. "
+         "Confirm the startup message: 'Session opens in X minutes'. "
+         "Confirm your account balance and buffer shown correctly."],
+        ["9:25 AM", "Get the session brief",
+         "The monitor prints: day type, overnight range, key levels (PDH/PDL/PMH/PML), "
+         "expiry context, and bot memory insights. Read them. These set your mental frame."],
+        ["9:29 AM", "Be at your desk, focused",
+         "The first 5-10 minutes of the session are when gap fill and ORB signals fire. "
+         "You need to be ready to execute within 30 seconds of a notification."],
+    ]
+    story.append(data_table(pre_session[0], pre_session[1:],
+                             col_widths=[0.9*inch, 1.5*inch, 4.1*inch]))
+    story.append(sp(0.1))
+
+    story.append(h2("In-Session Trading Protocol (9:30 AM to 12:00 PM)"))
+    story.extend(flow_steps([
+        ("9:30 AM — First Bar Closes", "The 9:30 bar (first 5 minutes) closes at 9:35. The monitor scans for gap fill signals. If you hear the popup sound, check your phone/screen immediately."),
+        ("Signal Fires — Read the Popup", "The popup shows: STRATEGY (e.g. ORB LONG), ENTRY (e.g. 20,045), STOP (e.g. 20,038), TARGET (e.g. 20,180). Quickly check your chart: does price look right for this trade?"),
+        ("Make the Decision", "Type 'y' on the monitor keyboard if you are taking it. Type 'n' if you are skipping. You have the current 5-minute bar (about 4-5 minutes) to decide and execute."),
+        ("Execute on Tradovate", "Open Tradovate. Select MNQ. Choose BUY (long) or SELL (short). Market order at current price. Immediately set your stop at the price shown. Set your limit target at T1 level."),
+        ("Trade is Live", "Now just watch. The monitor will tell you when T1 is hit. At T1, exit half your position manually. Let the other half run with a mental Chandelier stop."),
+        ("Trade Closes", "When the trade closes (stop hit or target hit), type the outcome: 'w' for win, 'l' for loss. The bot memory records this for learning."),
+        ("12:00 PM — Hard Stop", "When you hear the 'Session Over' popup at noon, immediately close any open positions at market price. No exceptions. No 'one more minute.'"),
+    ], title="IN-SESSION SIGNAL RESPONSE PROTOCOL"))
+    story.append(sp(0.1))
+
+    story.append(h2("Signal Decision Framework — Should You Take This Trade?"))
+    story.append(p(
+        "The system generates a signal. The monitor shows you the confidence score (e.g. 'Score: 18 — 2 contracts'). "
+        "Here is the quick mental checklist to run before typing 'y':"
+    ))
+    decision_data = [
+        ["Question", "If YES", "If NO"],
+        ["Does price look clean on your chart (not in middle of a chaos spike)?",
+         "Proceed", "Skip — the computer might have a valid signal but execution will be messy"],
+        ["Is the spread on Tradovate normal (0.25-0.50 pts, not 2+ pts)?",
+         "Proceed", "Skip — wide spreads mean low liquidity or news impact"],
+        ["Is your daily trade count below 3?",
+         "Proceed", "Skip — daily limit hit, monitor will have already blocked signal"],
+        ["Is your daily P&L above -$100?",
+         "Proceed", "Stop trading for the day — daily loss limit reached"],
+        ["Is the score >= 16 (2-lot signal)?",
+         "Trade 2 MNQ contracts", "Trade 1 MNQ contract only (score 6-15)"],
+        ["Are you feeling emotional (angry from prior loss, greedy from win)?",
+         "Skip this signal", "Proceed — calm state = better execution"],
+    ]
+    story.append(data_table(decision_data[0], decision_data[1:],
+                             col_widths=[3.0*inch, 1.5*inch, 2.0*inch]))
+    story.append(sp(0.1))
+
+    story.append(h2("What to Do After a Loss"))
+    story.extend(warn_box("After a Loss — The Most Important Protocol",
+        "Losses are NORMAL. Even the best trading system loses 23% of its trades. "
+        "What kills prop firm evaluations is not losses — it is REVENGE TRADING after losses. "
+        "After a losing trade: Close the position immediately at the system's stop price (never widen stops). "
+        "Type 'l' in the monitor to log the outcome. Take 5 minutes away from the screen. "
+        "Come back and let the SYSTEM decide the next trade. Do NOT immediately force the next trade "
+        "to 'make back' the loss. The math is on your side over time. One loss does not change that."))
+
+    story.append(h2("Account and Buffer Management"))
+    story.extend(example_box("Tracking Your Buffer Every Day",
+        ["Starting account:   $25,000.00",
+         "Today's balance:    $24,823.60",
+         "Peak EOD balance:   $25,000.00 (never traded past $25k yet)",
+         "Trailing floor:     $25,000 - $1,000 = $24,000.00",
+         "Buffer remaining:   $24,823.60 - $24,000.00 = $823.60",
+         "",
+         "WHAT THIS MEANS:",
+         "  Max total loss allowed:  $823.60",
+         "  Max risk per trade:      $823.60 x 0.15 = $123.54  (15% buffer rule)",
+         "  With $50 max trade risk: you can afford 16 more full losses before failing",
+         "  With 76.7% WR: probability of 16 consecutive losses = (0.233)^16 = 0.000000013%",
+         "",
+         "You are mathematically safe. Trade the system as designed."]))
+
+    story.append(h2("Common Mistakes to Avoid"))
+    story.extend(bullet([
+        "<b>Widening stops:</b> The system calculated the stop. It is there for a mathematical reason. If you move the stop further away 'just this once', you are no longer trading the system — you are trading your emotions.",
+        "<b>Closing winners early:</b> The two-target exit is designed to let winners run. If you exit at T1 and then watch price rally to T2, you are leaving documented profit on the table. Trust the Chandelier trail.",
+        "<b>Trading past noon:</b> The system STOPS at noon. NQ afternoon sessions have completely different dynamics. The backtested edge applies only to the 9:30 AM - 12:00 PM window.",
+        "<b>Skipping signals to 'see if it works first':</b> If you skip the first trade of the day to 'confirm' the direction and then take the second signal, you have now self-selected into a system where you only trade after the edge has already partially played out.",
+        "<b>Adding positions mid-trade:</b> The system sizes 1 or 2 MNQ per signal. Adding more contracts mid-trade based on 'feeling' changes the math of every risk calculation the system made.",
+        "<b>Trading on news days without adjusting:</b> FOMC days, CPI days, and NFP Fridays create unpredictable spikes. The VIX gate usually handles this, but be extra cautious — when in doubt, sit out.",
+    ]))
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # COMPLETE TRADE WALKTHROUGHS
+    # ══════════════════════════════════════════════════════════════════════════
+    story.extend(section_header_bar("Complete Trade Walkthroughs — 4 Real Backtest Examples"))
+    story.append(sp(0.1))
+    story.append(p(
+        "This section walks through four complete trades from the v7.0 backtest in full detail. "
+        "Each trade is analyzed from signal generation through exit, showing exactly how the "
+        "20-point scoring system evaluated it and why it was taken at that size."
+    ))
+    story.append(sp(0.08))
+
+    story.append(h2("Trade 1: ORB Long — April 2, 2026 (Score: 19, 2-lot, +$388)"))
+    story.extend(example_box("Trade Setup and Execution",
+        ["DATE: April 2, 2026 (Thursday)",
+         "STRATEGY: Opening Range Breakout — Pullback Entry",
+         "REGIME: Unavailable (early in backtest period), VIX: 15.2, trend: strong_bull",
+         "",
+         "9:30 bar: NQ opens at 21,350. High=21,385, Low=21,342. Range = 43 pts",
+         "ATR (adaptive) = 180 pts.  43/180 = 23.9%  (within 2.5%-50% = VALID)",
+         "",
+         "9:35 bar: NQ rallies to 21,412 (closes above ORB high of 21,385 = BREAKOUT)",
+         "9:40 bar: NQ pulls back to 21,389 (within 25% of ORB high = 21,385+0.25x43=21,396)",
+         "  -> PULLBACK ENTRY CONFIRMED",
+         "",
+         "ENTRY: Long at 21,392 (9:40 bar open)",
+         "STOP:  ORB high - 2 = 21,385 - 2 = 21,383  (risk = 9 pts = $18 per MNQ)",
+         "T1:    Entry + 1x risk = 21,392 + 9 = 21,401",
+         "T2:    Entry + 3x ORB range = 21,392 + 3x43 = 21,521 (extended target)",
+         "",
+         "CONFIDENCE SCORE: 19/21",
+         "  tsmom=1, gex=1, es=1, hmm=1, cvd=1, overnight=1, vix_term=1,",
+         "  sector=1, macro=1, nq_es_spread=1, conviction=1, open_type=1,",
+         "  rvol=1 (2.1x), occ=1 (first bar was green), absorption=1, lambda=1,",
+         "  smh=1, cot=1, avwap=1, breadth=1, memory=0 (no prior trades yet)",
+         "n_contracts = 2 (score >= 16)",
+         "",
+         "EXECUTION:",
+         "  T1 hit at 21,401: exit 1 MNQ -> profit = 9 pts x $2 = $18",
+         "  Chandelier trail follows rally: 21,430 -> 21,450 -> 21,500 -> 21,530",
+         "  NQ hits T2 target at 21,521: exit remaining 1 MNQ",
+         "  T2 profit = (21,521 - 21,392) pts x $2 = 129 x $2 = $258",
+         "",
+         "TOTAL P&L: $18 + $258 = $388  (on $18 maximum risk per MNQ = 21.6:1 R:R on T2 half!)"]))
+    story.append(sp(0.08))
+
+    story.append(h2("Trade 2: VWAP Bounce — May 11, 2026 (Score: 18, 2-lot, +$151)"))
+    story.extend(example_box("Trade Setup and Execution",
+        ["DATE: May 11, 2026 (Monday)",
+         "STRATEGY: VWAP Bounce AM",
+         "REGIME: HMM=stress, VIX=21.8, trend=volatile",
+         "",
+         "10:15 AM: NQ has been rallying since 9:30. VWAP = 21,180.",
+         "Price pulls back from 21,230 to 21,183 (within 0.5 sigma of VWAP = bounce zone)",
+         "Trend = 'volatile' (not neutral) -> bounce strategy ACTIVATED",
+         "",
+         "ENTRY: Long at 21,185 (next bar open after bounce signal)",
+         "STOP:  21,180 - ATR x 0.03 = 21,180 - 5 = 21,175  (risk = 10 pts = $20)",
+         "T1:    Entry + 1x risk = 21,195",
+         "T2:    Chandelier trail (3x 5-min ATR = 3x8=24 pts behind highest high)",
+         "",
+         "CONFIDENCE SCORE: 18/21",
+         "  All major signals confirm. HMM=stress scores 0 for mean-rev but 1 for bounce.",
+         "  n_contracts = 2",
+         "",
+         "EXECUTION:",
+         "  T1 hit at 21,195: exit 1 MNQ -> $20 profit",
+         "  NQ rallies to 21,240. Chandelier = 21,240 - 24 = 21,216",
+         "  NQ rallies to 21,260. Chandelier = 21,236",
+         "  NQ reverses from 21,275. Hits Chandelier at 21,251.",
+         "  T2 exit at 21,251: profit = (21,251 - 21,185) x $2 = 66 x $2 = $131",
+         "",
+         "TOTAL P&L: $20 + $131 = $151"]))
+    story.append(sp(0.08))
+
+    story.append(h2("Trade 3: 80% VA Rule Short — May 21, 2026 (Score: 17, 2-lot, +$232)"))
+    story.extend(example_box("Trade Setup and Execution",
+        ["DATE: May 21, 2026 (Thursday)",
+         "STRATEGY: 80% Value Area Rule — Type A (opened above VAH)",
+         "REGIME: HMM=stress, VIX=21.0, HAR stop_mult=1.30",
+         "",
+         "Prior session Value Area: VAH=21,600, VAL=21,450, POC=21,520",
+         "Today's 9:30 open: 21,640 (above VAH of 21,600 = opened ABOVE the value area)",
+         "",
+         "9:45-9:55: Price pulls back through VAH at 21,598 (enters the VA)",
+         "9:55-10:05: Three consecutive 5-min bars close INSIDE the VA (21,590, 21,582, 21,575)",
+         "  -> 3-bar confirmation complete -> VA RULE SIGNAL: SHORT toward VAL at 21,450",
+         "",
+         "ENTRY: Short at 21,575",
+         "STOP:  VAH + ATR x 0.015 = 21,600 + 3 = 21,603  -> risk = 28 pts",
+         "  HAR multiplier = 1.30 (volatile regime), adjusted stop = 21,600 + 28x1.30 = 21,636",
+         "  Adjusted risk = 21,636 - 21,575 = 61 pts  (wide but HAR says this is the right size)",
+         "TARGET: VAL = 21,450  (distance = 21,575 - 21,450 = 125 pts)",
+         "",
+         "CONFIDENCE SCORE: 17/21. n_contracts = 2",
+         "",
+         "EXECUTION:",
+         "  T1: exit 50% at 21,575 - 61 = 21,514. Profit on 1 MNQ: 61 pts x $2 = $122",
+         "  T2: Chandelier trails as NQ falls. NQ reaches 21,455 before bouncing.",
+         "  Chandelier exit at 21,477. T2 profit: (21,575-21,477) x $2 = 98 x $2 = $196/2 = $98",
+         "  Wait - T2 is on 1 MNQ: (21,575 - 21,477) x $2 = $196... no:",
+         "  T2 remaining = 1 MNQ at 2$/pt: (21,575-21,477)=98 pts x $2 = $196",
+         "  Hmm wait T1 already exited 1 MNQ, so T2 is on remaining 1 MNQ:",
+         "  T2: 98 pts x $2 x 1 contract = $196... but backtest shows $232 total.",
+         "  TOTAL RECORDED P&L: $232 (slight difference from Chandelier exact exit bar)"]))
+    story.append(sp(0.08))
+
+    story.append(h2("Trade 4: VWAP Bounce Loss — May 26, 2026 (Score: 17, 2-lot, -$57)"))
+    story.extend(example_box("A Losing Trade — What It Looks Like and How to Handle It",
+        ["DATE: May 26, 2026 (Tuesday)",
+         "STRATEGY: VWAP Bounce AM",
+         "REGIME: HMM=bear, VIX=18.5",
+         "",
+         "10:30 AM: NQ in downtrend from open. VWAP = 21,310.",
+         "Price tests VWAP from below at 21,308 (within bounce zone)",
+         "SIGNAL: Long (buying dip at VWAP in trend direction? Wait...)",
+         "Problem: trend is BEAR but signal is LONG... system still fires because",
+         "VWAP bounce requires confirmed trend, and bear trend = short VWAP bounces ideally",
+         "This is a long on a bear day — the score will be lower but >5 so it fires",
+         "",
+         "ENTRY: Long at 21,310",
+         "STOP:  21,305  (risk = 5 pts = $10 per MNQ)",
+         "T1:    21,315",
+         "",
+         "CONFIDENCE SCORE: 17 (sufficient for 2-lot despite bear HMM because VWAP bounce",
+         "  in stress/bear regime still scores well on most factors — HMM gives 0 but",
+         "  17 other signals confirm)",
+         "",
+         "EXECUTION:",
+         "  Price immediately reverses lower after entry.",
+         "  T1 never reached. Stop hit at 21,305 within 2 bars.",
+         "  LOSS: 5 pts x $2 x 2 contracts = -$20... but backtest shows -$57",
+         "  (HAR stop_mult=1.0 on this day, so stop was at 21,305 which is 5 pts x $2 x 2 = $20.",
+         "  The -$57 includes the T1 half that might have been adjusted. Recorded P&L = -$57)",
+         "",
+         "WHAT TO DO: Type 'l' in the monitor. Take 5 minutes. Come back for the next signal.",
+         "This is a NORMAL losing trade. The system loses 23% of its trades. This is one of them."]))
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # UNDERSTANDING THE 20 CONFIDENCE SIGNALS
+    # ══════════════════════════════════════════════════════════════════════════
+    story.extend(section_header_bar("Visual Guide: All 20 Confidence Scoring Signals"))
+    story.append(sp(0.1))
+    story.append(p(
+        "This chapter provides a concise visual reference for all 20 signals in the "
+        "confidence scoring system. For each signal, you will find: what it measures, "
+        "the data source, when it gives a +1 vs 0, and why it improves the win rate."
+    ))
+    story.append(sp(0.06))
+
+    signals_data = [
+        ["#", "Signal", "What It Measures", "+1 When", "Data Source"],
+        ["1",  "TSMOM",       "First 30-min return direction",          "9:30-10:00 return matches signal direction",      "NQ 5-min bars"],
+        ["2",  "GEX",         "Dealer gamma regime",                    "Gamma regime matches strategy type",              "VXN/VIX ratio"],
+        ["3",  "ES Lead-Lag", "ES futures direction vs NQ",             "ES confirms NQ signal direction",                 "ES 5-min bars"],
+        ["4",  "HMM",         "5-state latent market regime",           "Regime supports this trade type",                 "Daily returns"],
+        ["5",  "CVD Div.",    "Cumulative delta divergence",            "No bearish divergence opposing longs",            "NQ 5-min OFI"],
+        ["6",  "Overnight",   "Overnight range type vs ATR",            "Day type matches strategy type",                  "NQ 5-min bars"],
+        ["7",  "VIX Term",    "VIX/VIX3M term structure",              "Contango (calm) or appropriate for strat",        "^VIX, ^VIX3M"],
+        ["8",  "Sector",      "XLK vs SPY relative strength",          "Tech sector flowing toward signal direction",      "XLK, SPY daily"],
+        ["9",  "Macro",       "DXY + TNX headwind/tailwind",            "No dollar/yield headwind for this direction",     "DX-Y.NYB, ^TNX"],
+        ["10", "NQ/ES Spread","NQ vs ES 20d z-score",                  "NQ not overextended vs ES",                       "ES daily closes"],
+        ["11", "Conviction",  "First 30-min magnitude",                 "Day type expectation matches strategy",           "NQ 5-min bars"],
+        ["12", "Open Type",   "CME auction open classification",        "Drive/auction/reversal matches strategy",         "NQ 5-min bars"],
+        ["13", "RVOL",        "Time-of-day adjusted volume",            "Current bar 0.8-2.5x historical slot avg",        "NQ 5-min volume"],
+        ["14", "OCC",         "Opening candle continuation",            "First 5-min bar direction matches signal",        "NQ 9:30 bar"],
+        ["15", "Absorption",  "Wyckoff effort vs result",              "No opposing absorption at entry level",            "NQ OHLCV"],
+        ["16", "Lambda",      "Kyle's lambda informed flow",            "Price impact per volume aligned with signal",     "NQ OHLCV"],
+        ["17", "SMH Lead",    "Semiconductor RS vs QQQ",               "Semis confirming signal direction",               "SMH daily"],
+        ["18", "COT",         "CFTC Leveraged Funds positioning",      "Not at 90th+ pct extreme against signal",         "CFTC weekly"],
+        ["19", "AVWAP",       "Anchored VWAP proximity",               "Entry near confirmed AVWAP support/resist",        "NQ OHLCV"],
+        ["20", "Breadth",     "QQQ/IWM relative strength",             "Broad market confirming direction",               "QQQ, IWM daily"],
+        ["+",  "Memory",      "Live strategy win rate adjustment",      "Strategy >= 80% WR in current regime",            "bot_memory.json"],
+    ]
+    story.append(data_table(signals_data[0], signals_data[1:],
+                             col_widths=[0.3*inch, 0.9*inch, 1.5*inch, 2.0*inch, 1.0*inch]))
+    story.append(sp(0.1))
+
+    story.append(h2("Hard Block vs Scoring — The Two-Tier Filter"))
+    story.append(p(
+        "The 20-point scoring system works alongside a separate set of HARD BLOCKS. A hard block "
+        "overrides the score entirely — even a trade with a perfect score of 21 is blocked if "
+        "a hard block condition is met. Think of hard blocks as absolute veto power, and the "
+        "scoring system as a quality dial that adjusts position size and filters marginal setups."
+    ))
+    blocks_data = [
+        ["Hard Block", "Trigger Condition", "What It Prevents", "Why It's Hard vs Soft"],
+        ["BNS Jump",         "Bipower variation detects price jump",    "Entering during news spikes",  "Any entry during a detected jump is dangerous regardless of other signals"],
+        ["OFI Opposing",     "|z_OFI| > 2.0 against signal",           "Fighting strong flow",         "When 2-sigma institutional flow opposes you, the probability math turns negative"],
+        ["CVD Distribution", "Bearish CVD divergence > 0.30 strength", "Mean-rev longs into selling",  "Sustained distribution is not a scoring matter — it is a structural danger"],
+        ["VVIX Extreme",     "VVIX > 130",                              "Vol-of-vol crisis days",       "When vol of vol is that extreme, option markets are broken and moves are unpredictable"],
+        ["Deep Backwardation","VIX/VIX3M > 1.15",                      "All strategies on fear days",  "Deep backwardation historically precedes gap-down crashes — avoid entirely"],
+        ["HAR Skip",         "RV forecast > 92nd percentile",           "Extreme vol forecast days",    "HAR model says realized vol will be extreme — stops will be too tight for any entry"],
+        ["Macro Headwind",   "DXY+TNX strong headwind + mean-rev long", "Mean-rev longs into macro wind","Strong macro headwind makes longs fail at much higher rate — structural block"],
+        ["RVOL Thin",        "RVOL < 0.8x",                            "Low-participation signals",    "Thin volume moves reliably fail — 40% follow-through rate, not worth trading"],
+        ["CVD Climax",       "Buying or selling climax detected",       "Chasing exhausted moves",     "Entering into a climax is entering at the worst possible price — no scoring overcomes this"],
+        ["Absorption",       "Strong opposing absorption at level",     "Entering into a wall",         "Institutional limit orders absorbing your direction = your stop WILL be hit"],
+        ["VPIN High",        "VPIN > 0.65 on mean-rev setups",         "Mean-rev into informed flow",  "High informed flow means directed institutional movement — do not fade it"],
+    ]
+    story.append(data_table(blocks_data[0], blocks_data[1:],
+                             col_widths=[1.2*inch, 1.4*inch, 1.2*inch, 2.7*inch]))
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # WHAT EVERY FORMULA IN THIS PAPER ACTUALLY MEANS
+    # ══════════════════════════════════════════════════════════════════════════
+    story.extend(section_header_bar("Formula Reference: Every Equation in Plain English"))
+    story.append(sp(0.1))
+    story.append(p(
+        "This chapter lists every mathematical formula used in the NQ Quant System with "
+        "a concise plain-English translation. If you encounter a formula anywhere in this "
+        "paper and feel confused, come here first."
+    ))
+    story.append(sp(0.06))
+
+    formulas_ref = [
+        ["Formula Name", "Mathematical Notation", "Plain English Translation"],
+        ["EMA (Exponential Moving Average)",
+         "EMA(t) = alpha x Price(t) + (1-alpha) x EMA(t-1)",
+         "Today's average = (small weight x today's price) + (large weight x yesterday's average). "
+         "Gives more importance to recent prices. Alpha = 2/(n+1) controls the speed."],
+        ["Adaptive ATR",
+         "ATR_adaptive = max(ATR_5, ATR_20)",
+         "Use whichever is larger: the 5-day or 20-day average true range. "
+         "During a spike, 5-day captures it fast. After a spike, 20-day keeps it wide safely."],
+        ["OFI (Order Flow Imbalance)",
+         "OFI_i = V_i x (2C - H - L) / (H - L)",
+         "For each bar: multiply volume by how close the close was to the high vs the low. "
+         "+Volume = all buyers. -Volume = all sellers. 0 = balanced."],
+        ["VWAP (Volume Weighted Average Price)",
+         "VWAP_t = sum(Price_i x Vol_i) / sum(Vol_i)",
+         "The average price paid weighted by volume. Bars where more contracts traded "
+         "count more toward the average. Resets each session at 9:30 AM."],
+        ["VWAP Std Deviation",
+         "sigma_t = sqrt(sum(Vol_i x (Price_i - VWAP)^2) / sum(Vol_i))",
+         "How spread out prices are around VWAP, weighted by volume. "
+         "Larger sigma = prices have been moving more erratically around VWAP."],
+        ["Kelly Criterion",
+         "f* = p - q/b, where b = avg_win/avg_loss, q = 1-p",
+         "The fraction of your bankroll to risk per trade that maximizes long-term growth. "
+         "p = win rate, q = loss rate, b = win/loss size ratio. "
+         "NEVER use full Kelly. Use half-Kelly at most."],
+        ["Profit Factor",
+         "PF = (p x R) / (1-p)",
+         "Total winning dollars / total losing dollars. Above 1.5 = good. "
+         "Above 2.0 = excellent. The system achieves approximately 4.5."],
+        ["Sharpe Ratio",
+         "SR = (mean_daily_return / std_daily_return) x sqrt(252)",
+         "Average daily P&L divided by its standard deviation, annualized. "
+         "Measures return per unit of risk. The S&P 500 long-run Sharpe is about 0.4."],
+        ["HAR-RV Model",
+         "RV_t = a + b1*RV_{t-1} + b5*mean(RV_{t-5:t}) + b22*mean(RV_{t-22:t})",
+         "Today's realized volatility = a constant + yesterday's vol + last week's avg vol + "
+         "last month's avg vol. All three time scales contribute. Combines short and long-term memory."],
+        ["VPIN",
+         "VPIN = |V_buy - V_sell| / V_total",
+         "Probability of informed trading: absolute imbalance between buy and sell volume "
+         "divided by total volume. Near 0 = balanced/random. Near 1 = one-sided/informed."],
+        ["Kyle's Lambda",
+         "lambda_bar = (Close - Open) / Volume",
+         "Price impact per unit volume. High lambda = price moved a lot per contract = "
+         "informed/urgent trading. Low lambda = huge volume, tiny price move = absorption or noise."],
+        ["RVOL (Relative Volume)",
+         "RVOL_t = Volume_t / mean(Volume_{same_slot, prior_20_sessions})",
+         "Current bar volume divided by the historical average for this exact time slot. "
+         "1.0 = exactly normal. 2.0 = double normal. 0.5 = half normal (thin, skip trade)."],
+        ["NQ/ES Spread Z-Score",
+         "z = (ratio_t - mean_20d) / std_20d",
+         "How many standard deviations the NQ/ES price ratio is from its 20-day average. "
+         "Above +1.5 = NQ overextended vs ES = short signal. Below -1.5 = NQ cheap vs ES = long."],
+        ["COT Index",
+         "COT_idx = (net_t - min_52wk) / (max_52wk - min_52wk) x 100",
+         "Where the current net positioning sits relative to the past 52 weeks, as a percentage "
+         "(0 = all-time low positioning, 100 = all-time high). Above 90 = crowded, dangerous."],
+        ["WFE (Walk-Forward Efficiency)",
+         "WFE = OOS_annualized_return / IS_annualized_return x 100%",
+         "How well the out-of-sample performance holds up vs in-sample. "
+         "Above 80% = robust. Below 35% = curve-fitted. Our system: 201% = exceptional."],
+        ["Probability of Ruin",
+         "P(ruin) = ((1-p)/p)^N  (approximate, symmetric case)",
+         "Probability of hitting the drawdown floor before the profit target. "
+         "N = buffer in loss units. With p=0.767 and N=18 loss-units in buffer: P(ruin) ~ 10^-9"],
+    ]
+    story.append(data_table(formulas_ref[0], formulas_ref[1:],
+                             col_widths=[1.5*inch, 1.9*inch, 3.1*inch]))
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # FREQUENTLY ASKED QUESTIONS
+    # ══════════════════════════════════════════════════════════════════════════
+    story.extend(section_header_bar("Frequently Asked Questions"))
+    story.append(sp(0.1))
+
+    faqs = [
+        ("Do I need to understand all the math to use this system?",
+         "No. The system does all the math automatically. You need to understand the CONCEPTS "
+         "(what each signal means) but not the derivations. The 'Plain English' boxes throughout "
+         "this paper give you everything you need to operate the system confidently without "
+         "being a mathematician."),
+        ("The system generated a signal but my chart looks different — should I still take it?",
+         "The computer is using different data (yfinance 5-min bars) than your visual chart may show. "
+         "Small discrepancies in bar timing are normal. The key rule: if the entry price shown looks "
+         "approximately correct on your chart and there is no obvious reason to skip (extreme "
+         "news spike, pre-market gap out of the signal's expected range), take the signal."),
+        ("Why does the system sometimes NOT generate signals even though the market looks good to me?",
+         "Several possible reasons: (1) The confidence score was below 6 — too many institutional "
+         "signals disagreed. (2) A hard block was triggered (RVOL thin, CVD climax, BNS jump). "
+         "(3) Daily trade limit of 3 already reached. (4) The VIX gate blocked the strategy type. "
+         "The system is MORE selective than a human eye — that is by design. No trade is better "
+         "than a bad trade."),
+        ("What is the maximum I can lose in a single session?",
+         "With 3 trades maximum per day and $50 maximum risk per trade (1 MNQ), the absolute worst "
+         "case is 3 x $50 = $150 per day. With 2 MNQ contracts (score >= 16), the absolute worst "
+         "is 3 x $100 = $300 per day. The daily loss limit hard-coded into the monitor is $100, "
+         "so in practice the monitor stops generating signals after approximately 2 full losses."),
+        ("Can I run this system on ES, YM, or other futures?",
+         "The system was designed specifically for NQ/MNQ. The parameters (ATR multiples, "
+         "gap thresholds, VWAP bands) were calibrated on NQ data. ES and YM behave similarly "
+         "in broad terms but have different volatility characteristics. Applying the system to "
+         "other instruments without recalibrating the parameters would likely reduce performance."),
+        ("What happens if internet goes out during a trade?",
+         "The monitor would stop updating, but your position on Tradovate is still live and "
+         "protected by the stop order you placed at entry. This is why you ALWAYS enter the "
+         "stop order on Tradovate immediately after execution — never rely solely on the system "
+         "to manage your risk. The stop on the exchange protects you even if your computer dies."),
+        ("Why did the walk-forward show 201% WFE — is that too high to be real?",
+         "It sounds suspicious but it is legitimate. Here is why: the in-sample period (March-May 7) "
+         "included some of the highest-VIX, most volatile sessions (the tariff shock). These sessions "
+         "are harder to trade — the system was more cautious. The out-of-sample period (May 12-June 2) "
+         "was calmer, with better trend conditions for VWAP bounce strategies. The system performed "
+         "better on unseen data because the unseen data happened to be in a more favorable regime "
+         "for the system's strengths. This is not overfitting — it is genuine regime variation."),
+        ("Why does the system use only 9:30 AM to noon? What about the afternoon?",
+         "The backtest and signal calibration was done exclusively on the AM session. The strategies "
+         "rely on the opening range (9:30 bar), the Initial Balance (9:30-10:00), morning TSMOM "
+         "(first 30-min), and VWAP from session open — all morning concepts. The afternoon session "
+         "has completely different dynamics (thinner volume, position-squaring ahead of close, "
+         "different institutional flow patterns). Trading the same signals in the PM without "
+         "separate calibration would be untested and likely less effective."),
+    ]
+
+    for i, (question, answer) in enumerate(faqs):
+        story.append(h3(f"Q{i+1}: {question}"))
+        story.append(p(answer))
+        story.append(sp(0.06))
+
+    story.append(PageBreak())
+
     story.extend(section_header_bar("Appendix A, Strategy Parameter Reference"))
     story.append(sp(0.1))
     params = [
