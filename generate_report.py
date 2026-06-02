@@ -1,6 +1,6 @@
 """
-Research paper generator, NQ Quant System v4.0
-IDK Quant Research Institute
+Research paper generator, Nexum Alpha System v4.0
+Kairos Capital Research
   python3 generate_report.py
 Outputs: NQ_Quant_System_Research_Paper.pdf
 """
@@ -30,7 +30,7 @@ PALE       = HexColor("#F5F5F5")
 WHITE      = white
 
 W, H = letter
-OUT   = Path(__file__).parent / "IDK_Quant_Institutional_Alpha_System_v7.pdf"
+OUT   = Path(__file__).parent / "Nexum_Alpha_System_Kairos_Research_v7.pdf"
 
 # ── Style sheet ───────────────────────────────────────────────────────────────
 styles = getSampleStyleSheet()
@@ -462,8 +462,8 @@ def on_page(canvas, doc):
     # Header text
     canvas.setFont("Times-Roman", 8)
     canvas.setFillColor(GRAY)
-    canvas.drawString(0.75*inch, H - 0.36*inch, "NQ QUANT SYSTEM")
-    canvas.drawRightString(W - 0.75*inch, H - 0.36*inch, f"IDK Quant Research Institute  •  {REPORT_DATE}")
+    canvas.drawString(0.75*inch, H - 0.36*inch, "NEXUM ALPHA SYSTEM")
+    canvas.drawRightString(W - 0.75*inch, H - 0.36*inch, f"Kairos Capital Research  •  {REPORT_DATE}")
     # Bottom rule
     canvas.setStrokeColor(LIGHT_GRAY)
     canvas.line(0.75*inch, 0.5*inch, W - 0.75*inch, 0.5*inch)
@@ -480,27 +480,58 @@ def on_cover(canvas, doc):
     canvas.setLineWidth(1.2)
     canvas.line(0.75*inch, H - 0.48*inch, W - 0.75*inch, H - 0.48*inch)
     canvas.line(0.75*inch, 0.5*inch,      W - 0.75*inch, 0.5*inch)
-    # IDK Quant logo block
+    # ── Kairos Capital Research logo ──────────────────────────────────────────
     lx = W / 2
-    ly = H * 0.455
-    # Emblem: dark rounded rectangle
+    ly = H * 0.452
+
+    GOLD = HexColor("#C8A44F")
+
+    # Outer dark background — wide rounded pill
     canvas.setFillColor(DARK)
-    canvas.roundRect(lx - 0.35*inch, ly, 0.70*inch, 0.50*inch, 0.06*inch, fill=1, stroke=0)
-    canvas.setFont("Times-BoldItalic", 17)
-    canvas.setFillColor(WHITE)
-    canvas.drawCentredString(lx, ly + 0.16*inch, "IQ")
-    # "IDK QUANT" text
-    canvas.setFont("Times-Bold", 17)
+    canvas.roundRect(lx - 0.45*inch, ly - 0.04*inch, 0.90*inch, 0.72*inch,
+                     0.10*inch, fill=1, stroke=0)
+
+    # Three ascending bars (left to right, increasing height)
+    bar_w   = 0.115*inch
+    bar_gap = 0.038*inch
+    base_y  = ly + 0.07*inch
+    heights = [0.14*inch, 0.26*inch, 0.40*inch]
+    x0      = lx - 0.295*inch
+    for i, bh in enumerate(heights):
+        bx = x0 + i * (bar_w + bar_gap)
+        # Lighter shade on left bars, white on tallest
+        shade = HexColor("#BBBBBB") if i == 0 else (HexColor("#DDDDDD") if i == 1 else WHITE)
+        canvas.setFillColor(shade)
+        canvas.roundRect(bx, base_y, bar_w, bh, 0.012*inch, fill=1, stroke=0)
+
+    # Gold ascending trend line
+    p1x = x0 + 0.015*inch
+    p1y = base_y + 0.06*inch
+    p2x = x0 + 2*(bar_w + bar_gap) + bar_w - 0.015*inch
+    p2y = base_y + heights[2] + 0.055*inch
+    canvas.setStrokeColor(GOLD)
+    canvas.setLineWidth(1.6)
+    canvas.line(p1x, p1y, p2x, p2y)
+
+    # Gold dot at end of trend line
+    canvas.setFillColor(GOLD)
+    canvas.circle(p2x, p2y, 0.024*inch, fill=1, stroke=0)
+
+    # Small gold dot at start of trend line
+    canvas.circle(p1x, p1y, 0.014*inch, fill=1, stroke=0)
+
+    # Firm name below logo
+    canvas.setFont("Times-Bold", 16)
     canvas.setFillColor(DARK)
-    canvas.drawCentredString(lx, ly - 0.20*inch, "IDK QUANT")
-    # Subtitle line
-    canvas.setFont("Times-Roman", 9)
+    canvas.drawCentredString(lx, ly - 0.24*inch, "KAIROS")
+    canvas.setFont("Times-Roman", 10)
     canvas.setFillColor(GRAY)
-    canvas.drawCentredString(lx, ly - 0.33*inch, "Research Institute")
+    canvas.drawCentredString(lx, ly - 0.37*inch, "Capital Research")
+
     # Footer note
     canvas.setFont("Times-Italic", 8)
     canvas.setFillColor(GRAY)
-    canvas.drawCentredString(W/2, 0.30*inch, "Proprietary and Confidential ,  For Internal Use Only")
+    canvas.drawCentredString(W/2, 0.30*inch, "Proprietary and Confidential  |  For Internal Use Only")
     canvas.restoreState()
 
 
@@ -512,8 +543,8 @@ def build():
         pagesize=letter,
         leftMargin=inch,  rightMargin=inch,
         topMargin=0.85*inch, bottomMargin=0.75*inch,
-        title="NQ Quant System, Research Paper",
-        author="Quantitative Research",
+        title="Nexum Alpha System — Kairos Capital Research",
+        author="Cliff Angers — Kairos Capital Research",
     )
 
     story = []
@@ -522,13 +553,13 @@ def build():
     # COVER PAGE
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Spacer(1, 1.8*inch))
-    story.append(p("NQ Quant System", COVER_TITLE))
+    story.append(p("Nexum Alpha System", COVER_TITLE))
     story.append(Spacer(1, 0.14*inch))
-    story.append(p("Adaptive Multi-Strategy Framework for Micro E-mini Nasdaq-100 Futures", COVER_SUB))
+    story.append(p("Institutional Alpha Framework for Micro E-mini Nasdaq-100 Futures", COVER_SUB))
     story.append(Spacer(1, 0.10*inch))
-    story.append(p("An Empirical Performance Study Through Backtesting and Live Signal Research", COVER_SUB))
+    story.append(p("An Empirical Performance Study Through Backtesting and Walk-Forward Validation", COVER_SUB))
     story.append(Spacer(1, 2.85*inch))
-    story.append(p("IDK Quant Research Institute", COVER_INST))
+    story.append(p("Kairos Capital Research", COVER_INST))
     story.append(Spacer(1, 0.30*inch))
     story.append(p("Cliff Angers", COVER_AUTHOR))
     story.append(p("Quantitative Researcher", COVER_META))
@@ -544,7 +575,7 @@ def build():
     story.append(h1("Abstract"))
     story.append(hr())
     story.append(p(
-        "This paper presents the design, implementation, and empirical performance of the NQ Quant System v7.0, "
+        "This paper presents the design, implementation, and empirical performance of the Nexum Alpha System v7.0, "
         "an adaptive, multi-strategy algorithmic trading framework targeting the Micro E-mini Nasdaq-100 "
         "(MNQ) futures contract during the U.S. morning trading session (9:30 AM to 12:00 PM ET). "
         "The system integrates six complementary intraday strategies — Gap Fill, Opening Range Breakout "
@@ -846,7 +877,7 @@ def build():
         "panic, does not get greedy, and does not change its mind based on news headlines."
     ))
     story.append(p(
-        "The NQ Quant System is a semi-automated system: the computer does all the analysis "
+        "The Nexum Alpha System is a semi-automated system: the computer does all the analysis "
         "and generates all the signals, but the human operator makes the final decision to "
         "enter each trade. This keeps the trader in control of risk while eliminating the "
         "emotional decision-making that destroys most manual traders."
@@ -874,7 +905,7 @@ def build():
     ))
     story.append(sp(0.1))
     story.append(h2("1.6 Design Principles"))
-    story.append(p("The NQ Quant System was designed around five core principles:"))
+    story.append(p("The Nexum Alpha System was designed around five core principles:"))
     story.extend(bullet([
         "<b>Empirical grounding:</b> every strategy is anchored to published research with documented win rates on ES/NQ futures across multi-year datasets. No strategy was included because it 'looks good' — every one has a mathematical foundation.",
         "<b>Adaptive regime awareness:</b> static parameters are replaced with ATR-normalized dynamic thresholds that self-adjust to current volatility. The same system works in a VIX 12 calm grind and a VIX 40 crisis.",
@@ -1000,7 +1031,7 @@ def build():
     story.extend(section_header_bar("3. System Architecture Overview"))
     story.append(sp(0.1))
     story.append(p(
-        "The NQ Quant System consists of five interconnected layers, each with a distinct responsibility:"
+        "The Nexum Alpha System consists of five interconnected layers, each with a distinct responsibility:"
     ))
     arch_data = [
         ["Layer", "Module", "Function"],
@@ -1447,7 +1478,7 @@ def build():
         "toward the breakout level) before entering. This gives a much better entry price."))
     story.append(p(
         "Opening Range Breakout is one of the oldest and most-studied intraday strategies in futures "
-        "markets. The NQ Quant System implements a pullback-entry variant that significantly improves "
+        "markets. The Nexum Alpha System implements a pullback-entry variant that significantly improves "
         "the classical direct-entry approach by entering at a better price after the initial breakout "
         "is confirmed."
     ))
@@ -1470,7 +1501,7 @@ def build():
     story.append(h3("Pullback Entry Innovation — Why We Wait"))
     story.append(p(
         "Classical ORB enters at the market immediately when price breaks above the opening range high "
-        "(or below the low). The NQ Quant System delays entry and waits for a pullback into a 25% zone "
+        "(or below the low). The Nexum Alpha System delays entry and waits for a pullback into a 25% zone "
         "above the breakout level before entering. This provides three improvements:"
     ))
     story.extend(bullet([
@@ -1680,7 +1711,7 @@ def build():
     story.append(h3("Research Foundation"))
     story.append(p(
         "Edgeful's backtesting study of YM (Dow Jones) futures shows a 60 to 75% base fill rate for "
-        "FVGs, rising to above 75% with quality filters. The NQ Quant System applies four "
+        "FVGs, rising to above 75% with quality filters. The Nexum Alpha System applies four "
         "quality filters that target the top quartile of FVG setups:"
     ))
     story.extend(bullet([
@@ -1706,7 +1737,7 @@ def build():
     story.append(sp(0.1))
     story.append(p(
         "Accurate backtesting of intraday strategies requires bar-by-bar simulation that accounts "
-        "for the realistic order of events within each candle. The NQ Quant System uses a "
+        "for the realistic order of events within each candle. The Nexum Alpha System uses a "
         "high-fidelity simulation engine with two key features: realistic stop/target sequencing "
         "and automatic breakeven mechanics."
     ))
@@ -1841,10 +1872,10 @@ def build():
         "lose on this trade and survive to trade tomorrow' part. Here is the truth: you can have "
         "a system with only a 55% win rate and make a lot of money IF you manage risk properly. "
         "You can also have a system with 80% win rate and lose everything if you risk too much on "
-        "each trade and hit a bad streak. The NQ Quant System was designed AROUND the risk limits "
+        "each trade and hit a bad streak. The Nexum Alpha System was designed AROUND the risk limits "
         "first. Everything else was built inside those constraints."))
     story.append(p(
-        "Risk management is not an afterthought in the NQ Quant System — it is the primary design "
+        "Risk management is not an afterthought in the Nexum Alpha System — it is the primary design "
         "constraint. Every parameter was sized around the Tradeify trailing drawdown limit first, "
         "with profit potential as a secondary consideration."
     ))
@@ -1919,8 +1950,8 @@ def build():
         "buffer = current<sub>balance</sub> − floor",  eq_num=6
     ))
     story.append(p(
-        "As of session start (current balance = $24,823.60, peak EOD = $25,000): "
-        "floor = $24,000, buffer = $823.60. The system tracks this in real time and displays "
+        "As of session start (current balance = $24,773.90, peak EOD = $25,000): "
+        "floor = $24,000, buffer = $773.90. The system tracks this in real time and displays "
         "it prominently in the live monitor."
     ))
     story.append(sp(0.1))
@@ -2051,7 +2082,7 @@ def build():
     story.extend(section_header_bar("8.5  Mathematical Framework and Statistical Foundations"))
     story.append(sp(0.1))
     story.append(p(
-        "This section formalizes the mathematical underpinnings of the NQ Quant System. "
+        "This section formalizes the mathematical underpinnings of the Nexum Alpha System. "
         "All trading systems rest on a small set of core statistical properties: positive expected "
         "value per trade, manageable variance, and acceptable probability of ruin. The following "
         "derivations quantify each of these properties given the system's empirical parameters."
@@ -2063,7 +2094,7 @@ def build():
         "The total dollar amount won on all winning trades divided by the total dollar amount "
         "lost on all losing trades. PF = 1.0 means you break even. PF = 2.0 means for every "
         "$1 you lose, you win $2. A PF above 1.5 is considered good. Above 2.0 is excellent. "
-        "The NQ Quant System has an empirically measured PF of approximately 4.5."))
+        "The Nexum Alpha System has an empirically measured PF of approximately 4.5."))
     story.append(p(
         "The profit factor (PF) is the ratio of gross winning dollars to gross losing dollars. "
         "It is fully determined by win rate <i>p</i> and the reward-to-risk ratio <i>R</i>:"
@@ -2097,7 +2128,7 @@ def build():
         "drawdown limit before we reach the $1,500 profit target — in other words, the chance "
         "we FAIL the evaluation due to bad luck (not bad strategy). Even a perfect strategy "
         "can fail the evaluation if you hit an unlucky streak early. This calculation tells us "
-        "exactly how unlikely that is with the NQ Quant System's parameters."))
+        "exactly how unlikely that is with the Nexum Alpha System's parameters."))
     story.append(p(
         "The probability of ruin measures the likelihood that the account reaches the drawdown "
         "limit before reaching the profit target, given the current edge parameters. Using the "
@@ -2110,8 +2141,8 @@ def build():
     ))
     story.append(p(
         "For the asymmetric case (R = 2.3), the probability of ruin is even lower. "
-        "With the current buffer of $823.60 and an average loss of $45.80, "
-        "N = 823.60 / 45.80 ~= 18.0 loss-units to the floor. Substituting:"
+        "With the current buffer of $773.90 and an average loss of $45.80, "
+        "N = 773.90 / 45.80 ~= 18.0 loss-units to the floor. Substituting:"
     ))
     story.append(formula(
         "P(ruin) ~= (0.236 / 0.764)<super>18</super> ~= (0.309)<super>18</super> ~= 4.4 × 10<super>-10</super>",
@@ -2129,7 +2160,7 @@ def build():
         "average return by the standard deviation (volatility) of your returns, then scales to "
         "an annual basis. A Sharpe of 1.0 is considered good for most hedge funds. A Sharpe "
         "above 2.0 is excellent. A Sharpe above 3.0 is exceptional. Most retail traders have "
-        "negative Sharpe ratios. The NQ Quant System achieves a Sharpe above 30 — extremely high "
+        "negative Sharpe ratios. The Nexum Alpha System achieves a Sharpe above 30 — extremely high "
         "because the strict $50 max risk per trade caps the volatility of the P&L distribution."))
     story.append(p(
         "For a trading system operating over discrete sessions, the annualized Sharpe ratio "
@@ -2596,7 +2627,7 @@ def build():
     story.append(h2("10.4 Daily Session Operations Protocol"))
     story.append(p(
         "The following checklist defines the complete pre-session, in-session, and post-session "
-        "workflow for operating the NQ Quant System on a live evaluation account. "
+        "workflow for operating the Nexum Alpha System on a live evaluation account. "
         "Consistent execution of this protocol is as important as the signal logic itself."
     ))
     ops_table = [
@@ -3469,7 +3500,7 @@ def build():
     story.append(p(
         "WFE of 201% means the out-of-sample period produced double the annualized return of the "
         "in-sample period on entirely unseen data. The typical failure mode of overfit systems is "
-        "WFE well below 50% — OOS performance degrades dramatically versus IS. The NQ Quant System "
+        "WFE well below 50% — OOS performance degrades dramatically versus IS. The Nexum Alpha System "
         "shows the opposite: OOS WR (71.4%) is lower than IS WR (83.3%) as expected, but the "
         "OOS P&L ($808 from 14 trades = $57.7/trade) actually exceeds the IS average ($1,440 from "
         "24 trades = $60/trade) — extremely tight degradation ratio."
@@ -3493,7 +3524,7 @@ def build():
     story.extend(section_header_bar("15. TradingView Pine Script Integration"))
     story.append(sp(0.1))
     story.append(p(
-        "The NQ Quant System includes a complete Pine Script v6 indicator "
+        "The Nexum Alpha System includes a complete Pine Script v6 indicator "
         "(<code>pine_script/quant_system.pine</code>) that replicates the Python backtest "
         "logic as a visual overlay on TradingView charts. The Pine Script serves as "
         "the trader's primary visual interface for manual signal confirmation."
@@ -3569,7 +3600,7 @@ def build():
     story.append(sp(0.1))
     story.append(callout(
         "IMPORTANT DISCLAIMER: Past backtest performance does not guarantee future results. "
-        "All trading involves risk of loss. The NQ Quant System is a research and decision-support "
+        "All trading involves risk of loss. The Nexum Alpha System is a research and decision-support "
         "tool, not a guarantee of profitable trading. Position sizes and risk parameters should "
         "be reviewed with a qualified financial professional before live trading."
     ))
@@ -3581,7 +3612,7 @@ def build():
     story.extend(section_header_bar("17. Conclusion"))
     story.append(sp(0.1))
     story.append(p(
-        "The NQ Quant System v7.0 represents the completion of three successive development cycles: "
+        "The Nexum Alpha System v7.0 represents the completion of three successive development cycles: "
         "the original adaptive framework (v1-v4), the institutional overlay with 12-point scoring (v5), "
         "and now the Order Flow and Research upgrades (v6-v7) that addressed the system's two "
         "most critical remaining weaknesses. Six core strategies — Gap Fill, ORB, IB Breakout, "
@@ -3666,8 +3697,8 @@ def build():
                              col_widths=[0.7*inch, 1.8*inch, 2.4*inch, 1.0*inch]))
     story.append(sp(0.1))
     story.append(callout(
-        "Current status as of " + REPORT_DATE + ": Account balance $24,823.60 on a $25,000 Tradeify evaluation. "
-        "Buffer $823.60 above trailing floor. Hybrid system v7.0 fully implemented: two-target exit, "
+        "Current status as of " + REPORT_DATE + ": Account balance $24,773.90 on a $25,000 Tradeify evaluation. "
+        "Buffer $773.90 above trailing floor. Hybrid system v7.0 fully implemented: two-target exit, "
         "20-point scoring, 5-state HMM, RVOL/absorption/lambda/CVD-climax/OCC hard blocks, COT weekly compass, "
         "AVWAP 3-anchor levels, SMH lead signal, 80% VA Rule strategy, walk-forward WFE 201%. "
         "Backtest: $2,499 P&L / 76.7% WR / 43 trades / max DD $221 / avg R:R 4.23x. "
@@ -3686,7 +3717,7 @@ def build():
     story.append(p(
         "This chapter is for the person who has read everything above and now wants to know: "
         "what do I actually DO when I sit down at my desk at 9:15 AM? This is a step-by-step "
-        "practical guide to operating the NQ Quant System on a live prop firm evaluation account."
+        "practical guide to operating the Nexum Alpha System on a live prop firm evaluation account."
     ))
     story.extend(explain_box("The Trader's Role in This System",
         "You are not a signal generator — the computer does that. You are a RISK MANAGER "
@@ -3774,14 +3805,14 @@ def build():
     story.append(h2("Account and Buffer Management"))
     story.extend(example_box("Tracking Your Buffer Every Day",
         ["Starting account:   $25,000.00",
-         "Today's balance:    $24,823.60",
+         "Today's balance:    $24,773.90",
          "Peak EOD balance:   $25,000.00 (never traded past $25k yet)",
          "Trailing floor:     $25,000 - $1,000 = $24,000.00",
-         "Buffer remaining:   $24,823.60 - $24,000.00 = $823.60",
+         "Buffer remaining:   $24,773.90 - $24,000.00 = $773.90",
          "",
          "WHAT THIS MEANS:",
-         "  Max total loss allowed:  $823.60",
-         "  Max risk per trade:      $823.60 x 0.15 = $123.54  (15% buffer rule)",
+         "  Max total loss allowed:  $773.90",
+         "  Max risk per trade:      $773.90 x 0.15 = $123.54  (15% buffer rule)",
          "  With $50 max trade risk: you can afford 16 more full losses before failing",
          "  With 76.7% WR: probability of 16 consecutive losses = (0.233)^16 = 0.000000013%",
          "",
@@ -4008,7 +4039,7 @@ def build():
     story.extend(section_header_bar("Formula Reference: Every Equation in Plain English"))
     story.append(sp(0.1))
     story.append(p(
-        "This chapter lists every mathematical formula used in the NQ Quant System with "
+        "This chapter lists every mathematical formula used in the Nexum Alpha System with "
         "a concise plain-English translation. If you encounter a formula anywhere in this "
         "paper and feel confused, come here first."
     ))
@@ -4329,7 +4360,7 @@ def build():
     story.append(sp(0.3))
     story.append(hr_light())
     story.append(p(
-        f"IDK Quant Institutional Alpha System v7.0  •  IDK Quant Research Institute  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
+        f"Nexum Alpha System v7.0  •  Kairos Capital Research  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
         CAPTION
     ))
 
