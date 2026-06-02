@@ -1,5 +1,5 @@
 """
-Research paper generator, Nexum Alpha System v4.0
+Research paper generator, Isogeny Alpha System v4.0
 Kairos Capital Research
   python3 generate_report.py
 Outputs: NQ_Quant_System_Research_Paper.pdf
@@ -30,7 +30,7 @@ PALE       = HexColor("#F5F5F5")
 WHITE      = white
 
 W, H = letter
-OUT   = Path(__file__).parent / "Nexum_Alpha_System_Kairos_Research_v7.pdf"
+OUT   = Path(__file__).parent / "Isogeny_Alpha_System_Kairos_Research_v7.pdf"
 
 # ── Style sheet ───────────────────────────────────────────────────────────────
 styles = getSampleStyleSheet()
@@ -462,7 +462,7 @@ def on_page(canvas, doc):
     # Header text
     canvas.setFont("Times-Roman", 8)
     canvas.setFillColor(GRAY)
-    canvas.drawString(0.75*inch, H - 0.36*inch, "NEXUM ALPHA SYSTEM")
+    canvas.drawString(0.75*inch, H - 0.36*inch, "ISOGENY ALPHA SYSTEM")
     canvas.drawRightString(W - 0.75*inch, H - 0.36*inch, f"Kairos Capital Research  •  {REPORT_DATE}")
     # Bottom rule
     canvas.setStrokeColor(LIGHT_GRAY)
@@ -543,7 +543,7 @@ def build():
         pagesize=letter,
         leftMargin=inch,  rightMargin=inch,
         topMargin=0.85*inch, bottomMargin=0.75*inch,
-        title="Nexum Alpha System — Kairos Capital Research",
+        title="Isogeny Alpha System — Kairos Capital Research",
         author="Cliff Angers — Kairos Capital Research",
     )
 
@@ -553,7 +553,7 @@ def build():
     # COVER PAGE
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Spacer(1, 1.8*inch))
-    story.append(p("Nexum Alpha System", COVER_TITLE))
+    story.append(p("Isogeny Alpha System", COVER_TITLE))
     story.append(Spacer(1, 0.14*inch))
     story.append(p("Institutional Alpha Framework for Micro E-mini Nasdaq-100 Futures", COVER_SUB))
     story.append(Spacer(1, 0.10*inch))
@@ -575,7 +575,7 @@ def build():
     story.append(h1("Abstract"))
     story.append(hr())
     story.append(p(
-        "This paper presents the design, implementation, and empirical performance of the Nexum Alpha System v7.0, "
+        "This paper presents the design, implementation, and empirical performance of the Isogeny Alpha System v7.0, "
         "an adaptive, multi-strategy algorithmic trading framework targeting the Micro E-mini Nasdaq-100 "
         "(MNQ) futures contract during the U.S. morning trading session (9:30 AM to 12:00 PM ET). "
         "The system integrates six complementary intraday strategies — Gap Fill, Opening Range Breakout "
@@ -877,7 +877,7 @@ def build():
         "panic, does not get greedy, and does not change its mind based on news headlines."
     ))
     story.append(p(
-        "The Nexum Alpha System is a semi-automated system: the computer does all the analysis "
+        "The Isogeny Alpha System is a semi-automated system: the computer does all the analysis "
         "and generates all the signals, but the human operator makes the final decision to "
         "enter each trade. This keeps the trader in control of risk while eliminating the "
         "emotional decision-making that destroys most manual traders."
@@ -905,7 +905,7 @@ def build():
     ))
     story.append(sp(0.1))
     story.append(h2("1.6 Design Principles"))
-    story.append(p("The Nexum Alpha System was designed around five core principles:"))
+    story.append(p("The Isogeny Alpha System was designed around five core principles:"))
     story.extend(bullet([
         "<b>Empirical grounding:</b> every strategy is anchored to published research with documented win rates on ES/NQ futures across multi-year datasets. No strategy was included because it 'looks good' — every one has a mathematical foundation.",
         "<b>Adaptive regime awareness:</b> static parameters are replaced with ATR-normalized dynamic thresholds that self-adjust to current volatility. The same system works in a VIX 12 calm grind and a VIX 40 crisis.",
@@ -1031,7 +1031,7 @@ def build():
     story.extend(section_header_bar("3. System Architecture Overview"))
     story.append(sp(0.1))
     story.append(p(
-        "The Nexum Alpha System consists of five interconnected layers, each with a distinct responsibility:"
+        "The Isogeny Alpha System consists of five interconnected layers, each with a distinct responsibility:"
     ))
     arch_data = [
         ["Layer", "Module", "Function"],
@@ -1478,7 +1478,7 @@ def build():
         "toward the breakout level) before entering. This gives a much better entry price."))
     story.append(p(
         "Opening Range Breakout is one of the oldest and most-studied intraday strategies in futures "
-        "markets. The Nexum Alpha System implements a pullback-entry variant that significantly improves "
+        "markets. The Isogeny Alpha System implements a pullback-entry variant that significantly improves "
         "the classical direct-entry approach by entering at a better price after the initial breakout "
         "is confirmed."
     ))
@@ -1501,7 +1501,7 @@ def build():
     story.append(h3("Pullback Entry Innovation — Why We Wait"))
     story.append(p(
         "Classical ORB enters at the market immediately when price breaks above the opening range high "
-        "(or below the low). The Nexum Alpha System delays entry and waits for a pullback into a 25% zone "
+        "(or below the low). The Isogeny Alpha System delays entry and waits for a pullback into a 25% zone "
         "above the breakout level before entering. This provides three improvements:"
     ))
     story.extend(bullet([
@@ -1711,7 +1711,7 @@ def build():
     story.append(h3("Research Foundation"))
     story.append(p(
         "Edgeful's backtesting study of YM (Dow Jones) futures shows a 60 to 75% base fill rate for "
-        "FVGs, rising to above 75% with quality filters. The Nexum Alpha System applies four "
+        "FVGs, rising to above 75% with quality filters. The Isogeny Alpha System applies four "
         "quality filters that target the top quartile of FVG setups:"
     ))
     story.extend(bullet([
@@ -1737,7 +1737,7 @@ def build():
     story.append(sp(0.1))
     story.append(p(
         "Accurate backtesting of intraday strategies requires bar-by-bar simulation that accounts "
-        "for the realistic order of events within each candle. The Nexum Alpha System uses a "
+        "for the realistic order of events within each candle. The Isogeny Alpha System uses a "
         "high-fidelity simulation engine with two key features: realistic stop/target sequencing "
         "and automatic breakeven mechanics."
     ))
@@ -1872,10 +1872,10 @@ def build():
         "lose on this trade and survive to trade tomorrow' part. Here is the truth: you can have "
         "a system with only a 55% win rate and make a lot of money IF you manage risk properly. "
         "You can also have a system with 80% win rate and lose everything if you risk too much on "
-        "each trade and hit a bad streak. The Nexum Alpha System was designed AROUND the risk limits "
+        "each trade and hit a bad streak. The Isogeny Alpha System was designed AROUND the risk limits "
         "first. Everything else was built inside those constraints."))
     story.append(p(
-        "Risk management is not an afterthought in the Nexum Alpha System — it is the primary design "
+        "Risk management is not an afterthought in the Isogeny Alpha System — it is the primary design "
         "constraint. Every parameter was sized around the Tradeify trailing drawdown limit first, "
         "with profit potential as a secondary consideration."
     ))
@@ -2082,7 +2082,7 @@ def build():
     story.extend(section_header_bar("8.5  Mathematical Framework and Statistical Foundations"))
     story.append(sp(0.1))
     story.append(p(
-        "This section formalizes the mathematical underpinnings of the Nexum Alpha System. "
+        "This section formalizes the mathematical underpinnings of the Isogeny Alpha System. "
         "All trading systems rest on a small set of core statistical properties: positive expected "
         "value per trade, manageable variance, and acceptable probability of ruin. The following "
         "derivations quantify each of these properties given the system's empirical parameters."
@@ -2094,7 +2094,7 @@ def build():
         "The total dollar amount won on all winning trades divided by the total dollar amount "
         "lost on all losing trades. PF = 1.0 means you break even. PF = 2.0 means for every "
         "$1 you lose, you win $2. A PF above 1.5 is considered good. Above 2.0 is excellent. "
-        "The Nexum Alpha System has an empirically measured PF of approximately 4.5."))
+        "The Isogeny Alpha System has an empirically measured PF of approximately 4.5."))
     story.append(p(
         "The profit factor (PF) is the ratio of gross winning dollars to gross losing dollars. "
         "It is fully determined by win rate <i>p</i> and the reward-to-risk ratio <i>R</i>:"
@@ -2128,7 +2128,7 @@ def build():
         "drawdown limit before we reach the $1,500 profit target — in other words, the chance "
         "we FAIL the evaluation due to bad luck (not bad strategy). Even a perfect strategy "
         "can fail the evaluation if you hit an unlucky streak early. This calculation tells us "
-        "exactly how unlikely that is with the Nexum Alpha System's parameters."))
+        "exactly how unlikely that is with the Isogeny Alpha System's parameters."))
     story.append(p(
         "The probability of ruin measures the likelihood that the account reaches the drawdown "
         "limit before reaching the profit target, given the current edge parameters. Using the "
@@ -2160,7 +2160,7 @@ def build():
         "average return by the standard deviation (volatility) of your returns, then scales to "
         "an annual basis. A Sharpe of 1.0 is considered good for most hedge funds. A Sharpe "
         "above 2.0 is excellent. A Sharpe above 3.0 is exceptional. Most retail traders have "
-        "negative Sharpe ratios. The Nexum Alpha System achieves a Sharpe above 30 — extremely high "
+        "negative Sharpe ratios. The Isogeny Alpha System achieves a Sharpe above 30 — extremely high "
         "because the strict $50 max risk per trade caps the volatility of the P&L distribution."))
     story.append(p(
         "For a trading system operating over discrete sessions, the annualized Sharpe ratio "
@@ -2627,7 +2627,7 @@ def build():
     story.append(h2("10.4 Daily Session Operations Protocol"))
     story.append(p(
         "The following checklist defines the complete pre-session, in-session, and post-session "
-        "workflow for operating the Nexum Alpha System on a live evaluation account. "
+        "workflow for operating the Isogeny Alpha System on a live evaluation account. "
         "Consistent execution of this protocol is as important as the signal logic itself."
     ))
     ops_table = [
@@ -3500,7 +3500,7 @@ def build():
     story.append(p(
         "WFE of 201% means the out-of-sample period produced double the annualized return of the "
         "in-sample period on entirely unseen data. The typical failure mode of overfit systems is "
-        "WFE well below 50% — OOS performance degrades dramatically versus IS. The Nexum Alpha System "
+        "WFE well below 50% — OOS performance degrades dramatically versus IS. The Isogeny Alpha System "
         "shows the opposite: OOS WR (71.4%) is lower than IS WR (83.3%) as expected, but the "
         "OOS P&L ($808 from 14 trades = $57.7/trade) actually exceeds the IS average ($1,440 from "
         "24 trades = $60/trade) — extremely tight degradation ratio."
@@ -3524,7 +3524,7 @@ def build():
     story.extend(section_header_bar("15. TradingView Pine Script Integration"))
     story.append(sp(0.1))
     story.append(p(
-        "The Nexum Alpha System includes a complete Pine Script v6 indicator "
+        "The Isogeny Alpha System includes a complete Pine Script v6 indicator "
         "(<code>pine_script/quant_system.pine</code>) that replicates the Python backtest "
         "logic as a visual overlay on TradingView charts. The Pine Script serves as "
         "the trader's primary visual interface for manual signal confirmation."
@@ -3600,7 +3600,7 @@ def build():
     story.append(sp(0.1))
     story.append(callout(
         "IMPORTANT DISCLAIMER: Past backtest performance does not guarantee future results. "
-        "All trading involves risk of loss. The Nexum Alpha System is a research and decision-support "
+        "All trading involves risk of loss. The Isogeny Alpha System is a research and decision-support "
         "tool, not a guarantee of profitable trading. Position sizes and risk parameters should "
         "be reviewed with a qualified financial professional before live trading."
     ))
@@ -3612,7 +3612,7 @@ def build():
     story.extend(section_header_bar("17. Conclusion"))
     story.append(sp(0.1))
     story.append(p(
-        "The Nexum Alpha System v7.0 represents the completion of three successive development cycles: "
+        "The Isogeny Alpha System v7.0 represents the completion of three successive development cycles: "
         "the original adaptive framework (v1-v4), the institutional overlay with 12-point scoring (v5), "
         "and now the Order Flow and Research upgrades (v6-v7) that addressed the system's two "
         "most critical remaining weaknesses. Six core strategies — Gap Fill, ORB, IB Breakout, "
@@ -3717,7 +3717,7 @@ def build():
     story.append(p(
         "This chapter is for the person who has read everything above and now wants to know: "
         "what do I actually DO when I sit down at my desk at 9:15 AM? This is a step-by-step "
-        "practical guide to operating the Nexum Alpha System on a live prop firm evaluation account."
+        "practical guide to operating the Isogeny Alpha System on a live prop firm evaluation account."
     ))
     story.extend(explain_box("The Trader's Role in This System",
         "You are not a signal generator — the computer does that. You are a RISK MANAGER "
@@ -4039,7 +4039,7 @@ def build():
     story.extend(section_header_bar("Formula Reference: Every Equation in Plain English"))
     story.append(sp(0.1))
     story.append(p(
-        "This chapter lists every mathematical formula used in the Nexum Alpha System with "
+        "This chapter lists every mathematical formula used in the Isogeny Alpha System with "
         "a concise plain-English translation. If you encounter a formula anywhere in this "
         "paper and feel confused, come here first."
     ))
@@ -4360,7 +4360,7 @@ def build():
     story.append(sp(0.3))
     story.append(hr_light())
     story.append(p(
-        f"Nexum Alpha System v7.0  •  Kairos Capital Research  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
+        f"Isogeny Alpha System v7.0  •  Kairos Capital Research  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
         CAPTION
     ))
 
