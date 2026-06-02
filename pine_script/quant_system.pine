@@ -1,5 +1,5 @@
 //@version=6
-indicator("Isogeny Alpha System v7.0 — Kairos Capital Research",
+indicator("Isogeny Alpha System v7.0  - Kairos Capital Research",
      overlay=true,
      max_boxes_count=150,
      max_labels_count=300,
@@ -10,28 +10,28 @@ indicator("Isogeny Alpha System v7.0 — Kairos Capital Research",
 //  Kairos Capital Research
 //
 //  Six strategies with 20-point institutional confidence scoring:
-//    1. Gap Fill          — prior close target (tiny gaps only)
-//    2. ORB Pullback      — T1 @ 1R, T2 @ 3x ORB range
-//    3. IB Breakout       — T1 @ 1R, T2 @ 2.5x IB range
-//    4. VWAP Reversion    — T1 @ 1R, T2 @ VWAP (mean-rev)
-//    5. VWAP Bounce       — T1 @ 1R, T2 @ 3x ATR Chandelier
-//    6. 80% VA Rule       — T1 @ 1R, T2 @ opposite VA edge (Dalton)
+//    1. Gap Fill           - prior close target (tiny gaps only)
+//    2. ORB Pullback       - T1 @ 1R, T2 @ 3x ORB range
+//    3. IB Breakout        - T1 @ 1R, T2 @ 2.5x IB range
+//    4. VWAP Reversion     - T1 @ 1R, T2 @ VWAP (mean-rev)
+//    5. VWAP Bounce        - T1 @ 1R, T2 @ 3x ATR Chandelier
+//    6. 80% VA Rule        - T1 @ 1R, T2 @ opposite VA edge (Dalton)
 //
 //  Exit system: TWO-TARGET
-//    T1 — 1x risk from entry → exit 50%, lock P&L
-//    T2 — strategy-specific extended target or Chandelier trail
+//    T1  - 1x risk from entry → exit 50%, lock P&L
+//    T2  - strategy-specific extended target or Chandelier trail
 //
 //  Visual elements:
-//    Orange dashed  — PDH / PDL
-//    Yellow dashed  — PMH / PML  (premarket)
-//    Cyan solid     — Prior session POC (approximate)
-//    Teal dashed    — Prior session VAH / VAL (approximate)
-//    Blue dashed    — ORB box
-//    Purple dashed  — IB box
-//    Orange solid   — VWAP + bands
-//    Teal fill      — VWAP bounce zone
-//    Green fill     — Bullish FVG zone
-//    Red fill       — Bearish FVG zone
+//    Orange dashed   - PDH / PDL
+//    Yellow dashed   - PMH / PML  (premarket)
+//    Cyan solid      - Prior session POC (approximate)
+//    Teal dashed     - Prior session VAH / VAL (approximate)
+//    Blue dashed     - ORB box
+//    Purple dashed   - IB box
+//    Orange solid    - VWAP + bands
+//    Teal fill       - VWAP bounce zone
+//    Green fill      - Bullish FVG zone
+//    Red fill        - Bearish FVG zone
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── INPUTS ───────────────────────────────────────────────────────────────────
@@ -52,8 +52,8 @@ show_occ    = input.bool(true,  "Show OCC Arrow (first bar)",  group=g_disp)
 
 g_par = "Strategy Parameters"
 vix_elev    = input.float(25.0, "VIX Gate (strategies off above)",   group=g_par, minval=15.0, maxval=40.0)
-ema_strong  = input.float(3.0,  "EMA% Threshold — strong trend",     group=g_par, minval=1.0,  maxval=5.0)
-ema_mild    = input.float(1.0,  "EMA% Threshold — mild trend",       group=g_par, minval=0.25, maxval=3.0)
+ema_strong  = input.float(3.0,  "EMA% Threshold  - strong trend",     group=g_par, minval=1.0,  maxval=5.0)
+ema_mild    = input.float(1.0,  "EMA% Threshold  - mild trend",       group=g_par, minval=0.25, maxval=3.0)
 orb_min_atr = input.float(0.025,"ORB Min Range (x ATR)",              group=g_par, minval=0.01, maxval=0.10)
 orb_max_atr = input.float(0.50, "ORB Max Range (x ATR)",              group=g_par, minval=0.10, maxval=1.00)
 ib_min_atr  = input.float(0.05, "IB Min Range (x ATR)",               group=g_par, minval=0.02, maxval=0.15)
@@ -75,7 +75,7 @@ d_prev_lo  = request.security(syminfo.tickerid, "D", low[1],            lookahea
 d_open     = request.security(syminfo.tickerid, "D", open,              lookahead=barmerge.lookahead_off)
 d_vix      = request.security(vix_sym,          "D", close,             lookahead=barmerge.lookahead_off)
 
-// Adaptive ATR — max(5d, 20d): captures spikes fast, doesn't deflate during recovery
+// Adaptive ATR  - max(5d, 20d): captures spikes fast, doesn't deflate during recovery
 atr_adapt = math.max(nz(d_atr5, 200.0), nz(d_atr20, 200.0))
 
 // Prior session VWAP approximation (typical price = POC estimate)
@@ -203,7 +203,7 @@ if is_930
     occ_shown    := false
 
 if is_930[1] and not na(occ_bar_open)
-    // Bar that closed at 9:35 — classify first 5-min bar direction
+    // Bar that closed at 9:35  - classify first 5-min bar direction
     occ_ret  := (close[1] - occ_bar_open) / occ_bar_open
     occ_dir  := occ_ret > 0.0005 ? "long" : occ_ret < -0.0005 ? "short" : "neutral"
 
@@ -237,7 +237,7 @@ gap_long  = prev_was_930 and gap_valid[1] and gap_pts[1] < 0 and first_bar_bull 
 gap_short = prev_was_930 and gap_valid[1] and gap_pts[1] > 0 and first_bar_bear and gap_short_ok
 
 
-// ─── ORB (Opening Range Breakout — pullback entry) ────────────────────────────
+// ─── ORB (Opening Range Breakout  - pullback entry) ────────────────────────────
 
 var float orb_hi   = na
 var float orb_lo   = na
@@ -504,7 +504,7 @@ if show_prev and is_930 and not na(d_prev_cls)
 // ─── KEY LEVELS: PDH / PDL / PMH / PML ───────────────────────────────────────
 
 if show_levels and is_930
-    // PDH — Prior Day High
+    // PDH  - Prior Day High
     if not na(d_prev_hi)
         line.new(time, d_prev_hi, time + 150 * 60 * 1000, d_prev_hi,
              xloc=xloc.bar_time,
@@ -513,7 +513,7 @@ if show_levels and is_930
              xloc=xloc.bar_time, color=color.new(color.orange, 75),
              textcolor=color.orange, style=label.style_label_right, size=size.tiny)
 
-    // PDL — Prior Day Low
+    // PDL  - Prior Day Low
     if not na(d_prev_lo)
         line.new(time, d_prev_lo, time + 150 * 60 * 1000, d_prev_lo,
              xloc=xloc.bar_time,
@@ -522,7 +522,7 @@ if show_levels and is_930
              xloc=xloc.bar_time, color=color.new(color.orange, 75),
              textcolor=color.orange, style=label.style_label_right, size=size.tiny)
 
-    // PMH / PML — premarket high/low (approximate from current day pre-open)
+    // PMH / PML  - premarket high/low (approximate from current day pre-open)
     if not na(d_pmh) and d_pmh != d_prev_hi
         line.new(time, d_pmh, time + 150 * 60 * 1000, d_pmh,
              xloc=xloc.bar_time,
@@ -543,7 +543,7 @@ if show_levels and is_930
 // ─── PRIOR SESSION VA LEVELS (POC / VAH / VAL) ───────────────────────────────
 
 if show_va and is_930
-    // POC (volume-weighted typical price approximation — cyan)
+    // POC (volume-weighted typical price approximation  - cyan)
     if not na(d_prev_vwap)
         line.new(time, d_prev_vwap, time + 150 * 60 * 1000, d_prev_vwap,
              xloc=xloc.bar_time,
@@ -552,7 +552,7 @@ if show_va and is_930
              xloc=xloc.bar_time, color=color.new(color.aqua, 70),
              textcolor=color.aqua, style=label.style_label_right, size=size.tiny)
 
-    // VAH — Value Area High (teal dashed)
+    // VAH  - Value Area High (teal dashed)
     if not na(d_prev_vah)
         line.new(time, d_prev_vah, time + 150 * 60 * 1000, d_prev_vah,
              xloc=xloc.bar_time,
@@ -561,7 +561,7 @@ if show_va and is_930
              xloc=xloc.bar_time, color=color.new(color.teal, 70),
              textcolor=color.teal, style=label.style_label_right, size=size.tiny)
 
-    // VAL — Value Area Low (teal dashed)
+    // VAL  - Value Area Low (teal dashed)
     if not na(d_prev_val)
         line.new(time, d_prev_val, time + 150 * 60 * 1000, d_prev_val,
              xloc=xloc.bar_time,
@@ -725,7 +725,7 @@ if show_sigs
         t2 = e + bnc_t2_dist
         label.new(bar_index, low - lbl_off_dn,
              "VWAP BOUNCE LONG  [AM]\n" + f_lbl(e, s, t1, t2, true) +
-             "\n" + trend_dir + " — VWAP support",
+             "\n" + trend_dir + "  - VWAP support",
              color=color.new(#1b5e20, 5), textcolor=color.white,
              style=label.style_label_up, size=size.small)
 
@@ -737,7 +737,7 @@ if show_sigs
         t2 = e - bnc_t2_dist
         label.new(bar_index, high + lbl_off_up,
              "VWAP BOUNCE SHORT  [AM]\n" + f_lbl(e, s, t1, t2, false) +
-             "\n" + trend_dir + " — VWAP resistance",
+             "\n" + trend_dir + "  - VWAP resistance",
              color=color.new(#b71c1c, 5), textcolor=color.white,
              style=label.style_label_down, size=size.small)
 
@@ -852,8 +852,8 @@ if show_dash and barstate.islast
     // Row 4: OCC
     table.cell(dash, 0, 4, "OCC (9:35 bar)", text_color=c_white, bgcolor=c_key, text_size=size.small)
     table.cell(dash, 1, 4,
-         occ_dir == "long"  ? "BULLISH — favor longs" :
-         occ_dir == "short" ? "BEARISH — favor shorts" : "neutral / building",
+         occ_dir == "long"  ? "BULLISH  - favor longs" :
+         occ_dir == "short" ? "BEARISH  - favor shorts" : "neutral / building",
          text_color=c_white, bgcolor=occ_col, text_size=size.small)
 
     // Row 5: Separator label
@@ -931,72 +931,72 @@ if show_dash and barstate.islast
 
 alertcondition(gap_long,
      title="Gap Fill LONG",
-     message="ISOGENY ALPHA — GAP FILL LONG: tiny gap-down confirmed. Enter next bar open. Target: prior close (T2). Max risk 25pts.")
+     message="ISOGENY ALPHA  - GAP FILL LONG: tiny gap-down confirmed. Enter next bar open. Target: prior close (T2). Max risk 25pts.")
 
 alertcondition(gap_short,
      title="Gap Fill SHORT",
-     message="ISOGENY ALPHA — GAP FILL SHORT: tiny gap-up confirmed. Enter next bar open. Target: prior close (T2). Max risk 25pts.")
+     message="ISOGENY ALPHA  - GAP FILL SHORT: tiny gap-up confirmed. Enter next bar open. Target: prior close (T2). Max risk 25pts.")
 
 alertcondition(orb_long_sig,
      title="ORB LONG",
-     message="ISOGENY ALPHA — ORB LONG: breakout + pullback in bull trend. Enter next bar. T1=1R, T2=3x ORB range. Tight stop 2pts below ORB high.")
+     message="ISOGENY ALPHA  - ORB LONG: breakout + pullback in bull trend. Enter next bar. T1=1R, T2=3x ORB range. Tight stop 2pts below ORB high.")
 
 alertcondition(orb_short_sig,
      title="ORB SHORT",
-     message="ISOGENY ALPHA — ORB SHORT: breakdown + pullback in bear trend. Enter next bar. T1=1R, T2=3x ORB range.")
+     message="ISOGENY ALPHA  - ORB SHORT: breakdown + pullback in bear trend. Enter next bar. T1=1R, T2=3x ORB range.")
 
 alertcondition(ib_long_sig,
      title="IB Breakout LONG",
-     message="ISOGENY ALPHA — IB BREAKOUT LONG: C-period, bullish IB bias. Enter next bar. T1=1R, T2=2.5x IB range.")
+     message="ISOGENY ALPHA  - IB BREAKOUT LONG: C-period, bullish IB bias. Enter next bar. T1=1R, T2=2.5x IB range.")
 
 alertcondition(ib_short_sig,
      title="IB Breakout SHORT",
-     message="ISOGENY ALPHA — IB BREAKOUT SHORT: C-period, bearish IB bias. Enter next bar. T1=1R, T2=2.5x IB range.")
+     message="ISOGENY ALPHA  - IB BREAKOUT SHORT: C-period, bearish IB bias. Enter next bar. T1=1R, T2=2.5x IB range.")
 
 alertcondition(vwap_long_sig,
      title="VWAP Rev LONG (AM)",
-     message="ISOGENY ALPHA — VWAP REVERSION LONG AM: price at -1.5sd. Enter next bar. T1=1R, T2=VWAP.")
+     message="ISOGENY ALPHA  - VWAP REVERSION LONG AM: price at -1.5sd. Enter next bar. T1=1R, T2=VWAP.")
 
 alertcondition(vwap_short_sig,
      title="VWAP Rev SHORT (AM)",
-     message="ISOGENY ALPHA — VWAP REVERSION SHORT AM: price at +1.5sd. Enter next bar. T1=1R, T2=VWAP.")
+     message="ISOGENY ALPHA  - VWAP REVERSION SHORT AM: price at +1.5sd. Enter next bar. T1=1R, T2=VWAP.")
 
 alertcondition(vwap_pm_long_sig,
      title="VWAP Rev LONG (PM)",
-     message="ISOGENY ALPHA — VWAP REVERSION LONG PM: strong bull + -1.5sd. T1=1R, T2=VWAP. Close by 4PM.")
+     message="ISOGENY ALPHA  - VWAP REVERSION LONG PM: strong bull + -1.5sd. T1=1R, T2=VWAP. Close by 4PM.")
 
 alertcondition(vwap_pm_short_sig,
      title="VWAP Rev SHORT (PM)",
-     message="ISOGENY ALPHA — VWAP REVERSION SHORT PM: strong bear + +1.5sd. T1=1R, T2=VWAP. Close by 4PM.")
+     message="ISOGENY ALPHA  - VWAP REVERSION SHORT PM: strong bear + +1.5sd. T1=1R, T2=VWAP. Close by 4PM.")
 
 alertcondition(bnc_am_long_sig,
      title="VWAP Bounce LONG (AM)",
-     message="ISOGENY ALPHA — VWAP BOUNCE LONG AM: bull trend + price at VWAP. T1=1R, T2=Chandelier.")
+     message="ISOGENY ALPHA  - VWAP BOUNCE LONG AM: bull trend + price at VWAP. T1=1R, T2=Chandelier.")
 
 alertcondition(bnc_am_short_sig,
      title="VWAP Bounce SHORT (AM)",
-     message="ISOGENY ALPHA — VWAP BOUNCE SHORT AM: bear trend + price at VWAP. T1=1R, T2=Chandelier.")
+     message="ISOGENY ALPHA  - VWAP BOUNCE SHORT AM: bear trend + price at VWAP. T1=1R, T2=Chandelier.")
 
 alertcondition(bnc_pm_long_sig,
      title="VWAP Bounce LONG (PM)",
-     message="ISOGENY ALPHA — VWAP BOUNCE LONG PM: bull trend + VWAP. T1=1R, T2=Chandelier. Close by 4PM.")
+     message="ISOGENY ALPHA  - VWAP BOUNCE LONG PM: bull trend + VWAP. T1=1R, T2=Chandelier. Close by 4PM.")
 
 alertcondition(bnc_pm_short_sig,
      title="VWAP Bounce SHORT (PM)",
-     message="ISOGENY ALPHA — VWAP BOUNCE SHORT PM: bear trend + VWAP. T1=1R, T2=Chandelier. Close by 4PM.")
+     message="ISOGENY ALPHA  - VWAP BOUNCE SHORT PM: bear trend + VWAP. T1=1R, T2=Chandelier. Close by 4PM.")
 
 alertcondition(bull_fvg_ok,
      title="Bullish FVG Formed",
-     message="ISOGENY ALPHA — BULLISH FVG: unfinished auction zone formed. Watch for return + fill (neutral trend only).")
+     message="ISOGENY ALPHA  - BULLISH FVG: unfinished auction zone formed. Watch for return + fill (neutral trend only).")
 
 alertcondition(bear_fvg_ok,
      title="Bearish FVG Formed",
-     message="ISOGENY ALPHA — BEARISH FVG: unfinished auction zone formed. Watch for return + fill (neutral trend only).")
+     message="ISOGENY ALPHA  - BEARISH FVG: unfinished auction zone formed. Watch for return + fill (neutral trend only).")
 
 alertcondition(va_rule_long_sig,
      title="80% VA Rule LONG",
-     message="ISOGENY ALPHA — VA RULE LONG (Type B): opened below VAL, re-entered VA, 3-bar confirmed. T1=1R, T2=VAH. 80% documented probability.")
+     message="ISOGENY ALPHA  - VA RULE LONG (Type B): opened below VAL, re-entered VA, 3-bar confirmed. T1=1R, T2=VAH. 80% documented probability.")
 
 alertcondition(va_rule_short_sig,
      title="80% VA Rule SHORT",
-     message="ISOGENY ALPHA — VA RULE SHORT (Type A): opened above VAH, re-entered VA, 3-bar confirmed. T1=1R, T2=VAL. 80% documented probability.")
+     message="ISOGENY ALPHA  - VA RULE SHORT (Type A): opened above VAH, re-entered VA, 3-bar confirmed. T1=1R, T2=VAL. 80% documented probability.")
