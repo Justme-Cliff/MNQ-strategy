@@ -30,6 +30,11 @@ import pandas as pd
 import yfinance as yf
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
+from rich.rule import Rule
+from rich.text import Text
+from rich.columns import Columns
+from rich.align import Align
 
 from fast_feed import get_feed
 from backtest.quant_engine import run_quant_today, QuantTrade
@@ -52,9 +57,158 @@ from strategy.bot_memory import (
 )
 
 EST       = ZoneInfo("America/New_York")
-console   = Console()
+console   = Console(highlight=False)
 ACCT_PATH = Path(__file__).parent / "journal" / "account.json"
 TICKER    = yf.Ticker("NQ=F")
+
+# ── Color palette ─────────────────────────────────────────────────────────────
+C_LONG    = "bright_green"
+C_SHORT   = "bright_red"
+C_PRICE   = "bold white"
+C_ENTRY   = "bold cyan"
+C_STOP    = "red"
+C_TARGET  = "green"
+C_DIM     = "dim white"
+C_SCORE   = "bright_cyan"
+C_WARN    = "bold yellow"
+C_LEVEL   = "yellow"
+C_HEADER  = "bold bright_white"
+C_INFO    = "bright_blue"
+C_GOOD    = "bright_green"
+C_BAD     = "bright_red"
+C_NEUTRAL = "white"
+
+
+# ── TUI Helpers ───────────────────────────────────────────────────────────────
+
+def _banner():
+    """Startup banner."""
+    console.print()
+    console.rule("[bold bright_white]IDK QUANT[/bold bright_white]  ·  [bright_cyan]INSTITUTIONAL ALPHA SYSTEM v7.0[/bright_cyan]", style="bright_white")
+    t = Table.grid(padding=(0, 2))
+    t.add_column(justify="center")
+    t.add_row("[dim]NQ Futures · 9:30 AM – 12:00 PM ET · Tradeify $25k · 20-pt scoring · Two-target exit[/dim]")
+    console.print(Align.center(t))
+    console.print()
+
+
+def _status_bar(price: float, confirmed: int, buf: float, vix: float, atr: float,
+                src_tag: str, age: float, now: datetime) -> None:
+    """Single overwrite-in-place status line."""
+    buf_col = C_GOOD if buf >= 500 else (C_WARN if buf >= 250 else C_BAD)
+    src_col = C_GOOD if "WS" in src_tag or "LIVE" in src_tag else C_WARN
+    stale   = "  [red]STALE[/red]" if age > 10 else ""
+
+    dots = ["●", "●", "●"]
+    trade_cols = []
+    for i in range(3):
+        if i < confirmed:
+            trade_cols.append(f"[{C_GOOD}]●[/{C_GOOD}]")
+        else:
+            trade_cols.append("[dim]○[/dim]")
+    trades_vis = " ".join(trade_cols)
+
+    line = (
+        f"[{C_DIM}]{now.strftime('%H:%M:%S')}[/{C_DIM}]  "
+        f"[{C_PRICE}]NQ {price:,.2f}[/{C_PRICE}]  "
+        f"[{src_col}]{src_tag}[/{src_col}]{stale}"
+        f"  [dim]VIX[/dim] [white]{vix:.1f}[/white]"
+        f"  [dim]ATR[/dim] [white]{atr:.0f}[/white]"
+        f"  [dim]Buf[/dim] [{buf_col}]${buf:.0f}[/{buf_col}]"
+        f"  [dim]Trades[/dim] {trades_vis}"
+    )
+    console.print(line, end="\r")
+
+
+def _signal_panel(strategy: str, direction: str, entry: float, stop: float,
+                  target: float, score: int = 0, n_contracts: int = 1) -> None:
+    """Big bordered signal panel — impossible to miss."""
+    side_txt  = "LONG  ▲" if direction == "long" else "SHORT  ▼"
+    side_col  = C_LONG if direction == "long" else C_SHORT
+    risk_pts  = abs(entry - stop)
+    risk_usd  = risk_pts * 2.0 * n_contracts
+    t1_level  = (entry + risk_pts) if direction == "long" else (entry - risk_pts)
+    t1_usd    = risk_pts * 2.0 * max(1, n_contracts // 2)
+    lots_txt  = f"{n_contracts} contract{'s' if n_contracts > 1 else ''}  ({'★ FULL SIZE' if n_contracts == 2 else 'standard'})"
+    score_bar = "█" * score + "░" * (21 - score)
+
+    t = Table.grid(padding=(0, 1))
+    t.add_column(min_width=14, style="dim")
+    t.add_column(style="bold")
+    t.add_column(style="dim")
+
+    t.add_row("Strategy",  f"[{C_HEADER}]{strategy.upper().replace('_', ' ')}[/{C_HEADER}]", "")
+    t.add_row("Direction", f"[{side_col}]{side_txt}[/{side_col}]",  "")
+    t.add_row("",          "",                                         "")
+    t.add_row("Entry",     f"[{C_ENTRY}]{entry:,.2f}[/{C_ENTRY}]",   "← enter at next bar open")
+    t.add_row("Stop (SL)", f"[{C_STOP}]{stop:,.2f}[/{C_STOP}]",      f"← {risk_pts:.1f} pts  max −${risk_usd:.0f}")
+    t.add_row("T1 (50%)",  f"[{C_TARGET}]{t1_level:,.2f}[/{C_TARGET}]",  f"← 1R  lock +${t1_usd:.0f}")
+    t.add_row("T2 (50%)",  f"[{C_TARGET}]{target:,.2f}[/{C_TARGET}]",    "← Chandelier trail")
+    t.add_row("",          "",                                         "")
+    t.add_row("Score",     f"[{C_SCORE}]{score}/21[/{C_SCORE}]  [{C_DIM}]{score_bar}[/{C_DIM}]", "")
+    t.add_row("Size",      f"[{C_WARN}]{lots_txt}[/{C_WARN}]",        "")
+
+    border = side_col
+    console.print()
+    console.print(Panel(
+        t,
+        title=f"[{side_col}] ★  SIGNAL CONFIRMED  [/{side_col}]",
+        border_style=border,
+        padding=(0, 2),
+    ))
+
+
+def _confirm_prompt() -> None:
+    console.print(
+        "  [bold yellow]▶  Did you take this trade?   "
+        "[bold white]y[/bold white] = yes    "
+        "[bold white]n[/bold white] = no[/bold yellow]"
+    )
+
+
+def _level_alert(name: str, lvl: float, direction: str, entry: float,
+                 sl: float, tp: float, crossing: bool = False) -> None:
+    """Formatted level approaching / crossing alert."""
+    side_col  = C_LONG if direction == "long" else C_SHORT
+    side_txt  = "LONG ▲" if direction == "long" else "SHORT ▼"
+    risk_pts  = abs(entry - sl)
+    icon      = "⚡" if crossing else "⟶"
+    action    = "CROSSED — ENTER NOW" if crossing else "APPROACHING"
+    style     = "bold yellow" if crossing else C_LEVEL
+
+    t = Table.grid(padding=(0, 3))
+    t.add_column(style="dim", min_width=8)
+    t.add_column()
+    t.add_row("Entry",  f"[{C_ENTRY}]{entry:,.1f}[/{C_ENTRY}]")
+    t.add_row("SL",     f"[{C_STOP}]{sl:,.1f}[/{C_STOP}]   ({risk_pts:.0f} pts)")
+    t.add_row("Target", f"[{C_TARGET}]{tp:,.1f}[/{C_TARGET}]")
+
+    console.print()
+    console.print(Panel(
+        t,
+        title=f"[{style}]{icon}  {name} {lvl:.1f}  {action}  →  [{side_col}]{side_txt}[/{side_col}][/{style}]",
+        border_style="yellow" if crossing else "dim yellow",
+        padding=(0, 2),
+    ))
+
+
+def _be_alert(strategy: str, direction: str, entry: float) -> None:
+    side = "LONG" if direction == "long" else "SHORT"
+    console.print(Panel(
+        f"  [{C_WARN}]Move your stop loss to  [{C_ENTRY}]{entry:,.2f}[/{C_ENTRY}]  (your entry price)[/{C_WARN}]\n"
+        f"  [dim]You are now risk-free on this {strategy.upper()} {side} trade.[/dim]",
+        title="[bold cyan]🔒  T1 HIT — MOVE SL TO ENTRY[/bold cyan]",
+        border_style="cyan",
+        padding=(0, 2),
+    ))
+
+
+def _bar_close_line(now: datetime, fetch_ms: int) -> None:
+    console.print(
+        f"\n[{C_DIM}]{now.strftime('%H:%M')}[/{C_DIM}]  "
+        f"[dim]▸ bar closed  ({fetch_ms}ms)[/dim]",
+        end="  "
+    )
 
 # ── Direction lock — prevents contradictory signals ───────────────────────────
 DIRECTION_LOCK_MINUTES = 20   # after a signal, suppress opposite direction for this long
@@ -179,17 +333,15 @@ def _fetch_latest_bars() -> pd.DataFrame:
 
 
 def _load_bar_cache() -> pd.DataFrame:
-    console.print("Loading bar history...", end=" ")
     df = load_nq(interval="5m", period="10d")
     df = label_sessions(df, interval="5m")
-    console.print(f"[green]{len(df)} bars.[/green]")
+    console.print(f"[{C_GOOD}]✓  {len(df)} bars loaded[/{C_GOOD}]")
     return df
 
 
 def _load_vix_cache() -> dict:
-    console.print("Loading VIX...", end=" ")
     vix = _load_vix(period="90d")
-    console.print(f"[green]{len(vix)} days.[/green]")
+    console.print(f"[{C_GOOD}]✓  {len(vix)} VIX days loaded[/{C_GOOD}]")
     return vix
 
 
@@ -211,132 +363,127 @@ def _print_session_open_summary(
     price: float,
     session_news: dict | None = None,
 ) -> None:
-    """Print institutional context at session open: news, day type, key levels, bot insights."""
-    today   = date.today()
-    vix     = 18.0
-    if today in vix_cache:
-        vix = vix_cache[today]
+    """Styled session open brief using Rich tables and panels."""
+    today = date.today()
+    vix   = vix_cache.get(today, 18.0)
 
-    console.print("\n[bold cyan]━━━ SESSION OPEN BRIEF ━━━[/bold cyan]")
+    rows: list[tuple] = []   # (label, value, style)
 
-    # ── News + economic calendar ──────────────────────────────────────────────
+    # ── News ──────────────────────────────────────────────────────────────────
     if session_news:
-        risk   = session_news.get("risk_level", "low")
-        dtype  = session_news.get("day_type", "normal")
-        brief  = session_news.get("brief", "")
-        events = session_news.get("key_events", [])
-        skips  = session_news.get("skip_strategies", [])
-        size_w = session_news.get("size_warning", False)
+        risk      = session_news.get("risk_level", "low")
+        brief     = session_news.get("brief", "")
+        events    = session_news.get("key_events", [])
+        skips     = session_news.get("skip_strategies", [])
+        size_w    = session_news.get("size_warning", False)
         headlines = session_news.get("headlines_shown", [])
 
-        # Color the brief by risk level
-        if risk == "extreme":
-            risk_col = "bold red"
-        elif risk == "high":
-            risk_col = "red"
-        elif risk == "elevated":
-            risk_col = "yellow"
-        else:
-            risk_col = "green"
+        risk_col = {"extreme": C_BAD, "high": "red", "elevated": C_WARN}.get(risk, C_GOOD)
+        rows.append(("News",    f"[{risk_col}]{brief}[/{risk_col}]", ""))
 
-        console.print(f"  [{risk_col}]{brief}[/{risk_col}]")
+        for ev in events[:4]:
+            tag_col = ("bold yellow" if "[FOMC]" in ev or "[DATA]" in ev
+                       else "magenta" if "[EARNINGS]" in ev else "dim")
+            rows.append(("", f"[{tag_col}]  ▸ {ev}[/{tag_col}]", ""))
 
-        # Show calendar events (high impact)
-        for event in events[:4]:
-            if event.startswith("[FOMC]") or event.startswith("[DATA]"):
-                console.print(f"    [bold yellow]>> {event}[/bold yellow]")
-            elif event.startswith("[EARNINGS]"):
-                console.print(f"    [bold magenta]>> {event}[/bold magenta]")
-            else:
-                console.print(f"    [dim]>> {event}[/dim]")
-
-        # Show skip warnings
         if skips:
-            skip_str = ", ".join(s.upper().replace("_", " ") for s in skips)
-            console.print(f"  [bold red]  SKIP TODAY: {skip_str}[/bold red]")
+            skip_str = "  ".join(s.upper().replace("_", " ") for s in skips)
+            rows.append(("", f"[{C_BAD}]  ⚠ SKIP TODAY: {skip_str}[/{C_BAD}]", ""))
         if size_w:
-            console.print("  [bold yellow]  REDUCE SIZE: high-impact day — prefer 1 contract[/bold yellow]")
+            rows.append(("", f"[{C_WARN}]  ↓ REDUCE SIZE — prefer 1 contract[/{C_WARN}]", ""))
 
-        # Top headlines (dim, compact)
         if headlines:
-            console.print("  [dim]Top headlines:[/dim]")
             for hl in headlines[:3]:
-                # Truncate long headlines
-                short = hl[:90] + "..." if len(hl) > 90 else hl
-                console.print(f"  [dim]  · {short}[/dim]")
+                short = hl[:88] + "…" if len(hl) > 88 else hl
+                rows.append(("", f"[dim]  · {short}[/dim]", ""))
 
-    # Expiry context
+    # ── Expiry ────────────────────────────────────────────────────────────────
     try:
         exp = get_expiry_context(today)
         if exp["is_expiry_day"]:
             products = "+".join(exp["expiry_products"])
-            risk = exp["gamma_pin_risk"]
+            gpr  = exp["gamma_pin_risk"]
             bias = exp["recommended_bias"].replace("_", "-")
-            risk_col = "red" if risk == "high" else "yellow"
-            console.print(
-                f"  [bold {risk_col}]📅 {products} EXPIRY TODAY[/bold {risk_col}]  "
-                f"Pin risk: [{risk_col}]{risk.upper()}[/{risk_col}]  Bias: {bias}"
-            )
+            ec   = C_BAD if gpr == "high" else C_WARN
+            rows.append(("Expiry",
+                         f"[{ec}]{products} EXPIRY[/{ec}]  "
+                         f"[dim]pin-risk[/dim] [{ec}]{gpr.upper()}[/{ec}]  "
+                         f"[dim]bias[/dim] {bias}", ""))
     except Exception:
         pass
 
-    # Overnight range / day type
+    # ── Day type ──────────────────────────────────────────────────────────────
     try:
         atr = get_atr_adaptive(bar_cache, today)
         if atr > 0:
-            ov = get_overnight_range_type(bar_cache, today, atr)
-            bias = ov["day_type_bias"].upper()
-            pct  = ov["overnight_pct_atr"] * 100
+            ov    = get_overnight_range_type(bar_cache, today, atr)
+            bias  = ov["day_type_bias"].upper()
+            pct   = ov["overnight_pct_atr"] * 100
             if ov["breakout_favored"]:
-                col = "green"
-                strats = "ORB/IB/Gap favored"
+                dcol, strats = C_GOOD, "ORB / IB / Gap Fill favored"
             elif ov["meanrev_favored"]:
-                col = "yellow"
-                strats = "VWAP/FVG favored"
+                dcol, strats = C_WARN, "VWAP / FVG favored"
             else:
-                col  = "white"
-                strats = "all strategies valid"
-            console.print(
-                f"  DAY TYPE [bold {col}]{bias}[/bold {col}]  "
-                f"Overnight {ov['overnight_range']:.0f}pts ({pct:.0f}% ATR)  →  {strats}"
-            )
+                dcol, strats = C_NEUTRAL, "all strategies valid"
+            rows.append(("Day Type",
+                         f"[{dcol}]{bias}[/{dcol}]  "
+                         f"[dim]overnight[/dim] {ov['overnight_range']:.0f}pts  "
+                         f"[dim]({pct:.0f}% ATR)[/dim]  →  {strats}", ""))
     except Exception:
         pass
 
-    # Key levels
+    # ── Key levels ────────────────────────────────────────────────────────────
     try:
-        key_levels = get_key_levels(bar_cache, today)
-        if key_levels:
-            console.print(
-                f"  KEY LEVELS  "
-                f"[orange1]PDH {key_levels.pdh:.1f}[/orange1]  "
-                f"[orange1]PDL {key_levels.pdl:.1f}[/orange1]  "
-                + (f"[yellow]PMH {key_levels.pmh:.1f}[/yellow]  " if key_levels.pmh > 0 else "")
-                + (f"[yellow]PML {key_levels.pml:.1f}[/yellow]" if key_levels.pml > 0 else "")
-            )
+        kl = get_key_levels(bar_cache, today)
+        if kl:
+            level_parts = [
+                f"[orange1]PDH {kl.pdh:.1f}[/orange1]",
+                f"[orange1]PDL {kl.pdl:.1f}[/orange1]",
+            ]
+            if kl.pmh > 0:
+                level_parts.append(f"[yellow]PMH {kl.pmh:.1f}[/yellow]")
+            if kl.pml > 0:
+                level_parts.append(f"[yellow]PML {kl.pml:.1f}[/yellow]")
+            rows.append(("Levels", "  ".join(level_parts), ""))
     except Exception:
         pass
 
-    # Bot memory status
+    # ── Bot memory ────────────────────────────────────────────────────────────
     try:
-        mem = get_status()
-        if mem["total_real_trades"] > 0:
-            wr_str = f"{mem['recent_wr']*100:.0f}%" if mem["recent_wr"] is not None else "n/a"
-            console.print(
-                f"  BOT MEMORY  "
-                f"{mem['total_real_trades']} real trades  WR {wr_str}  "
-                f"Next: {mem['contracts_next']} contract(s)  "
-                f"[dim]{mem['notes']}[/dim]"
-            )
+        mem    = get_status()
+        n_real = mem["total_real_trades"]
+        if n_real > 0:
+            wr_str = f"{mem['recent_wr']*100:.0f}%" if mem["recent_wr"] is not None else "—"
+            rows.append(("Bot Memory",
+                         f"{n_real} real trades  [dim]WR[/dim] [{C_SCORE}]{wr_str}[/{C_SCORE}]  "
+                         f"[dim]next trade:[/dim] [{C_WARN}]{mem['contracts_next']} lot(s)[/{C_WARN}]  "
+                         f"[dim]{mem['notes']}[/dim]", ""))
             for insight in mem["insights"][:3]:
-                col = "green" if "HOT" in insight else "red"
-                console.print(f"    [{col}]{insight}[/{col}]")
+                icol = C_GOOD if "HOT" in insight else C_BAD
+                rows.append(("", f"  [{icol}]▸ {insight}[/{icol}]", ""))
         else:
-            console.print("  BOT MEMORY  No real trades yet — memory building from today")
+            rows.append(("Bot Memory", "[dim]No real trades yet — learning starts today[/dim]", ""))
     except Exception:
         pass
 
-    console.print("[bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━[/bold cyan]\n")
+    # ── Build table ───────────────────────────────────────────────────────────
+    t = Table.grid(padding=(0, 2))
+    t.add_column(style="dim", min_width=12, justify="right")
+    t.add_column()
+    for label, val, _ in rows:
+        t.add_row(label, val)
+
+    console.print()
+    console.print(Panel(
+        t,
+        title=f"[bold bright_white]SESSION OPEN BRIEF[/bold bright_white]  "
+              f"[dim]{today.strftime('%A %B %d, %Y')}[/dim]  "
+              f"[dim]NQ[/dim] [{C_PRICE}]{price:,.2f}[/{C_PRICE}]  "
+              f"[dim]VIX[/dim] {vix:.1f}",
+        border_style="bright_cyan",
+        padding=(0, 2),
+    ))
+    console.print()
 
 
 # ── Input processing: y/n confirmation and w/l outcome ───────────────────────
@@ -352,21 +499,23 @@ def _process_input(line: str) -> None:
         confirm_signal_taken(sig_id, taken)
 
         if taken:
+            n_conf = get_confirmed_trades_today()
+            dots   = "".join(["[green]●[/green]" if i < n_conf else "[dim]○[/dim]" for i in range(3)])
             console.print(
-                f"  [bold green]✓ Logged: {strategy.upper()} taken "
-                f"({get_confirmed_trades_today()}/{3} today)[/bold green]"
+                f"  [{C_GOOD}]✓  {strategy.upper()} confirmed[/{C_GOOD}]  "
+                f"{dots}  [dim]({n_conf}/3 today)[/dim]"
             )
-            # Now ask for outcome
             _pending_outcome   = _pending_confirm.copy()
             _pending_outcome["confirmed"] = True
             console.print(
-                "  [dim]Report outcome when trade closes: [bold]w[/bold] = win  "
-                "[bold]l[/bold] = loss  [bold]s[/bold] = skip[/dim]"
+                "  [dim]When trade closes, type:  "
+                "[bold white]w[/bold white] = win   "
+                "[bold white]l[/bold white] = loss   "
+                "[bold white]s[/bold white] = skip[/dim]"
             )
         else:
             console.print(
-                f"  [dim]Skipped — slot still available "
-                f"({get_confirmed_trades_today()}/{3} confirmed today)[/dim]"
+                f"  [dim]Skipped — slot open  ({get_confirmed_trades_today()}/3 confirmed today)[/dim]"
             )
         _pending_confirm = None
         return
@@ -393,17 +542,19 @@ def _process_input(line: str) -> None:
 
         report_outcome(sig_id, outcome, pnl)
 
-        col = "green" if outcome == "WIN" else "red"
+        col = C_GOOD if outcome == "WIN" else C_BAD
+        icon = "✓" if outcome == "WIN" else "✗"
         console.print(
-            f"  [{col}]Bot learned: {strategy.upper()} {direction.upper()} → "
-            f"{outcome}  ${pnl:+.2f}[/{col}]"
+            f"  [{col}]{icon}  {strategy.upper()} {direction.upper()} → "
+            f"{outcome}  ${pnl:+.2f}[/{col}]  "
+            f"[dim]logged to bot memory[/dim]"
         )
         _pending_outcome = None
 
-        # Check if session should pause
         paused, reason = is_paused()
         if paused:
-            console.print(f"\n  [bold red]⚠  BOT PAUSED: {reason}[/bold red]")
+            console.print()
+            console.rule(f"[{C_BAD}]⏸  BOT PAUSED — {reason}[/{C_BAD}]", style=C_BAD)
         return
 
 
@@ -414,34 +565,50 @@ def run_monitor():
 
     feed = get_feed()
 
-    console.print(Panel(
-        "[bold cyan]NQ Quant System — Live Monitor[/bold cyan]\n"
-        "[dim]Real-time price · Signal check on bar close · "
-        "Memory-driven self-improvement · Type y/n after signals[/dim]",
-        border_style="cyan"
-    ))
+    _banner()
 
-    console.print("Connecting...", end=" ")
+    # ── Loading sequence ──────────────────────────────────────────────────────
+    load_t = Table.grid(padding=(0, 1))
+    load_t.add_column(min_width=36, style="dim")
+    load_t.add_column()
+
+    console.print("[dim]Connecting to NQ price feed...[/dim]", end=" ")
     for _ in range(40):
         if feed.price:
             break
         time.sleep(0.5)
-    console.print(f"[green]NQ ${feed.price:,.1f}[/green]")
+    console.print(f"[{C_GOOD}]✓  NQ {feed.price:,.2f}[/{C_GOOD}]")
 
+    console.print("[dim]Loading bar history (10d / 5m)...[/dim]", end=" ")
     bar_cache = _load_bar_cache()
+
+    console.print("[dim]Loading VIX history...[/dim]", end=" ")
     vix_cache = _load_vix_cache()
 
-    console.print("Reading today's news + economic calendar...", end=" ")
+    console.print("[dim]Reading news + economic calendar...[/dim]", end=" ")
     session_news = fetch_session_news()
-    console.print(f"[green]done.[/green]")
+    console.print(f"[{C_GOOD}]✓[/{C_GOOD}]")
 
+    # ── Account summary panel ─────────────────────────────────────────────────
     bal, buf = _load_balance()
-    buf_col  = "red" if buf < 300 else ("yellow" if buf < 500 else "green")
-    console.print(
-        f"Balance [bold]${bal:,.2f}[/bold]  "
-        f"Buffer [{buf_col}]${buf:.0f}[/{buf_col}]  "
-        f"Floor ${bal - buf:,.0f}\n"
-    )
+    buf_col  = C_GOOD if buf >= 500 else (C_WARN if buf >= 250 else C_BAD)
+    floor    = bal - buf
+
+    acct = Table.grid(padding=(0, 3))
+    acct.add_column(style="dim", justify="right")
+    acct.add_column(style="bold")
+    acct.add_row("Balance",  f"[white]${bal:,.2f}[/white]")
+    acct.add_row("Buffer",   f"[{buf_col}]${buf:,.2f}[/{buf_col}]")
+    acct.add_row("Floor",    f"[dim]${floor:,.2f}[/dim]")
+    acct.add_row("Max loss", f"[dim]${buf * 0.15:,.0f}/trade  (15% buffer rule)[/dim]")
+
+    console.print(Panel(
+        acct,
+        title="[bold white]ACCOUNT[/bold white]",
+        border_style="bright_white",
+        padding=(0, 2),
+    ))
+    console.print()
 
     # Print bot memory status
     print_status()
@@ -478,9 +645,11 @@ def run_monitor():
             warned_start = True
             bal, buf = _load_balance()
             alert_session_start()
-            console.print(
-                f"\n[yellow bold]09:25[/yellow bold]  Market opens in 5 min  "
-                f"NQ ${price:,.1f}  Buffer ${buf:.0f}"
+            console.print()
+            console.rule(
+                f"[bold yellow]09:25  MARKET OPENS IN 5 MIN[/bold yellow]  "
+                f"[dim]NQ {price:,.1f}  Buffer ${buf:.0f}[/dim]",
+                style="yellow"
             )
 
         # ── 9:30 AM session open brief ────────────────────────────────────
@@ -492,7 +661,10 @@ def run_monitor():
         if h >= 12 and not warned_end:
             warned_end = True
             alert_session_end()
-            console.print(f"\n[bold red]12:00[/bold red]  Session over — stop trading.")
+            console.print()
+            console.rule("[bold red]12:00 PM — SESSION OVER  ·  STOP TRADING  ·  CLOSE ALL POSITIONS[/bold red]",
+                         style="red")
+            console.print()
             break
 
         # ── Breakeven watcher ─────────────────────────────────────────────
@@ -505,10 +677,8 @@ def run_monitor():
                 if hit:
                     watch["notified"] = True
                     alert_breakeven(watch["strategy"], watch["direction"], watch["entry"])
-                    console.print(
-                        f"\n  [bold cyan]🔒 MOVE SL → {watch['entry']:.1f}  "
-                        f"({watch['strategy'].upper()} — you are now risk-free)[/bold cyan]"
-                    )
+                    console.print()
+                    _be_alert(watch["strategy"], watch["direction"], watch["entry"])
 
         # ── Real-time level alerts: approaching + crossing ────────────────
         _APPROACH = 10.0
@@ -543,28 +713,25 @@ def run_monitor():
 
                 col = col_tag.strip("[]")
 
+                atr = key_levels.get("atr", 50.0)
+                def _calc_sl_tp(n, d, lv, a):
+                    if "ORB" in n:
+                        oh = key_levels.get("orb_high", lv); ol = key_levels.get("orb_low", lv)
+                        sl = (ol - 2) if d == "long" else (oh + 2)
+                        tp = lv + (lv - sl) * 2 if d == "long" else lv - (sl - lv) * 2
+                    elif "IB" in n:
+                        sl = (lv - a * 0.5) if d == "long" else (lv + a * 0.5)
+                        tp = (lv + a * 1.5) if d == "long" else (lv - a * 1.5)
+                    else:
+                        sl = (lv - a * 0.04) if d == "long" else (lv + a * 0.04)
+                        tp = (lv + a * 0.08) if d == "long" else (lv - a * 0.08)
+                    return sl, tp
+
                 app_key = f"APPROACH_{name}_{lvl:.0f}"
                 if approaching and app_key not in level_alerts:
                     level_alerts.add(app_key)
-                    atr = key_levels.get("atr", 50.0)
-                    if "ORB" in name:
-                        orb_h = key_levels.get("orb_high", lvl)
-                        orb_l = key_levels.get("orb_low",  lvl)
-                        sl = (orb_l - 2) if direction == "long" else (orb_h + 2)
-                        tp = lvl + (lvl - sl) * 2 if direction == "long" else lvl - (sl - lvl) * 2
-                    elif "IB" in name:
-                        sl = (lvl - atr * 0.5) if direction == "long" else (lvl + atr * 0.5)
-                        tp = (lvl + atr * 1.5) if direction == "long" else (lvl - atr * 1.5)
-                    else:  # PDH/PDL/PMH/PML
-                        sl = (lvl - atr * 0.04) if direction == "long" else (lvl + atr * 0.04)
-                        tp = (lvl + atr * 0.08) if direction == "long" else (lvl - atr * 0.08)
-                    risk = abs(lvl - sl)
-                    side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
-                    console.print(
-                        f"\n  [bold {col}]🎯 {name} {lvl:.1f} APPROACHING → {side}[/bold {col}]\n"
-                        f"  [bold]  Entry ~{lvl:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
-                        f"[dim](risk {risk:.0f}pts — exact levels on bar close)[/dim]"
-                    )
+                    sl, tp = _calc_sl_tp(name, direction, lvl, atr)
+                    _level_alert(name, lvl, direction, lvl, sl, tp, crossing=False)
                     alert_warning(
                         f"SET LIMIT  E:{lvl:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
                         f"{name} approaching — place {direction.upper()} limit NOW"
@@ -573,31 +740,9 @@ def run_monitor():
                 cross_key = f"CROSS_{name}_{lvl:.0f}"
                 if crossed and cross_key not in level_alerts:
                     level_alerts.add(cross_key)
-                    atr   = key_levels.get("atr", 50.0)
-                    entry = price
-                    if "ORB" in name:
-                        orb_h = key_levels.get("orb_high", lvl)
-                        orb_l = key_levels.get("orb_low",  lvl)
-                        orb_r = orb_h - orb_l
-                        sl = (orb_l - 2) if direction == "long" else (orb_h + 2)
-                        tp = (orb_h + orb_r * 1.5) if direction == "long" else (orb_l - orb_r * 1.5)
-                    elif "IB" in name:
-                        ib_h = key_levels.get("ib_high", lvl)
-                        ib_l = key_levels.get("ib_low",  lvl)
-                        ib_r = ib_h - ib_l
-                        sl = (ib_l - 2) if direction == "long" else (ib_h + 2)
-                        tp = (ib_h + ib_r * 1.5) if direction == "long" else (ib_l - ib_r * 1.5)
-                    else:
-                        sl = (lvl - atr * 0.04) if direction == "long" else (lvl + atr * 0.04)
-                        tp = (lvl + atr * 0.08) if direction == "long" else (lvl - atr * 0.08)
-                    risk = abs(entry - sl)
-                    side = "[green]LONG ▲[/green]" if direction == "long" else "[red]SHORT ▼[/red]"
-                    console.print(
-                        f"\n  [bold yellow]⚡ {name} {lvl:.1f} HIT → {side}[/bold yellow]\n"
-                        f"  [bold]  Entry {entry:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
-                        f"[dim](risk {risk:.0f}pts — enter at market NOW)[/dim]"
-                    )
-                    alert_signal(name, direction, entry, sl, tp)
+                    sl, tp = _calc_sl_tp(name, direction, lvl, atr)
+                    _level_alert(name, lvl, direction, price, sl, tp, crossing=True)
+                    alert_signal(name, direction, price, sl, tp)
 
             # ── VWAP bounce pre-alert ─────────────────────────────────────
             vwap = key_levels.get("vwap")
@@ -620,18 +765,11 @@ def run_monitor():
                         level_alerts.add(app_key)
                         run_monitor._last_vwap_alert = now
                         run_monitor._last_vwap_dir   = True
-                        sl   = vwap - atr * 0.5
-                        tp   = vwap + atr * 1.5
-                        risk = vwap - sl
-                        console.print(
-                            f"\n  [bold cyan]🎯 VWAP {vwap:.1f} APPROACHING → [green]LONG ▲[/green][/bold cyan]\n"
-                            f"  [bold]  Entry ~{vwap:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
-                            f"[dim](risk {risk:.0f}pts)[/dim]"
-                        )
-                        alert_warning(
-                            f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
-                            f"Price dropping to VWAP {vwap:.1f} — LONG bounce setup forming"
-                        )
+                        sl = vwap - atr * 0.5
+                        tp = vwap + atr * 1.5
+                        _level_alert("VWAP", vwap, "long", vwap, sl, tp, crossing=False)
+                        alert_warning(f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
+                                      f"VWAP {vwap:.1f} — LONG bounce setup forming")
 
                 elif -_APPROACH <= dist < 0 and cooldown_ok and not _direction_is_locked("short"):
                     app_key = f"APPROACH_VWAP_SHORT_{vwap_key}"
@@ -639,33 +777,23 @@ def run_monitor():
                         level_alerts.add(app_key)
                         run_monitor._last_vwap_alert = now
                         run_monitor._last_vwap_dir   = False
-                        sl   = vwap + atr * 0.5
-                        tp   = vwap - atr * 1.5
-                        risk = sl - vwap
-                        console.print(
-                            f"\n  [bold cyan]🎯 VWAP {vwap:.1f} APPROACHING → [red]SHORT ▼[/red][/bold cyan]\n"
-                            f"  [bold]  Entry ~{vwap:.1f}  SL {sl:.1f}  TP {tp:.1f}[/bold]  "
-                            f"[dim](risk {risk:.0f}pts)[/dim]"
-                        )
-                        alert_warning(
-                            f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
-                            f"Price rising to VWAP {vwap:.1f} — SHORT bounce setup forming"
-                        )
+                        sl = vwap + atr * 0.5
+                        tp = vwap - atr * 1.5
+                        _level_alert("VWAP", vwap, "short", vwap, sl, tp, crossing=False)
+                        alert_warning(f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
+                                      f"VWAP {vwap:.1f} — SHORT bounce setup forming")
 
         # ── Live price ticker ─────────────────────────────────────────────
         if 9 <= h < 12 and price:
             confirmed = get_confirmed_trades_today()
-            age    = feed.age_seconds
-            source = getattr(feed, "source", "")
-            src_tag = "[green]WS[/green]" if "NDX" in source else "[yellow]delayed[/yellow]"
-            stale   = "[red]STALE[/red]" if age > 10 else ""
-            paused_tag = "  [bold red]PAUSED[/bold red]" if is_paused()[0] else ""
-            console.print(
-                f"[dim]{now.strftime('%H:%M:%S')}[/dim]  "
-                f"[bold]${price:,.1f}[/bold]  {src_tag}  {stale}"
-                f"  [dim]Confirmed {confirmed}/3[/dim]{paused_tag}",
-                end="\r"
-            )
+            age       = feed.age_seconds
+            source    = getattr(feed, "source", "")
+            src_tag   = "LIVE" if "NDX" in source else "YF"
+            vix_now   = vix_cache.get(date.today(), 0.0)
+            atr_now   = key_levels.get("atr", 0.0)
+            _status_bar(price, confirmed, buf, vix_now, atr_now, src_tag, age, now)
+            if is_paused()[0]:
+                console.print(f"  [bold red]PAUSED[/bold red]", end="\r")
 
         # ── Bar close check ───────────────────────────────────────────────
         cur_bar = _bar_minute(now)
@@ -680,8 +808,8 @@ def run_monitor():
 
             if paused:
                 console.print(
-                    f"[dim]{now.strftime('%H:%M')}[/dim]  "
-                    f"[bold red]PAUSED — {pause_reason}[/bold red]"
+                    f"\n[dim]{now.strftime('%H:%M')}[/dim]  "
+                    f"[bold red]⏸  PAUSED — {pause_reason}[/bold red]"
                 )
                 bar_cache = _append_latest(bar_cache)
                 key_levels = _compute_levels(bar_cache)
@@ -690,8 +818,8 @@ def run_monitor():
 
             if confirmed_today >= 3:
                 console.print(
-                    f"[dim]{now.strftime('%H:%M')}[/dim]  "
-                    f"[bold yellow]3 confirmed trades today — limit reached[/bold yellow]"
+                    f"\n[dim]{now.strftime('%H:%M')}[/dim]  "
+                    f"[bold yellow]3 trades confirmed today — daily limit reached[/bold yellow]"
                 )
                 bar_cache = _append_latest(bar_cache)
                 key_levels = _compute_levels(bar_cache)
@@ -700,12 +828,7 @@ def run_monitor():
 
             bar_cache = _append_latest(bar_cache)
             fetch_ms  = int((time.monotonic() - t0) * 1000)
-
-            console.print(
-                f"[dim]{now.strftime('%H:%M')}[/dim]  "
-                f"Bar closed · fetched in {fetch_ms}ms · checking signals...",
-                end=" "
-            )
+            _bar_close_line(now, fetch_ms)
 
             t1 = time.monotonic()
             try:
@@ -718,33 +841,27 @@ def run_monitor():
                 filtered_trades = []
                 for t in new_trades:
                     if _direction_is_locked(t.direction):
-                        # Show a note but don't alert
                         console.print(
-                            f"\n  [dim]  {t.strategy.upper()} {t.direction.upper()} suppressed "
-                            f"(contradicts direction lock — wait {DIRECTION_LOCK_MINUTES}min)[/dim]"
+                            f"\n  [dim]⊘  {t.strategy.upper()} {t.direction.upper()} "
+                            f"suppressed — direction lock active ({DIRECTION_LOCK_MINUTES}min)[/dim]"
                         )
                         seen_signals.add(_signal_key(t))  # don't repeat it
                         continue
                     filtered_trades.append(t)
 
                 if filtered_trades:
-                    console.print(f"[bold green]{len(filtered_trades)} SIGNAL(S)! ({check_ms}ms)[/bold green]")
+                    console.print(f"[{C_GOOD}]{len(filtered_trades)} signal(s)  ({check_ms}ms)[/{C_GOOD}]")
                     for t in filtered_trades:
                         seen_signals.add(_signal_key(t))
-
-                        # Set direction lock for this session window
                         _set_direction_lock(t.direction)
 
+                        # Score from trade attributes if available
+                        score_val = getattr(t, "score", 0)
+                        n_lots    = getattr(t, "n_contracts", 1)
+
                         alert_signal(t.strategy, t.direction, t.entry, t.stop, t.target)
-                        side = "[green]LONG ▲[/green]" if t.direction == "long" else "[red]SHORT ▼[/red]"
-                        console.print(
-                            f"  [bold white]{t.strategy.upper().replace('_',' '):<22}[/bold white] "
-                            f"{side}  E:[bold]{t.entry:.1f}[/bold]  "
-                            f"S:{t.stop:.1f}  T:{t.target:.1f}"
-                        )
-                        console.print(
-                            f"  [dim]Enter next bar open · ~{5 - now.second//60} min window[/dim]"
-                        )
+                        _signal_panel(t.strategy, t.direction, t.entry, t.stop, t.target,
+                                      score=score_val, n_contracts=n_lots)
 
                         # Breakeven watcher
                         risk_pts = abs(t.entry - t.stop)
@@ -759,10 +876,11 @@ def run_monitor():
                             "notified":   False,
                         })
                         console.print(
-                            f"  [dim]BE alert: move SL → {t.entry:.1f} when price hits {be_trigger:.1f}[/dim]"
+                            f"  [dim]T1 alert: move SL to entry when price hits "
+                            f"[white]{be_trigger:.1f}[/white][/dim]"
                         )
 
-                        # Log signal to memory for tracking
+                        # Log signal to memory
                         try:
                             vix_val = vix_cache.get(date.today(), 18.0)
                             atr_val = key_levels.get("atr", 0.0)
@@ -781,11 +899,7 @@ def run_monitor():
                         except Exception:
                             sig_id = None
 
-                        # ASK USER IF THEY TOOK IT
-                        console.print(
-                            f"\n  [bold yellow]▶ Did you take this trade?  "
-                            f"[bold]y[/bold] = yes  [bold]n[/bold] = no[/bold yellow]"
-                        )
+                        _confirm_prompt()
                         _pending_confirm = {
                             "signal_id": sig_id,
                             "strategy":  t.strategy,
@@ -794,19 +908,24 @@ def run_monitor():
                             "stop":      t.stop,
                             "target":    t.target,
                         }
-                        # Only ask about first signal if multiple fire at once
-                        break
+                        break   # only prompt for first signal at once
                 else:
                     if not new_trades:
-                        console.print(f"[dim]none ({check_ms}ms · {len(seen_signals)} fired today)[/dim]")
+                        console.print(
+                            f"[dim]none  ({check_ms}ms · {len(seen_signals)} fired today)[/dim]"
+                        )
                     else:
-                        console.print(f"[dim]filtered ({check_ms}ms)[/dim]")
+                        console.print(f"[dim]filtered  ({check_ms}ms)[/dim]")
 
                 # Drawdown warning
                 _, buf = _load_balance()
                 if buf < 300:
                     alert_risk_warning(f"Buffer critical: ${buf:.0f} left!")
-                    console.print(f"[bold red]  ⚠ Buffer ${buf:.0f} — consider stopping[/bold red]")
+                    console.print()
+                    console.rule(
+                        f"[{C_BAD}]⚠  BUFFER ${buf:.0f} — CONSIDER STOPPING FOR THE DAY[/{C_BAD}]",
+                        style=C_BAD
+                    )
 
             except Exception as e:
                 console.print(f"[red]error: {e}[/red]")
