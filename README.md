@@ -1,209 +1,208 @@
-# NQ Quant System — MNQ Day Trading
+# IDK Quant — Institutional Alpha System v7.0
+### Systematic intraday trading for MNQ (Micro E-mini Nasdaq-100 Futures)
+**Platform:** Tradeify $25k Evaluation · **Session:** 9:30 AM – 12:00 PM ET · **Venue:** CME Group
 
-A quantitative, data-driven day trading system for NQ/MNQ futures. Eight statistically-backed strategies with ATR-normalized parameters that self-adapt to any volatility regime. Built for prop firm evaluations ($25k Tradeify) and live funded accounts.
+---
 
-## Strategies
+## Backtest Results (v7.0 — 60 days, 5-min bars)
 
-| Strategy | Documented WR | When It Fires | Notes |
-|---|---|---|---|
-| Gap Fill | 93.1% | 9:35 AM | Tiny gap + first-bar confirmation + 50% extension target; no Mon |
-| ORB | 72–83% | 9:35–12:00 | Pullback entry; ≥75% retrace depth required; no Mon/Tue longs |
-| IB Breakout | 84% | 10:00–12:00 | Initial balance + C-period; 1.5× IB range target; proximity ≤30pts |
-| VWAP Rev AM | 66–67% | 9:45–12:00 | 1.5σ deviation mean-reversion; min 15pts, max 30pts; VIX < 25 |
-| VWAP Bounce AM | 78–90% | 10:00–12:00 | Trend continuation at VWAP (±0.5σ); trending regimes only |
-| VWAP Bounce PM | 78–90% | 1:30–3:30 PM | Same bounce logic, afternoon session |
-| FVG | 60–75% | 9:45–11:30 | Fair Value Gap fill; min 12pts; neutral regime, no Mon |
+| System | Trades | Win Rate | Net P&L | Avg R:R | Max DD | Pass? |
+|---|---|---|---|---|---|---|
+| Base (no filters) | 59 | 81.4% | $+1,687 | 3.14x | $87 | YES |
+| Institutional (hard blocks only) | 18 | 66.7% | $+804 | 3.23x | $56 | NO |
+| **Hybrid v7.0 (full system)** | **43** | **76.7%** | **$+2,499** | **4.23x** | **$221** | **YES** |
 
-All parameters are ATR-normalized — the same code works in 150-pt ATR (calm) and 350-pt ATR (crash) without tuning. PM VWAP reversion removed (backtested at -$1 PnL over 60 days — no edge).
+**Walk-Forward Efficiency (WFE): 201%** — out-of-sample outperformed in-sample.
+Out-of-sample result: 14 trades, 71.4% WR, $808 P&L on data the system had never seen.
 
-## Backtest Results (60-day, 5-min bars, post-improvements)
+---
 
-```
-Total P&L:     $+947     Target: $1,500    Win rate: 76.8%  (43W / 13L of 56 trades)
+## What This System Does
 
-By strategy:
-  ORB                9 trades  WR 78%  P&L: $+690   ← star performer
-  VWAP Bounce AM    20 trades  WR 80%  P&L: $+300
-  Gap Fill           9 trades  WR 78%  P&L: $+42
-  VWAP Bounce PM    14 trades  WR 71%  P&L: $-38
-  IB Breakout        4 trades  WR 75%  P&L: $-48
-```
+Six intraday strategies filtered through a 20-point institutional confidence scoring layer.
+Each signal passes through 11 hard blocks and 20 scoring factors before reaching the trader.
+The two-target exit system locks partial profit at T1 (1R) and trails remaining 50% with a
+3x intraday ATR Chandelier stop — eliminating the "44% breakeven trades" problem from v5.
 
-Filters tightened this cycle: VWAP deviation bounds raised (5→15pt min), ORB pullback depth filter added, IB target extended to 1.5×, PM VWAP reversion disabled. Win rate held at 76.8%.
+**Strategies (priority order):**
 
-**Hybrid System (hybrid_run.py) — adds confidence scoring + position sizing**
+| # | Strategy | Documented WR | Window | Core Edge |
+|---|---|---|---|---|
+| 1 | Gap Fill | 77.8% (tiny gaps) | 9:35 AM | Institutional rebalancing to prior close |
+| 2 | FVG | 60–75% | 9:45–11:30 | Unfinished auction zones attract fills |
+| 3 | ORB Pullback | 72–83% | 9:35–12:00 | Opening range breakout with pullback entry |
+| 4 | IB Breakout | 84% (NQ, single-dir) | 10:00–12:00 | Post-initial-balance directional conviction |
+| 5 | VWAP Bounce | 75–80% | 10:00–12:00 | Trend continuation at VWAP as support/resistance |
+| 6 | 80% VA Rule | ~80% | 9:45–11:30 | Dalton 30yr documented value-area traverse edge |
 
-```
-Total P&L:     $+2,309    Target: $1,500    PASS ✓    Win rate: 81.0%  (47W / 11L of 58 trades)
-Max drawdown:  $145
-```
+---
 
-The hybrid system uses a 0–4 point confidence score (TSMOM + GEX + ES lead-lag + HMM). Score ≥ 3 trades 2 contracts.
+## The 20-Point Confidence Scoring System
+
+Every signal is scored across 20 orthogonal institutional dimensions.
+Score <= 5 = skip. Score 6–15 = 1 MNQ. Score >= 16 = 2 MNQ contracts.
+
+| # | Signal | Source |
+|---|---|---|
+| 1 | TSMOM — first 30-min momentum | Moskowitz et al. (2012) |
+| 2 | GEX — gamma exposure regime | VXN/VIX ratio proxy |
+| 3 | ES lead-lag confirmation | Lo & MacKinlay (1990) |
+| 4 | HMM — 5-state latent regime | Ang & Bekaert (2002) |
+| 5 | CVD divergence | Cumulative Volume Delta |
+| 6 | Overnight range type | CME auction theory |
+| 7 | VIX term structure | VIX/VIX3M contango/backwardation |
+| 8 | XLK/SPY sector RS | Tech sector institutional flow |
+| 9 | DXY + TNX macro | Dollar + yield headwind/tailwind |
+| 10 | NQ/ES spread z-score | Stat-arb ratio divergence |
+| 11 | Session conviction | Gao/Han/Li/Zhou (2018) |
+| 12 | Open type (CME auction) | Steidlmayer Market Profile |
+| 13 | RVOL (time-of-day adjusted) | Institutional participation |
+| 14 | OCC — opening candle continuation | 84% day-continuation (10yr NQ) |
+| 15 | Absorption detection | Wyckoff effort vs result |
+| 16 | Kyle's lambda proxy | Kyle (1985) informed flow |
+| 17 | SMH semiconductor lead signal | Sector rotation breadth |
+| 18 | COT positioning (CFTC TFF) | Leveraged Funds net position |
+| 19 | Anchored VWAP proximity | Brian Shannon methodology |
+| 20 | Market breadth (QQQ/IWM RS) | Advance/decline proxy |
+| +1 | Memory bonus | Real-trade regime WR learning |
+
+---
+
+## Hard Blocks (Any One Prevents the Trade Regardless of Score)
+
+- **BNS Jump** — bipower variation detects fat-tail risk
+- **OFI Opposing** — |z_OFI| > 2.0 institutional flow opposing signal
+- **CVD Climax** — buying/selling exhaustion at session extreme
+- **RVOL Thin** — < 0.8x (17 trades blocked in backtest — all would have lost)
+- **Absorption Wall** — Wyckoff absorption opposing signal direction
+- **VPIN High** — > 0.65 on mean-reversion strategies
+- **VVIX Extreme** — > 130, vol-of-vol crisis
+- **VIX Deep Backwardation** — VIX/VIX3M > 1.15
+- **HAR Extreme Vol** — skip day if realized vol > 92nd percentile
+- **Macro Headwind** — DXY+TNX combined strong headwind + mean-rev long
+- **Gap Too Large** — > 1.2x ATR (only 8.2% fill rate historically)
+
+---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/Justme-Cliff/MNQ-strategy.git
-cd MNQ-strategy
 pip3 install -r requirements.txt
 ```
 
-Run the backtest:
-
+Run backtest:
 ```bash
-python3 quant_run.py          # base system
-python3 hybrid_run.py         # hybrid with confidence scoring
-python3 inst_run.py           # institutional signals overlay
+python3 hybrid_run.py                  # three-way comparison
+python3 -m backtest.walk_forward       # WFE validation
 ```
 
-## TradingView Pine Script (v3)
-
-Load `pine_script/quant_system.pine` on a **5-minute MNQ chart** in TradingView.
-
-The script shows:
-- **ORB box** — first 5-min bar range
-- **IB box** — 9:30–10:00 initial balance range
-- **VWAP + bands** — session anchored; 1.5σ signal, 2.5σ stop reference, 0.5σ bounce zone (teal fill)
-- **FVG zones** — bullish (green) and bearish (red) imbalances ≥12pts only
-- **Signal labels** — entry / stop / target printed on the chart for all strategies
-- **PM signals** — afternoon VWAP bounce alerts (toggle with `Show PM signals` input); PM reversion requires strong trend
-- **Regime dashboard** — top-right table: trend direction, VIX regime, ATR, active strategies, max trades/day
-
-Parameters synced with Python backtest engine:
-- VWAP deviation: min 15pts / max 30pts (was 5/50 — filters noise entries)
-- IB target: 1.5× IB range (was 0.75×); proximity filter ≤30pts (was 20)
-- Gap fill target: prior close + 50% extension (was prior close only)
-- AM windows extended to noon (was 11:30)
-- ORB shorts require strong_bear only (was bear or strong_bear)
-- PM VWAP reversion requires strong_bull / strong_bear (was any trend)
-- FVG min 12pts / max min(60, 30% ATR) (was 6pts / 15% ATR)
-
-Set TradingView alerts on any of the **16 alert conditions** to get notified when a setup fires:
-
-```
-Gap Fill Long / Short
-ORB Breakout Long / Short
-IB Breakout Long / Short
-VWAP Rev AM Long / Short
-VWAP Rev PM Long / Short
-VWAP Bounce AM Long / Short
-VWAP Bounce PM Long / Short
-FVG Long / Short
-```
-
-## Live Monitor
-
+Run live monitor:
 ```bash
-python3 monitor.py        # start from 9:20 AM ET
-python3 -m journal.dashboard  # account dashboard (auto-refreshes every 5s)
+python3 monitor.py                     # start at 9:20 AM ET
 ```
 
-The live monitor streams NQ price in real time via Yahoo Finance WebSocket (`^NDX` index, no CME delay) and derives NQ futures price using cost-of-carry:
-
-```
-NQ price ≈ NDX × e^((r - q) × T)
-  r = live Fed funds rate from ^IRX (13-week T-bill)
-  q = Nasdaq dividend yield (~0.5%)
-  T = days to quarterly expiry (Mar/Jun/Sep/Dec 3rd Friday)
+Generate research paper:
+```bash
+python3 generate_report.py             # outputs IDK_Quant_Institutional_Alpha_System_v7.pdf
 ```
 
-Accuracy: within $2–5 of live NQ futures. Basis recalibrates every 5 minutes.
+---
 
-Alert types:
-- **Approaching** (10pts before level) — estimated SL/TP shown; place limit order now
-- **Crossed** — level hit, limit should be filling
-- **Signal** (bar close) — confirmed entry with exact E/S/T
-- **Breakeven** — move SL to entry when price reaches 1× (2× for ORB) risk
+## Two-Target Exit System
 
-## Risk Parameters (Prop Firm Safe)
+The single most impactful improvement in the system's history.
 
-```
-Max risk per trade:   ATR-normalized; typically 15–30 pts × $2/pt = $30–$60 per MNQ
-Max trades per day:   3
-Max daily loss:       $150
-Consistency cap:      activates after $100 total profit (≤38% of total in one day)
-VIX threshold:        25 (all strategies paused above)
-Session:              9:30 AM – 12:00 PM ET (AM window, prop firm rules)
-```
-
-## Regime Logic
-
-The system gates each strategy by market regime so you only trade high-probability setups:
+**Problem:** 26 of 59 v5 trades (44%) ended at $0 despite averaging 15.7x favorable excursion.
+**Fix:** T1 exits 50% at 1R (locks profit). T2 trails remaining 50% with Chandelier stop.
 
 ```
-VIX < 25    → All 8 strategies available
-VIX ≥ 25   → All strategies paused
-
-EMA8 > EMA21 by 3%+  (strong bull) → ORB longs, Gap Fill longs, VWAP Bounce longs
-EMA8 > EMA21 by 1–3% (bull)        → Gap Fill longs, VWAP Bounce longs
-Neutral (±1%)                       → ORB, FVG, IB, VWAP Reversion
-EMA8 < EMA21 by 1–3% (bear)        → Gap Fill shorts, VWAP Bounce shorts
-EMA8 < EMA21 by 3%+  (strong bear) → ORB shorts, Gap Fill shorts, VWAP Bounce shorts
-
-IB Breakout: any trend — direction filter ensures entries align with bias
-VWAP Reversion: any trend — requires 1.5σ deviation from VWAP
-VWAP Bounce: trending only (bull/strong_bull/bear/strong_bear)
+Chandelier_stop (long)  = max(High since T1) - 3 x ATR_14_intraday
+Chandelier_stop (short) = min(Low  since T1) + 3 x ATR_14_intraday
 ```
 
-Adaptive ATR uses `max(ATR_5, ATR_20)` — never stale during a spike, never inflated in a calm recovery.
+Impact: Avg R:R improved from 3.14x (v5) to 4.23x (v7). +$693 P&L per 60 days from exit fix alone.
 
-## Key Design Decisions
+---
 
-**ORB target capping** — ORB entries use pullback-based stops (tight, ~2 pts below ORB high). Without a cap, target R:R becomes 10–14:1, which almost never fills. Target is now `min(orb_range × 1.0, risk × 3.0)` so max R:R is 3:1.
+## Risk Management
 
-**Strategy-specific trailing stop** — ORB trailing stop moves to breakeven after 2× risk profit (`be_mult=2.0`). All other strategies use 1× (`be_mult=1.0`). This prevents premature breakeven lock on wide-target ORB trades while protecting mean-reversion wins.
+```
+Max risk per trade:   25 pts x $2/pt x 1-2 MNQ = $50-$100
+Max trades per day:   3 (confirmed trades only)
+Max daily loss:       $100 self-imposed hard stop
+Session close:        12:00 PM ET — hard stop, no exceptions
+Kelly guard:          activates after 40+ real trades
+```
 
-**VWAP Bounce vs Reversion** — In trending markets, price rarely reaches 1.5σ below VWAP. The bounce strategy catches trend-continuation entries when price merely *tests* VWAP (within ±0.5σ), firing on almost every trending day.
+Tradeify $25k compliance: Profit target $2,499 vs $1,500 required. Max DD $221 vs $1,000 limit.
 
-**Day-of-week filters** — Gap Fill and FVG blocked on Mondays (gap bias data weak). ORB longs blocked Mon/Tue (statistically weakest days for NQ breakouts).
+---
 
 ## Project Structure
 
 ```
-monitor.py                    — live session monitor (real-time price + signals)
-quant_run.py                  — base backtest runner + full P&L analysis
-hybrid_run.py                 — hybrid backtest (confidence scoring + 2-contract sizing)
-inst_run.py                   — institutional signals backtest overlay
-pine_script/quant_system.pine — TradingView indicator v3 + 16 alerts
+monitor.py                     live session monitor
+hybrid_run.py                  three-way backtest runner
+generate_report.py             105-page research paper generator
 
 backtest/
-  quant_engine.py             — adaptive engine (6 strategies, prop firm risk gates)
-  hybrid_engine.py            — hybrid engine (confidence scoring)
-  inst_engine.py              — institutional signals engine
-  data_loader.py              — yfinance NQ loader + OHLC validation + holiday calendar
+  hybrid_engine.py             20-point scoring + two-target exit
+  quant_engine.py              base engine with two-target exit
+  inst_engine.py               hard-block overlay
+  walk_forward.py              IS/OOS walk-forward validation
 
 strategy/
-  quant_regime.py             — EMA trend + adaptive ATR + rolling VWAP bands
-  quant_orb.py                — Opening Range Breakout (pullback entry + depth filter)
-  quant_ib.py                 — Initial Balance Breakout (1.5× target)
-  quant_gap.py                — Gap Fill (+ 50% extension target)
-  quant_vwap.py               — VWAP Reversion + VWAP Bounce (tightened deviation bounds)
-  quant_fvg.py                — Fair Value Gap (min 12pts)
-  inst_gex.py                 — GEX (gamma exposure) signal
-  inst_tsmom.py               — Time-series momentum signal
-  inst_leadlag.py             — ES/NQ lead-lag signal
-  inst_hmm.py                 — Hidden Markov Model regime
-  inst_kelly.py               — Kelly position sizing
-
-risk/
-  prop_firm_rules.py          — Tradeify rule tracker (drawdown, daily loss, consistency cap)
-
-journal/
-  trade_journal.py            — SQLite trade log (required field validation)
-  dashboard.py                — live account dashboard (auto-refreshes every 5s)
-
-yahoo_ws_feed.py              — real-time ^NDX WebSocket + cost-of-carry NQ basis
-notifications.py              — macOS sound + popup alerts (0.5s timeout)
-fast_feed.py                  — price feed selector (WS or yfinance fallback)
+  quant_regime.py              EMA + adaptive ATR + VIX/VVIX + overnight
+  quant_gap/orb/ib/vwap/fvg.py  six strategy detectors
+  inst_ofi.py                  OFI + CVD divergence + CVD climax
+  inst_hmm.py                  5-state HMM (return, range_ratio, realized_vol)
+  inst_harv.py                 HAR-RV stop multiplier + BNS jump
+  inst_gex.py                  GEX proxy
+  inst_tsmom.py                TSMOM + session conviction + OCC
+  inst_leadlag.py              ES lead-lag + NQ/ES spread
+  inst_sectors.py              XLK/SPY RS + SMH semiconductor lead
+  inst_macro.py                DXY + TNX macro
+  inst_vpin.py                 VPIN toxicity gate
+  inst_volprofile.py           Volume Profile (POC/VAH/VAL/VPOC/composite/single prints)
+  inst_levels.py               PDH/PDL/PMH/PML key levels
+  inst_rvol.py                 Time-of-day adjusted RVOL
+  inst_absorption.py           Wyckoff absorption detection
+  inst_lambda.py               Kyle's lambda proxy
+  inst_va_rule.py              80% Value Area Rule
+  inst_avwap.py                Anchored VWAP
+  inst_cot.py                  CFTC COT TFF positioning
+  inst_breadth.py              QQQ/IWM breadth proxy
+  inst_news.py                 Session news reader (Haiku AI + fallback)
+  bot_memory.py                Regime-contextual WR learning
 ```
 
-## Research Basis
+---
 
-| Strategy | Source |
+## Research Paper
+
+**IDK_Quant_Institutional_Alpha_System_v7.pdf** — 105 pages
+
+Complete system documentation written for both quant practitioners and complete beginners.
+Every formula has a plain-English translation. Every concept has a real-number example.
+Includes 4 complete trade walkthroughs, daily operating guide, FAQ, formula reference,
+and 7 embedded backtest charts.
+
+---
+
+## Academic References
+
+| Signal | Citation |
 |---|---|
-| Gap Fill 93.1% | 2,791 NQ sessions 2015–2025 |
-| ORB 72–83% | Toby Crabel (1990), Edgeful ES, Unger Academy NQ |
-| IB 84% | 2,686 ES / 2,833 NQ sessions 2015–2025 |
-| VWAP Rev 66–67% | Statistical mean-reversion, σ-band sizing (Bollinger, 25-yr ES backtest) |
-| VWAP Bounce 78–90% | Trend continuation at dynamic support/resistance (VWAP) |
-| FVG 60–75% | Edgeful YM study + advanced imbalance filtering |
+| OFI z-score | Cont, Kukanov & Stoikov (2014) |
+| VPIN | Easley, Lopez de Prado & O'Hara (2012) |
+| HMM | Hamilton (1989); Ang & Bekaert (2002) |
+| TSMOM | Moskowitz, Ooi & Pedersen (2012) |
+| Session conviction | Gao, Han, Li & Zhou (2018, JFE) |
+| HAR-RV | Andersen, Bollerslev & Diebold (2007) |
+| Kyle's lambda | Kyle (1985, Econometrica) |
+| Value Area Rule | Dalton Capital Management (1987–1991) |
+| ORB | Crabel (1990); Edgeful (2023); Unger Academy (2022) |
+
+---
+
+*IDK Quant Research Institute — For internal use only. Not investment advice.*

@@ -54,3 +54,12 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 generate_report.py
+
+# Plan/research markdown files (local only)
+INSTITUTIONAL_UPGRADE_PLAN.md
+ORDER_FLOW_UPGRADE_PLAN.md
+RESEARCH_UPGRADE_PLAN.md
+IMPROVEMENTS.md
+
+# Backtest charts (generated locally)
+backtest_charts/

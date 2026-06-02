@@ -30,7 +30,7 @@ PALE       = HexColor("#F5F5F5")
 WHITE      = white
 
 W, H = letter
-OUT   = Path(__file__).parent / "NQ_Quant_System_Research_Paper.pdf"
+OUT   = Path(__file__).parent / "IDK_Quant_Institutional_Alpha_System_v7.pdf"
 
 # ── Style sheet ───────────────────────────────────────────────────────────────
 styles = getSampleStyleSheet()
@@ -4329,7 +4329,7 @@ def build():
     story.append(sp(0.3))
     story.append(hr_light())
     story.append(p(
-        f"NQ Quant System  •  Research Paper v7.0  •  IDK Quant Research Institute  •  Generated {REPORT_DATE}  •  For internal use only. Not investment advice.",
+        f"IDK Quant Institutional Alpha System v7.0  •  IDK Quant Research Institute  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
         CAPTION
     ))
 
