@@ -316,7 +316,7 @@ def trade_diagram(direction, entry, stop, target, context="", risk_pts=None, rew
     return items
 
 
-def flow_steps(steps, title="HOW IT WORKS — STEP BY STEP"):
+def flow_steps(steps, title="HOW IT WORKS STEP BY STEP"):
     """Visual step-by-step flow diagram as a table."""
     hdr = Table([[Paragraph(title, EXPLAIN_TITLE)]], colWidths=[6.3*inch])
     hdr.setStyle(TableStyle([
@@ -335,7 +335,7 @@ def flow_steps(steps, title="HOW IT WORKS — STEP BY STEP"):
             ("TOPPADDING",    (0,0), (-1,-1), 2),
             ("BOTTOMPADDING", (0,0), (-1,-1), 2),
         ]))
-        txt = Paragraph(f"<b>{step_title}</b>  —  {step_body}", STEP_TEXT)
+        txt = Paragraph(f"<b>{step_title}</b>   {step_body}", STEP_TEXT)
         rows.append([num_cell, txt])
 
     body = Table(rows, colWidths=[0.5*inch, 5.8*inch])
@@ -486,7 +486,7 @@ def on_cover(canvas, doc):
 
     GOLD = HexColor("#C8A44F")
 
-    # Outer dark background — wide rounded pill
+    # Outer dark background wide rounded pill
     canvas.setFillColor(DARK)
     canvas.roundRect(lx - 0.45*inch, ly - 0.04*inch, 0.90*inch, 0.72*inch,
                      0.10*inch, fill=1, stroke=0)
@@ -543,8 +543,8 @@ def build():
         pagesize=letter,
         leftMargin=inch,  rightMargin=inch,
         topMargin=0.85*inch, bottomMargin=0.75*inch,
-        title="Isogeny Alpha System — Kairos Capital Research",
-        author="Cliff Angers — Kairos Capital Research",
+        title="Isogeny Alpha System Kairos Capital Research",
+        author="Cliff Angers Kairos Capital Research",
     )
 
     story = []
@@ -578,9 +578,9 @@ def build():
         "This paper presents the design, implementation, and empirical performance of the Isogeny Alpha System v7.0, "
         "an adaptive, multi-strategy algorithmic trading framework targeting the Micro E-mini Nasdaq-100 "
         "(MNQ) futures contract during the U.S. morning trading session (9:30 AM to 12:00 PM ET). "
-        "The system integrates six complementary intraday strategies — Gap Fill, Opening Range Breakout "
+        "The system integrates six complementary intraday strategies Gap Fill, Opening Range Breakout "
         "(ORB), Initial Balance (IB) Breakout, VWAP Reversion and Bounce, Fair Value Gap (FVG) fills, "
-        "and the new 80% Value Area Rule — governed by an adaptive regime classifier and a "
+        "and the new 80% Value Area Rule governed by an adaptive regime classifier and a "
         "twenty-point institutional confidence scoring layer that dynamically sizes positions and "
         "filters low-quality setups before execution.",
         ABSTRACT_STYLE,
@@ -649,7 +649,7 @@ def build():
         ("7", "Risk Management Framework", "27"),
         ("8", "Backtesting Methodology", "30"),
         ("9", "Performance Results", "34"),
-        ("  9.1", "Overall Statistics — Three-Way Comparison", "34"),
+        ("  9.1", "Overall Statistics Three-Way Comparison", "34"),
         ("  9.2", "Per-Strategy Breakdown", "35"),
         ("  9.3", "Confidence Score Distribution", "36"),
         ("  9.4", "Regime Analysis", "37"),
@@ -661,37 +661,37 @@ def build():
         ("  10.3", "Trade Confirmation Flow (y/n)", "42"),
         ("  10.4", "Signal Pipeline Latency", "43"),
         ("  10.5", "Notification System", "43"),
-        ("11", "Institutional Signal Overlay — 20-Point Scoring System", "44"),
+        ("11", "Institutional Signal Overlay 20-Point Scoring System", "44"),
         ("  11.1", "Order Flow Imbalance (OFI) + CVD Divergence", "44"),
         ("  11.2", "VPIN Toxicity Gate", "45"),
         ("  11.3", "GEX Gamma Exposure Regime", "46"),
-        ("  11.4", "Hidden Markov Model — 5-State Upgrade", "46"),
+        ("  11.4", "Hidden Markov Model 5-State Upgrade", "46"),
         ("  11.5", "Time-Series Momentum & Session Conviction", "47"),
         ("  11.6", "XLK/SPY Sector Relative Strength + SMH Lead Signal", "47"),
         ("  11.7", "DXY + TNX Macro Headwind/Tailwind + COT Positioning", "48"),
         ("  11.8", "NQ/ES Spread Divergence", "48"),
         ("  11.9", "PDH/PDL/PMH/PML Key Levels", "49"),
-        ("  11.10", "Volume Profile — POC, VAH, VAL, Naked VPOC, Composite", "49"),
+        ("  11.10", "Volume Profile POC, VAH, VAL, Naked VPOC, Composite", "49"),
         ("  11.11", "HAR-RV Stop Multiplier", "50"),
-        ("  11.12", "RVOL — Time-of-Day Adjusted Relative Volume", "51"),
+        ("  11.12", "RVOL Time-of-Day Adjusted Relative Volume", "51"),
         ("  11.13", "Absorption Detection (Wyckoff Effort vs Result)", "51"),
         ("  11.14", "CVD Climax / Exhaustion Signal", "52"),
         ("  11.15", "Opening Candle Continuation (OCC)", "52"),
         ("  11.16", "Kyle's Lambda Informed Flow Proxy", "53"),
-        ("  11.17", "Anchored VWAP — Yearly, Swing Low, Weekly", "53"),
-        ("  11.18", "Market Breadth — QQQ/IWM RS + $ADDN", "53"),
+        ("  11.17", "Anchored VWAP Yearly, Swing Low, Weekly", "53"),
+        ("  11.18", "Market Breadth QQQ/IWM RS + $ADDN", "53"),
         ("  11.19", "Complete 20-Point Confidence Scoring System", "54"),
         ("12", "Regime-Contextual Bot Memory & Adaptive Scoring", "56"),
         ("  12.1", "Signal Logging Before User Confirmation", "56"),
         ("  12.2", "Trade Confirmation and Outcome Tracking", "56"),
         ("  12.3", "Regime-Contextual Win Rate Learning", "57"),
         ("  12.4", "Adaptive Confidence Score Adjustment", "57"),
-        ("13", "Order Flow Upgrade — Two-Target Exit System", "58"),
+        ("13", "Order Flow Upgrade Two-Target Exit System", "58"),
         ("  13.1", "The Breakeven Problem: 44% of Trades Were $0 P&L", "58"),
         ("  13.2", "T1/T2 Two-Target Architecture", "59"),
         ("  13.3", "Chandelier Trailing Stop (T2)", "59"),
         ("  13.4", "Strategy-Specific Target Extensions", "60"),
-        ("  13.5", "80% Value Area Rule — New Strategy", "60"),
+        ("  13.5", "80% Value Area Rule New Strategy", "60"),
         ("  13.6", "Single Print Zones as Structural Targets", "61"),
         ("14", "Walk-Forward Validation", "62"),
         ("  14.1", "Methodology and WFE Ratio", "62"),
@@ -728,7 +728,7 @@ def build():
         "This paper was written for two types of readers simultaneously: the experienced quantitative "
         "analyst who wants the mathematical rigor, and the complete beginner who just wants to "
         "understand what is actually happening and why it works. Both readers will find everything "
-        "they need here — you do not need to skip anything."
+        "they need here you do not need to skip anything."
     ))
     story.append(sp(0.08))
     story.append(h2("If you are new to trading or quantitative finance:"))
@@ -778,7 +778,7 @@ def build():
         "This paper describes a real trading system that was built and tested on a real $25,000 prop "
         "firm evaluation account. The numbers are real. The trades are real (in backtest). The math is "
         "real. But trading always involves risk of loss. Nothing in this paper is financial advice. "
-        "The system described here is a decision-support tool — not a guarantee of profit."))
+        "The system described here is a decision-support tool not a guarantee of profit."))
     story.append(PageBreak())
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -802,7 +802,7 @@ def build():
     story.append(h2("1.1 What Is a Futures Contract? (Start Here If You Are New)"))
     story.append(p(
         "A futures contract is an agreement to buy or sell something at a specific price on a "
-        "specific future date. In this case, the 'something' is the Nasdaq-100 stock index — "
+        "specific future date. In this case, the 'something' is the Nasdaq-100 stock index "
         "a list of the 100 largest tech and growth companies listed on the Nasdaq exchange "
         "(Apple, Microsoft, Nvidia, Amazon, Google, Meta, Tesla, and others)."
     ))
@@ -810,7 +810,7 @@ def build():
         "You are not buying actual shares of those companies. You are making a bet on whether "
         "the combined value of those 100 companies goes up or down over the next few hours. "
         "If you think they will go up, you 'go long' (buy). If you think they will go down, "
-        "you 'go short' (sell). At the end of the trade, you settle in cash — no actual shares change hands."
+        "you 'go short' (sell). At the end of the trade, you settle in cash no actual shares change hands."
     ))
     story.extend(key_term("Futures Contract",
         "A financial agreement to buy or sell an asset at a predetermined price on a predetermined "
@@ -823,12 +823,12 @@ def build():
         "NQ is the ticker symbol for the E-mini Nasdaq-100 futures contract traded on the Chicago "
         "Mercantile Exchange (CME). 'E-mini' simply means it is an electronically traded, smaller "
         "version of the original floor-traded contract. Each NQ contract represents $20 per index "
-        "point. The system in this paper trades MNQ (Micro E-mini), which is $2 per index point — "
+        "point. The system in this paper trades MNQ (Micro E-mini), which is $2 per index point "
         "exactly one-tenth the size of NQ, making it accessible for smaller account sizes."
     ))
     story.extend(example_box("NQ vs MNQ Contract Sizes",
-        ["NQ (E-mini):  $20 per index point  — standard contract, ~$400,000 notional value",
-         "MNQ (Micro):  $2  per index point  — 1/10th size, ~$40,000 notional value",
+        ["NQ (E-mini):  $20 per index point  standard contract, ~$400,000 notional value",
+         "MNQ (Micro):  $2  per index point  1/10th size, ~$40,000 notional value",
          "",
          "Example: NQ moves from 20,000 to 20,050 (up 50 points)",
          "  NQ profit:  50 points x $20 = $1,000",
@@ -840,17 +840,17 @@ def build():
     story.append(h2("1.3 What Is a Prop Firm Evaluation?"))
     story.append(p(
         "A proprietary trading firm (prop firm) gives traders access to a large funded trading "
-        "account — in this case $25,000 — in exchange for a cut of the profits. But first, "
+        "account in this case $25,000 in exchange for a cut of the profits. But first, "
         "the trader must pass an 'evaluation' to prove they can trade profitably without "
         "blowing up the account. The Tradeify $25,000 evaluation has three rules:"
     ))
     eval_rules = [
         ["Rule", "Limit", "What It Means in Plain English"],
         ["Profit Target", "$1,500",
-         "You must make at least $1,500 net profit. There is no time limit — take as many days as you need."],
+         "You must make at least $1,500 net profit. There is no time limit take as many days as you need."],
         ["Trailing Drawdown", "$1,000 max",
          "Your account can never fall more than $1,000 below its highest end-of-day balance. "
-         "This is the hardest rule — once you make money, that money becomes part of the floor."],
+         "This is the hardest rule once you make money, that money becomes part of the floor."],
         ["Consistency Rule", "No day > 40% of total profit",
          "No single day can account for more than 40% of all your profits. "
          "You cannot make $1,500 in one lucky day and call it done."],
@@ -858,13 +858,13 @@ def build():
     story.append(data_table(eval_rules[0], eval_rules[1:],
                              col_widths=[1.3*inch, 1.0*inch, 4.2*inch]))
     story.append(sp(0.08))
-    story.extend(explain_box("The Trailing Drawdown — The Most Important Rule",
+    story.extend(explain_box("The Trailing Drawdown The Most Important Rule",
         "Here is why the trailing drawdown rule is so dangerous if you do not respect it. "
-        "You start with $25,000. You make $800 profit — great, you now have $25,800. "
+        "You start with $25,000. You make $800 profit great, you now have $25,800. "
         "But NOW your floor rises to $24,800 (always $1,000 below your highest balance). "
-        "If you then lose $900, your balance is $24,900 — which is still above $24,800, so you survive. "
+        "If you then lose $900, your balance is $24,900 which is still above $24,800, so you survive. "
         "But if you lose $1,100 from that $25,800 high, your balance falls to $24,700, which is "
-        "below the $24,800 floor — evaluation FAILED. The more you make early, the higher the "
+        "below the $24,800 floor evaluation FAILED. The more you make early, the higher the "
         "floor rises, and the less room you have to lose. This is why the system is designed to "
         "be LOW-VARIANCE first and profitable second."))
 
@@ -873,7 +873,7 @@ def build():
         "An algorithmic (or 'algo') trading system is a computer program that monitors the "
         "market continuously, identifies specific patterns or conditions that historically "
         "precede profitable price moves, and alerts the trader (or executes automatically) "
-        "when those conditions are met. The system removes emotion from trading — it does not "
+        "when those conditions are met. The system removes emotion from trading it does not "
         "panic, does not get greedy, and does not change its mind based on news headlines."
     ))
     story.append(p(
@@ -885,7 +885,7 @@ def build():
     story.extend(key_term("Algorithm",
         "A precise set of rules that a computer follows to solve a problem or make a decision. "
         "In trading, an algorithm defines exactly what market conditions must be present before "
-        "a trade signal is generated — for example, 'price must close above the opening range "
+        "a trade signal is generated for example, 'price must close above the opening range "
         "high AND volume must be 1.5x normal AND VIX must be below 25 AND the trend must be bullish.'"))
 
     story.append(h2("1.5 Why Quantitative Methods?"))
@@ -894,7 +894,7 @@ def build():
         "subjective judgment. A quantitative trader asks: 'In the past 2,000 trading sessions, "
         "when X happened, what was the probability that Y happened next?' They measure everything, "
         "test everything, and only trade patterns that have statistically proven themselves "
-        "across large historical datasets — not patterns that 'look good' on a chart."
+        "across large historical datasets not patterns that 'look good' on a chart."
     ))
     story.append(p(
         "This research was motivated by the requirements of the Tradeify $25,000 evaluation program. "
@@ -907,11 +907,11 @@ def build():
     story.append(h2("1.6 Design Principles"))
     story.append(p("The Isogeny Alpha System was designed around five core principles:"))
     story.extend(bullet([
-        "<b>Empirical grounding:</b> every strategy is anchored to published research with documented win rates on ES/NQ futures across multi-year datasets. No strategy was included because it 'looks good' — every one has a mathematical foundation.",
+        "<b>Empirical grounding:</b> every strategy is anchored to published research with documented win rates on ES/NQ futures across multi-year datasets. No strategy was included because it 'looks good' every one has a mathematical foundation.",
         "<b>Adaptive regime awareness:</b> static parameters are replaced with ATR-normalized dynamic thresholds that self-adjust to current volatility. The same system works in a VIX 12 calm grind and a VIX 40 crisis.",
-        "<b>Defense-first risk model:</b> the $50 maximum risk per MNQ trade (25 points x $2) means even a worst-case day of 3 full losses only costs $150 — well within the $1,000 trailing drawdown limit.",
+        "<b>Defense-first risk model:</b> the $50 maximum risk per MNQ trade (25 points x $2) means even a worst-case day of 3 full losses only costs $150 well within the $1,000 trailing drawdown limit.",
         "<b>Minimal discretion:</b> all signal generation, filtering, and risk checks are algorithmic. Human judgment is limited to the binary decision of whether to take a generated signal.",
-        "<b>Live-ready implementation:</b> the system runs a real-time bar cache with signal latency under 500ms, macOS push notifications, and a trade journal — not just a backtest.",
+        "<b>Live-ready implementation:</b> the system runs a real-time bar cache with signal latency under 500ms, macOS push notifications, and a trade journal not just a backtest.",
     ]))
     story.append(sp(0.1))
     story.append(h2("1.7 Scope of this Paper"))
@@ -960,22 +960,22 @@ def build():
         "you make 10 x $2 = $20. If NQ moves down 10 points and you are long, you lose $20. "
         "TICK SIZE = 0.25 points means the smallest price movement you will ever see is 0.25 points, "
         "worth $0.50. So NQ goes: 20,000.00... 20,000.25... 20,000.50... 20,000.75... 20,001.00 "
-        "It cannot jump from 20,000 to 20,000.30 — it always moves in 0.25 increments."))
+        "It cannot jump from 20,000 to 20,000.30 it always moves in 0.25 increments."))
 
     story.append(h2("2.1.1 How Leverage Works (Critically Important)"))
     story.append(p(
-        "Futures trading involves leverage — you control a large position with a small amount of "
+        "Futures trading involves leverage you control a large position with a small amount of "
         "actual money. At NQ = 20,000 points, one MNQ contract has a 'notional value' of "
         "20,000 x $2 = $40,000. But you only need a few hundred dollars in margin to hold it. "
         "This is both the power and the danger of futures."
     ))
-    story.extend(example_box("Leverage in Action — Both Directions",
+    story.extend(example_box("Leverage in Action Both Directions",
         ["NQ is at 20,000. You buy (go long) 1 MNQ contract.",
          "Notional value: 20,000 x $2 = $40,000",
          "Margin required: ~$200-500 (varies by broker)",
          "",
          "NQ rises 50 points to 20,050:",
-         "  Your profit: 50 points x $2 = $100  (on a $200-500 margin — that's a 20-50% return!)",
+         "  Your profit: 50 points x $2 = $100  (on a $200-500 margin that's a 20-50% return!)",
          "",
          "NQ falls 25 points to 19,975:",
          "  Your loss: 25 points x $2 = $50  (the system's max stop = 25 points = $50 max loss)",
@@ -987,7 +987,7 @@ def build():
         "The same leverage that makes futures attractive also makes them dangerous if you do not "
         "manage risk. A 25-point move against you on 1 MNQ costs $50. But on 10 MNQ contracts, "
         "the same 25-point move costs $500. The system NEVER trades more than 2 MNQ contracts at "
-        "once, keeping maximum trade risk at $100. This is not a limitation — it is the entire "
+        "once, keeping maximum trade risk at $100. This is not a limitation it is the entire "
         "reason the system can survive a losing streak without failing the evaluation."))
 
     story.append(p(
@@ -1064,7 +1064,7 @@ def build():
         "Raw material (price data) enters at the left. Each station adds value and passes only "
         "the best product to the next station. By the end, only the highest-quality trade "
         "signals make it all the way through to the notification that reaches your phone. "
-        "Most signals get filtered out somewhere along the line — and that is exactly the point."))
+        "Most signals get filtered out somewhere along the line and that is exactly the point."))
     story.extend(flow_steps([
         ("Data Layer", "Downloads 5-minute NQ bars, VIX/VIX3M/VVIX, XLK/SPY/SMH, DXY/TNX, COT data. All pre-loaded at 9:20 AM startup. Zero network calls during trading."),
         ("Regime Layer", "Classifies the current market: trend direction (strong_bull/neutral/bear), volatility regime (VIX level), HMM state (5-state latent regime), overnight range, VIX term structure."),
@@ -1072,7 +1072,7 @@ def build():
         ("Hard Block Layer", "11 filters that IMMEDIATELY reject a signal regardless of score: BNS jump, OFI opposing, RVOL thin, CVD climax, absorption wall, VPIN high, large gap, macro headwind, VIX crisis."),
         ("20-Point Scorer", "If not blocked, score the signal across 20 institutional dimensions. Skip if score <=5. Use 1 MNQ if 6-15. Use 2 MNQ if >=16."),
         ("Notification", "Fire macOS popup and sound. Wait for y/n confirmation. Only confirmed trades count toward the 3-trade daily limit."),
-    ], title="THE SIGNAL PIPELINE — FROM DATA TO NOTIFICATION"))
+    ], title="THE SIGNAL PIPELINE FROM DATA TO NOTIFICATION"))
     story.append(p(
         "The core design principle is <b>separation of concerns</b>: the regime layer knows nothing "
         "about individual strategies; each strategy knows nothing about the others; the engine "
@@ -1171,19 +1171,19 @@ def build():
          "  System: all 6 strategies active, trades both long and short"]))
     story.append(p(
         "The EMA8/EMA21 combination was chosen for its responsiveness to regime changes without "
-        "excessive noise. The 3% strong threshold captures only genuine sustained trends — in a "
+        "excessive noise. The 3% strong threshold captures only genuine sustained trends in a "
         "VIX 30+ crash environment, EMA spread can reach 8-12%, making the strong classifications "
         "clearly visible and valid. The 1% mild threshold prevents misclassification during normal "
         "daily fluctuations."
     ))
     story.append(sp(0.1))
-    story.append(h2("4.2 Adaptive ATR Volatility — How the System Measures Market Noise"))
+    story.append(h2("4.2 Adaptive ATR Volatility How the System Measures Market Noise"))
     story.append(p(
         "Every trading session is different. Some days NQ moves 80 points total. Other days it moves "
         "400 points. If you set a stop loss of 20 points on a 400-point day, it will be hit by "
         "random noise before the trade has a chance to work. If you set a stop of 20 points on an "
         "80-point day, you might be risking more than the whole day's range. The system solves this "
-        "with the Average True Range (ATR) — a dynamic measure of how much the market is actually moving."
+        "with the Average True Range (ATR) a dynamic measure of how much the market is actually moving."
     ))
     story.extend(key_term("Average True Range (ATR)",
         "A measure of market volatility that tells you, on average, how much the market moves "
@@ -1210,7 +1210,7 @@ def build():
         "the spike in its average) and prevents the system from getting too aggressive too soon.",
         eq_num=4
     ))
-    story.extend(example_box("ATR in Practice — Calm vs Volatile Market",
+    story.extend(example_box("ATR in Practice Calm vs Volatile Market",
         ["CALM MARKET (April 2024, VIX ~14):",
          "  5-day ATR  = 120 pts   20-day ATR = 130 pts",
          "  Adaptive ATR = max(120, 130) = 130 pts",
@@ -1229,7 +1229,7 @@ def build():
         "The max operator ensures: (1) during a volatility spike, the 5-day ATR captures the spike "
         "and widens stops/filters appropriately; (2) during a calm recovery after a spike, the 20-day "
         "ATR prevents stops from becoming too tight before the market has truly stabilized. All strategy "
-        "parameters — minimum range sizes, stop distances, target multipliers — are expressed as "
+        "parameters minimum range sizes, stop distances, target multipliers are expressed as "
         "multiples of this adaptive ATR."
     ))
     story.append(sp(0.08))
@@ -1244,7 +1244,7 @@ def build():
     story.append(data_table(atr_context[0], atr_context[1:],
                              col_widths=[2.0*inch, 1.3*inch, 1.3*inch, 1.3*inch, 1.3*inch]))
     story.append(sp(0.1))
-    story.append(h2("4.3 VIX Regime Gating — The Fear Gauge"))
+    story.append(h2("4.3 VIX Regime Gating The Fear Gauge"))
     story.append(p(
         "The CBOE Volatility Index (VIX) is often called the 'Fear Gauge' of the stock market. "
         "It measures how much volatility options traders expect over the next 30 days, derived "
@@ -1253,7 +1253,7 @@ def build():
     ))
     story.extend(key_term("VIX (CBOE Volatility Index)",
         "A real-time index that measures the implied volatility of the S&P 500 index options "
-        "over the next 30 days. VIX is NOT a measure of current volatility — it is a prediction "
+        "over the next 30 days. VIX is NOT a measure of current volatility it is a prediction "
         "of FUTURE volatility. VIX below 15 = calm market. VIX 15-25 = normal. VIX 25-35 = "
         "elevated stress. VIX above 35 = market in crisis/fear mode. VIX hit 80+ during COVID "
         "crash (March 2020) and 65+ during the 2008 financial crisis."))
@@ -1264,14 +1264,14 @@ def build():
         "for extended periods, making mean-reversion dangerous:"
     ))
     story.extend(bullet([
-        "<b>VIX < 15 (Low):</b> All strategies active. VWAP reversion most reliable in compressed vol environments. The market is like a calm lake — everything bounces back to the middle.",
+        "<b>VIX < 15 (Low):</b> All strategies active. VWAP reversion most reliable in compressed vol environments. The market is like a calm lake everything bounces back to the middle.",
         "<b>VIX 15 to 25 (Normal):</b> All strategies active. Primary operating range for the system. This is ~65% of all trading days.",
-        "<b>VIX 25 to 35 (Elevated):</b> ORB, IB, Gap Fill, and FVG remain active. VWAP reversion DISABLED — when markets are stressed, price can stay far from VWAP for hours.",
-        "<b>VIX > 35 (Crisis):</b> Only FVG remains active — institutional imbalances are largest and most tradeable during crises. ALL mean-reversion strategies disabled.",
+        "<b>VIX 25 to 35 (Elevated):</b> ORB, IB, Gap Fill, and FVG remain active. VWAP reversion DISABLED when markets are stressed, price can stay far from VWAP for hours.",
+        "<b>VIX > 35 (Crisis):</b> Only FVG remains active institutional imbalances are largest and most tradeable during crises. ALL mean-reversion strategies disabled.",
     ]))
     story.extend(explain_box("Why disable mean-reversion above VIX 25?",
         "Mean reversion assumes prices will return to their 'fair value' (VWAP) after moving away. "
-        "In calm markets, this happens reliably — if NQ moves 20 points below VWAP, it usually "
+        "In calm markets, this happens reliably if NQ moves 20 points below VWAP, it usually "
         "comes back. But in a high-VIX environment, NQ can move 100 points below VWAP and just "
         "keep going. The 'return to fair value' mechanism breaks down because the market has no "
         "consensus on what fair value even is. Mean-reverting into a trending crisis market is "
@@ -1294,7 +1294,7 @@ def build():
     ov_table = [
         ["Overnight Range / ATR", "Classification", "Day Type Expectation", "Favored Strategies"],
         ["< 25% ATR", "Expansion", "Coiled overnight -> breakout day expected", "ORB, IB Breakout, Gap Fill"],
-        ["25–60% ATR", "Neutral", "Mixed — all strategies valid", "All strategies normal"],
+        ["2560% ATR", "Neutral", "Mixed all strategies valid", "All strategies normal"],
         ["> 60% ATR", "Rotation", "Wide overnight -> range/mean-rev day expected", "VWAP Rev, FVG, VWAP Bounce"],
     ]
     story.append(data_table(ov_table[0], ov_table[1:], col_widths=[1.4*inch, 1.1*inch, 2.2*inch, 2.0*inch]))
@@ -1313,35 +1313,35 @@ def build():
     vts_table = [
         ["VIX / VIX3M Ratio", "Structure", "Mean-Rev OK?", "Action"],
         ["< 0.85",   "Deep contango",       "Yes",  "All strategies, full size"],
-        ["0.85–1.00","Contango (normal)",   "Yes",  "All strategies, full size"],
-        ["1.00–1.08","Flat",                "Yes",  "Reduce size by 25%"],
-        ["1.08–1.15","Backwardation",       "No",   "Breakout only; skip VWAP/FVG"],
-        ["> 1.15",   "Deep backwardation",  "No",   "HARD BLOCK — skip entire day"],
+        ["0.851.00","Contango (normal)",   "Yes",  "All strategies, full size"],
+        ["1.001.08","Flat",                "Yes",  "Reduce size by 25%"],
+        ["1.081.15","Backwardation",       "No",   "Breakout only; skip VWAP/FVG"],
+        ["> 1.15",   "Deep backwardation",  "No",   "HARD BLOCK skip entire day"],
     ]
     story.append(data_table(vts_table[0], vts_table[1:], col_widths=[1.3*inch, 1.4*inch, 1.1*inch, 2.7*inch]))
     story.append(sp(0.05))
     vvix_table = [
         ["VVIX Level", "Regime", "Action"],
-        ["< 90",    "Low",      "Normal — all strategies"],
-        ["90–110",  "Normal",   "Caution on mean-rev; no size change"],
-        ["110–130", "Elevated", "50% size reduction across all strategies"],
-        ["> 130",   "Extreme",  "HARD BLOCK — gamma event risk, skip entire day"],
+        ["< 90",    "Low",      "Normal all strategies"],
+        ["90110",  "Normal",   "Caution on mean-rev; no size change"],
+        ["110130", "Elevated", "50% size reduction across all strategies"],
+        ["> 130",   "Extreme",  "HARD BLOCK gamma event risk, skip entire day"],
     ]
     story.append(data_table(vvix_table[0], vvix_table[1:], col_widths=[1.1*inch, 1.2*inch, 4.0*inch]))
     story.append(sp(0.08))
     story.append(h2("4.7 Open Type Classifier (CME Auction Market Theory)"))
     story.append(p(
         "Peter Steidlmayer's auction market theory, the foundation of CME's Market Profile framework, "
-        "identifies five distinct opening behaviors from the first three 5-minute bars (9:30–9:45 AM). "
+        "identifies five distinct opening behaviors from the first three 5-minute bars (9:309:45 AM). "
         "Each type predicts the likely day structure with documented statistical reliability."
     ))
     open_type_table = [
         ["Open Type", "Pattern (first 3 bars)", "Day Type", "Best Strategies"],
-        ["Open Drive", "Straight directional move, no pullback", "Trend day (1–2 direction changes)", "ORB, VWAP Bounce"],
+        ["Open Drive", "Straight directional move, no pullback", "Trend day (12 direction changes)", "ORB, VWAP Bounce"],
         ["Open Test Drive", "Tests one direction, then drives opposite", "Trend day (opposite of initial)", "Gap Fill, ORB pullback"],
         ["Open Rejection Reverse", "Extends then slams back through open", "Reversal day", "VWAP Rev, FVG"],
         ["Open Auction", "Oscillates near open price", "Range/chop day", "VWAP Rev, PDH/PDL fade"],
-        ["Open Auction Drive", "Auctions initially, then breaks late", "Mixed — IB setup", "IB Breakout"],
+        ["Open Auction Drive", "Auctions initially, then breaks late", "Mixed IB setup", "IB Breakout"],
     ]
     story.append(data_table(open_type_table[0], open_type_table[1:],
                              col_widths=[1.4*inch, 2.0*inch, 1.4*inch, 1.7*inch]))
@@ -1354,8 +1354,8 @@ def build():
         "that pin-risk traders can exploit."
     ))
     story.extend(bullet([
-        "<b>High pin risk (NDX/SPX expiry, Wed/Fri):</b> mean-reversion strategies receive +1 confidence boost; ORB receives 0 (breakouts frequently fail due to dealer selling/buying at gamma strikes). Monitor displays: '[EXPIRY] NDX EXPIRY — pin risk HIGH, mean-rev favored.'",
-        "<b>Medium pin risk (QQQ expiry, Tue/Thu):</b> neutral adjustment — no score change.",
+        "<b>High pin risk (NDX/SPX expiry, Wed/Fri):</b> mean-reversion strategies receive +1 confidence boost; ORB receives 0 (breakouts frequently fail due to dealer selling/buying at gamma strikes). Monitor displays: '[EXPIRY] NDX EXPIRY pin risk HIGH, mean-rev favored.'",
+        "<b>Medium pin risk (QQQ expiry, Tue/Thu):</b> neutral adjustment no score change.",
         "<b>No expiry:</b> normal scoring applies.",
     ]))
     story.append(PageBreak())
@@ -1379,8 +1379,8 @@ def build():
         "Sometimes overnight news (earnings, economic data, geopolitical events) causes NQ to "
         "open significantly higher or lower the next morning compared to where it closed the "
         "previous afternoon. This difference is called a GAP. "
-        "A small gap (say, 20-40 points) often FILLS — meaning NQ reverses back to the previous "
-        "close level — within the first hour of trading. Why? Because institutional traders know "
+        "A small gap (say, 20-40 points) often FILLS meaning NQ reverses back to the previous "
+        "close level within the first hour of trading. Why? Because institutional traders know "
         "the previous close is a reliable 'fair value' reference. When price gaps slightly away from "
         "it, they buy or sell to bring it back. The Gap Fill strategy captures this move."))
 
@@ -1412,28 +1412,28 @@ def build():
     story.extend(bullet([
         "<b>Gap detection:</b> today's 9:30 open vs. prior session's last close. Gap must be 2 to 20% of ATR (tiny institutional gap, not a news spike that blew past fair value).",
         "<b>Pre-market bias filter:</b> the last 30 minutes of pre-market (8 hours of 5m data) must trend toward the fill direction. This eliminates ~40% of false signals.",
-        "<b>First-bar confirmation:</b> the 9:30 bar must close in the direction of the fill — buying pressure on a gap-down, selling pressure on a gap-up.",
+        "<b>First-bar confirmation:</b> the 9:30 bar must close in the direction of the fill buying pressure on a gap-down, selling pressure on a gap-up.",
         "<b>Monday exclusion:</b> weekend gaps have 18% lower fill rate due to position-squaring flows that persist into Monday morning.",
         "<b>Entry:</b> open of the second RTH bar (9:35 bar), entered on the bar after confirmation, not on the confirmation bar itself.",
-        "<b>Stop:</b> 2 points beyond the prior bar's extreme — tight because the fill signal is already confirmed.",
-        "<b>Target:</b> exact prior session close — the mathematical gap fill level.",
+        "<b>Stop:</b> 2 points beyond the prior bar's extreme tight because the fill signal is already confirmed.",
+        "<b>Target:</b> exact prior session close the mathematical gap fill level.",
     ]))
     story.extend(flow_steps([
-        ("9:30 AM — Gap Detected", "System calculates today's open vs yesterday's close. If the gap is 2-20% of ATR, gap fill candidate activated."),
-        ("9:30-9:35 AM — Confirmation Bar", "Watch the FIRST 5-minute bar. Does it close in the direction of the fill? If NQ gapped UP, does the first bar close DOWN (toward the gap fill)? If yes, signal confirmed."),
-        ("9:35 AM — Entry", "Enter at the OPEN of the next bar (9:35 bar). Set stop 2 points beyond the 9:30 bar's extreme. Set target at the prior session close."),
-        ("9:35-10:00 AM — Trade Management", "The two-target exit activates: if price reaches 1x risk in profit, T1 exits 50% of position. T2 trails with Chandelier stop toward the target."),
+        ("9:30 AM Gap Detected", "System calculates today's open vs yesterday's close. If the gap is 2-20% of ATR, gap fill candidate activated."),
+        ("9:30-9:35 AM Confirmation Bar", "Watch the FIRST 5-minute bar. Does it close in the direction of the fill? If NQ gapped UP, does the first bar close DOWN (toward the gap fill)? If yes, signal confirmed."),
+        ("9:35 AM Entry", "Enter at the OPEN of the next bar (9:35 bar). Set stop 2 points beyond the 9:30 bar's extreme. Set target at the prior session close."),
+        ("9:35-10:00 AM Trade Management", "The two-target exit activates: if price reaches 1x risk in profit, T1 exits 50% of position. T2 trails with Chandelier stop toward the target."),
         ("Target or Stop", "If price reaches yesterday's close = WIN (full gap fill). If price reverses and hits stop = LOSS (max $50 on 1 MNQ)."),
-    ], title="GAP FILL — STEP-BY-STEP EXECUTION"))
+    ], title="GAP FILL STEP-BY-STEP EXECUTION"))
     story.append(sp(0.08))
 
     story.extend(trade_diagram("long", 20_030, 20_025, 20_000,
         "Example: NQ closed yesterday at 20,000. Today it gaps DOWN and opens at 20,030. "
-        "Wait, that is a gap UP actually — NQ opened 30 points ABOVE the prior close. "
+        "Wait, that is a gap UP actually NQ opened 30 points ABOVE the prior close. "
         "We go SHORT expecting it to fill back down to 20,000.",
         risk_pts=5, reward_pts=30))
 
-    story.extend(example_box("A Complete Gap Fill Trade — Real Numbers",
+    story.extend(example_box("A Complete Gap Fill Trade Real Numbers",
         ["Yesterday's NQ close:   20,000.00",
          "Today's 9:30 AM open:   20,035.00  (gap UP = 35 points)",
          "ATR (adaptive):          180 pts",
@@ -1457,23 +1457,23 @@ def build():
         "natural R:R ratios of 1.5:1 to 4:1, with the median around 2.2:1. The 93% fill rate on "
         "confirmed signals provides a strong positive expected value even at compressed R:R."
     ))
-    story.extend(warn_box("Large Gaps Do NOT Fill — Know the Difference",
+    story.extend(warn_box("Large Gaps Do NOT Fill Know the Difference",
         "A gap of 200+ points (more than 1.2x ATR) is NOT a 'gap fill' opportunity. It is a "
         "SENTIMENT GAP driven by massive news (FOMC decision, CPI print, geopolitical shock). "
         "These gaps reflect genuine change in market fair value and often continue in the gap "
         "direction, not fill back. The system HARD BLOCKS all gap fills where gap_ratio > 1.2x ATR "
-        "because the research shows these only fill 8.2% of the time — not a tradeable edge."))
+        "because the research shows these only fill 8.2% of the time not a tradeable edge."))
     story.append(sp(0.15))
 
     # 5.2 ORB
     story.append(h2("5.2 Opening Range Breakout (ORB)"))
     story.extend(explain_box("What is Opening Range Breakout? (Plain English First)",
         "The very first 5-minute bar of the trading day (9:30 to 9:35 AM ET) establishes the "
-        "'opening range' — just the high and low of that first bar. This range represents the "
+        "'opening range' just the high and low of that first bar. This range represents the "
         "first burst of buying and selling pressure at the open. When NQ breaks ABOVE the opening "
         "range high, it usually means the buyers won the opening battle and the market wants to go "
         "higher. When it breaks BELOW the opening range low, sellers won and the market wants "
-        "to go lower. The ORB strategy trades these breakouts — but with a twist: instead of entering "
+        "to go lower. The ORB strategy trades these breakouts but with a twist: instead of entering "
         "the moment the breakout happens, the system WAITS for a pullback (a brief retrace back "
         "toward the breakout level) before entering. This gives a much better entry price."))
     story.append(p(
@@ -1498,7 +1498,7 @@ def build():
     story.append(data_table(orb_research[0], orb_research[1:],
                              col_widths=[2.0*inch, 1.4*inch, 1.0*inch, 1.1*inch, 1.5*inch]))
     story.append(sp(0.1))
-    story.append(h3("Pullback Entry Innovation — Why We Wait"))
+    story.append(h3("Pullback Entry Innovation Why We Wait"))
     story.append(p(
         "Classical ORB enters at the market immediately when price breaks above the opening range high "
         "(or below the low). The Isogeny Alpha System delays entry and waits for a pullback into a 25% zone "
@@ -1506,19 +1506,19 @@ def build():
     ))
     story.extend(bullet([
         "<b>Better entry price:</b> entering at ORB high instead of 10 to 20 points above cuts risk dramatically.",
-        "<b>Tighter stop:</b> stop is 2 points below ORB high vs. 50% of ORB range in classical approach — cut by 60 to 80%.",
+        "<b>Tighter stop:</b> stop is 2 points below ORB high vs. 50% of ORB range in classical approach cut by 60 to 80%.",
         "<b>Higher R:R:</b> the target multiplier can be applied from a closer base, improving the reward-to-risk ratio from ~1.5:1 to ~3:1.",
     ]))
-    story.extend(example_box("ORB Pullback Entry — Visual Example",
+    story.extend(example_box("ORB Pullback Entry Visual Example",
         ["9:30 bar: High = 20,050, Low = 20,010  (Opening Range = 40 points)",
          "ATR = 200 pts.  Range as % ATR = 40/200 = 20%  (within 2.5%-50% = VALID)",
          "",
          "9:35 bar: NQ rallies to 20,080 (breaks above ORB high of 20,050)",
-         "  Classical ORB entry: enter at 20,080 — 30 points ABOVE ORB high",
+         "  Classical ORB entry: enter at 20,080 30 points ABOVE ORB high",
          "  Problem: stop at ORB high-2 = 20,048 means RISK = 20,080 - 20,048 = 32 pts = $64",
          "",
          "9:40 bar: NQ pulls back to 20,055 (inside the 25% zone above 20,050)",
-         "  Pullback entry: enter at 20,055 — only 5 points above ORB high",
+         "  Pullback entry: enter at 20,055 only 5 points above ORB high",
          "  STOP: 2 pts below ORB high = 20,048  -> RISK = 20,055 - 20,048 = 7 pts = $14",
          "  TARGET (extended T2): ORB high + 3x range = 20,050 + 120 = 20,170",
          "  T1: 1x risk above entry = 20,062.  Reward to T1 = 7 pts. R:R T1 = 1:1",
@@ -1544,9 +1544,9 @@ def build():
     story.append(h2("5.3 Initial Balance Breakout (IB)"))
     story.extend(explain_box("What is the Initial Balance? (Plain English)",
         "The Initial Balance is simply the high and low NQ price recorded between 9:30 AM and "
-        "10:00 AM ET — the first 30 minutes of regular trading. This 30-minute window is special "
+        "10:00 AM ET the first 30 minutes of regular trading. This 30-minute window is special "
         "because it is when the most institutional traders are actively setting their positions "
-        "for the day. The resulting high-low range represents the market's 'opening negotiation' — "
+        "for the day. The resulting high-low range represents the market's 'opening negotiation' "
         "both buyers and sellers putting in orders simultaneously to find a fair price. "
         "Once this 30-minute negotiation is done, if price breaks ABOVE that range, it means buyers "
         "won decisively and are willing to pay more. If it breaks BELOW, sellers won. "
@@ -1570,24 +1570,24 @@ def build():
                              col_widths=[3.2*inch, 1.6*inch, 1.6*inch]))
     story.append(p("Source: 2,686 ES sessions / 2,833 NQ sessions, 2015 to 2025", CAPTION))
     story.append(sp(0.08))
-    story.append(h3("IB Bias Detection — Reading Which Side Won the Auction"))
+    story.append(h3("IB Bias Detection Reading Which Side Won the Auction"))
     story.append(p(
         "A key innovation is the IB directional bias indicator. The system tracks which extreme "
         "(high or low) formed FIRST during the IB period:"
     ))
     story.extend(bullet([
-        "<b>Low forms first (bullish bias):</b> sellers tried to push lower early in the 9:30-10:00 window but buyers absorbed all the selling and pushed price back up — expect a break ABOVE the IB high.",
-        "<b>High forms first (bearish bias):</b> buyers tried to push higher early but sellers absorbed all the buying and pushed price back down — expect a break BELOW the IB low.",
+        "<b>Low forms first (bullish bias):</b> sellers tried to push lower early in the 9:30-10:00 window but buyers absorbed all the selling and pushed price back up expect a break ABOVE the IB high.",
+        "<b>High forms first (bearish bias):</b> buyers tried to push higher early but sellers absorbed all the buying and pushed price back down expect a break BELOW the IB low.",
     ]))
     story.extend(explain_box("Why does 'which extreme formed first' matter?",
         "Think of it as a tug-of-war. If sellers immediately attack at the open (price drops first), "
-        "but buyers ABSORB all that selling and push price back up to form the session high — that "
+        "but buyers ABSORB all that selling and push price back up to form the session high that "
         "tells you buyers are stronger. They soaked up all the selling pressure and still came out "
         "on top. This is called 'absorption' in Wyckoff market theory. When buyers absorb an early "
         "selloff, they often have enough firepower to push price much higher later. Conversely, "
         "when sellers absorb an early rally, a later breakdown is likely. The IB bias adds 8-12% "
         "win rate improvement because it filters to only the highest-conviction breakouts."))
-    story.extend(example_box("IB Breakout — Complete Trade Example",
+    story.extend(example_box("IB Breakout Complete Trade Example",
         ["9:30 AM: NQ opens at 20,100",
          "9:31 AM: NQ drops to 20,070 (sellers attack early - LOW FORMS FIRST)",
          "9:45 AM: NQ rallies back to 20,130 (buyers absorbed the selling)",
@@ -1623,13 +1623,13 @@ def build():
     story.append(h2("5.4 VWAP Reversion & Bounce"))
     story.extend(explain_box("What is VWAP and Why Do Institutions Care About It?",
         "VWAP stands for Volume Weighted Average Price. It is the average price NQ has traded "
-        "at during the current session, but WEIGHTED by volume — meaning bars where more contracts "
+        "at during the current session, but WEIGHTED by volume meaning bars where more contracts "
         "traded count more toward the average. VWAP resets every morning at 9:30 AM. "
         "Why do institutions care? Because the BIGGEST institutional investors (pension funds, "
         "mutual funds, index funds) use VWAP as their benchmark. When a hedge fund needs to buy "
         "$500 million of QQQ exposure, their traders are judged on whether they got a price "
         "BELOW VWAP. So they automatically buy dips below VWAP and reduce buying above VWAP. "
-        "This creates a persistent gravitational pull — NQ tends to oscillate around VWAP "
+        "This creates a persistent gravitational pull NQ tends to oscillate around VWAP "
         "throughout the day, making it one of the most reliable intraday levels."))
     story.append(p(
         "The Volume Weighted Average Price (VWAP) serves as the market's daily fair value benchmark. "
@@ -1684,18 +1684,18 @@ def build():
     story.append(h2("5.5 Fair Value Gap (FVG)"))
     story.extend(explain_box("What is a Fair Value Gap? (Visual Explanation)",
         "Imagine three consecutive NQ bars on a chart. Sometimes the market moves so FAST that "
-        "bar 3's LOW is ABOVE bar 1's HIGH — there is a price gap between them that was never "
+        "bar 3's LOW is ABOVE bar 1's HIGH there is a price gap between them that was never "
         "traded. No buyer and seller ever transacted at those prices. This unclaimed price range "
         "is called a Fair Value Gap (bullish FVG). "
         "Why does it fill? Because the large institutional algorithms that missed buying at those "
-        "levels WILL buy when price returns there — they have mandates to fill orders at fair "
+        "levels WILL buy when price returns there they have mandates to fill orders at fair "
         "value, and those prices were never offered to them. When price dips back into the FVG "
         "zone, institutional buy orders sitting there get filled, causing price to bounce. "
-        "This is not technical analysis or 'pattern trading' — it is a structural consequence "
+        "This is not technical analysis or 'pattern trading' it is a structural consequence "
         "of how large institutions execute orders."))
     story.append(p(
         "Fair Value Gaps are three-candle imbalance zones where price moved so rapidly that the "
-        "auction process was incomplete — the high of candle 1 never overlapped with the low of "
+        "auction process was incomplete the high of candle 1 never overlapped with the low of "
         "candle 3 (bullish) or vice versa (bearish). These gaps represent unfinished business "
         "for institutional algorithms that must fill their orders at fair value."
     ))
@@ -1742,18 +1742,18 @@ def build():
         "and automatic breakeven mechanics."
     ))
     story.append(h2("6.1 Two-Target Exit System (The Biggest Improvement in the Whole System)"))
-    story.extend(explain_box("The Problem We Found — And Why It Was Costing A Lot of Money",
+    story.extend(explain_box("The Problem We Found And Why It Was Costing A Lot of Money",
         "When we analyzed the v5.0 backtest, we found something shocking: 26 out of 59 trades "
         "(44%) were recorded as 'wins' but made exactly $0. How? Because the old exit system "
         "moved the stop loss to the entry price once the trade went 1x risk in profit. This is "
-        "called a 'breakeven stop'. The idea sounds safe — you cannot lose money. But here is the "
+        "called a 'breakeven stop'. The idea sounds safe you cannot lose money. But here is the "
         "problem: those 26 trades went an AVERAGE of 15.7 times their risk in the right direction "
         "before eventually reversing back to entry. One trade went 35x the risk favorable. "
-        "Another went 26x. The system was RIGHT about the direction — it was just handing back "
+        "Another went 26x. The system was RIGHT about the direction it was just handing back "
         "ALL the profit because of a bad exit design."))
     story.append(p(
         "Analysis of the v5.0 backtest revealed a critical exit-system flaw: 26 of 59 trades (44%) "
-        "ended at exactly $0 P&L — labeled wins because the breakeven stop fired at 1x risk, but "
+        "ended at exactly $0 P&L labeled wins because the breakeven stop fired at 1x risk, but "
         "generating zero dollars. Their average Maximum Favorable Excursion was 15.7x risk. Price "
         "moved 15.7 times the initial risk in the right direction and the system captured nothing. "
         "Version 6.0 replaces the single-exit breakeven model with a two-target system:"
@@ -1787,12 +1787,12 @@ def build():
         "Instead of moving the stop to breakeven and hoping, the new system LOCKS IN a partial "
         "profit at T1 and then LETS THE WINNER RUN with a trailing stop for the rest. "
         "Here is exactly what happens: You enter a trade. If price moves 1x your risk in your "
-        "favor (T1), you IMMEDIATELY exit HALF your position and bank that profit — it is locked, "
+        "favor (T1), you IMMEDIATELY exit HALF your position and bank that profit it is locked, "
         "cannot be taken away. For the remaining half, you let it run and follow price with a "
         "Chandelier trailing stop (3x the intraday ATR behind the highest point). "
         "If the trade was going to become a 15.7R winner (like the average of those 26 lost trades), "
         "the Chandelier trail catches a big chunk of that move instead of giving it all back."))
-    story.extend(example_box("Two-Target vs Old System — The Same Trade, Different Results",
+    story.extend(example_box("Two-Target vs Old System The Same Trade, Different Results",
         ["VWAP Bounce trade on May 14, 2026:",
          "  Entry: 21,400. Stop: 21,394 (6 pts risk). T1: 21,406. T2: Chandelier trail",
          "",
@@ -1867,19 +1867,19 @@ def build():
     story.extend(section_header_bar("7. Risk Management Framework"))
     story.append(sp(0.1))
     story.extend(explain_box("Why Risk Management Is The Most Important Part of This Whole Paper",
-        "Most beginner traders focus entirely on finding good entries — the 'buy low, sell high' "
-        "part. But professional traders focus primarily on RISK MANAGEMENT — the 'how much can I "
+        "Most beginner traders focus entirely on finding good entries the 'buy low, sell high' "
+        "part. But professional traders focus primarily on RISK MANAGEMENT the 'how much can I "
         "lose on this trade and survive to trade tomorrow' part. Here is the truth: you can have "
         "a system with only a 55% win rate and make a lot of money IF you manage risk properly. "
         "You can also have a system with 80% win rate and lose everything if you risk too much on "
         "each trade and hit a bad streak. The Isogeny Alpha System was designed AROUND the risk limits "
         "first. Everything else was built inside those constraints."))
     story.append(p(
-        "Risk management is not an afterthought in the Isogeny Alpha System — it is the primary design "
+        "Risk management is not an afterthought in the Isogeny Alpha System it is the primary design "
         "constraint. Every parameter was sized around the Tradeify trailing drawdown limit first, "
         "with profit potential as a secondary consideration."
     ))
-    story.append(h2("7.1 Per-Trade Risk Limits — The $50 Maximum"))
+    story.append(h2("7.1 Per-Trade Risk Limits The $50 Maximum"))
     story.append(p(
         "Each trade risks a maximum of $50 (25 NQ points × $2/point × 1 MNQ contract). "
         "This limit is enforced by the engine before signal acceptance. Any signal with a stop "
@@ -2024,10 +2024,10 @@ def build():
     ))
     wfe_interp = [
         ["WFE Range", "Interpretation", "Action"],
-        ["> 80%", "Exceptional — minimal curve-fitting",    "Trade with full confidence"],
-        ["50-80%", "Robust — goldilocks zone",              "Tradeable; monitor for regime shifts"],
-        ["35-50%", "Borderline — possible overfitting",      "Reduce parameter count"],
-        ["< 35%",  "Curve-fitted — do not trade live",       "Rebuild strategy from scratch"],
+        ["> 80%", "Exceptional minimal curve-fitting",    "Trade with full confidence"],
+        ["50-80%", "Robust goldilocks zone",              "Tradeable; monitor for regime shifts"],
+        ["35-50%", "Borderline possible overfitting",      "Reduce parameter count"],
+        ["< 35%",  "Curve-fitted do not trade live",       "Rebuild strategy from scratch"],
     ]
     story.append(data_table(wfe_interp[0], wfe_interp[1:],
                              col_widths=[1.2*inch, 2.2*inch, 2.5*inch]))
@@ -2035,7 +2035,7 @@ def build():
     story.append(h3("Actual Walk-Forward Result (v7.0)"))
     wf_table = [
         ["Period", "Trades", "Win Rate", "Net P&L", "Annualized Return", "WFE"],
-        ["In-Sample (first 75%: Mar 23 to May 7)", "24", "83.3%", "$1,440", "Est. 14.4%/yr", "—"],
+        ["In-Sample (first 75%: Mar 23 to May 7)", "24", "83.3%", "$1,440", "Est. 14.4%/yr", ""],
         ["Out-of-Sample (last 25%: May 12 to Jun 2)", "14", "71.4%", "$808", "Est. 29.0%/yr", "201%"],
     ]
     story.append(data_table(wf_table[0], wf_table[1:],
@@ -2043,7 +2043,7 @@ def build():
     story.append(sp(0.06))
     story.append(callout(
         "WFE of 201% means the out-of-sample period outperformed the in-sample period on an "
-        "annualized basis. This is exceptional — the typical degradation from IS to OOS is "
+        "annualized basis. This is exceptional the typical degradation from IS to OOS is "
         "30-50%. A WFE above 100% indicates the strategy performed better on data it had "
         "never seen than on the data it was implicitly tuned on. This is strong evidence that "
         "the edge is structural and not the result of parameter overfitting."
@@ -2103,7 +2103,7 @@ def build():
         "PF = ( p × R ) / ( (1 − p) × 1 ) = p · R / (1 − p)",
         "PF = (probability of winning x average reward) divided by (probability of losing x average loss). "
         "If win rate = 76.7% and avg R:R = 4.23, then PF = (0.767 x 4.23) / (0.233) = 3.243 / 0.233 = 13.9. "
-        "Why is the actual measured PF lower (around 4.5)? Because average wins are not always full targets — "
+        "Why is the actual measured PF lower (around 4.5)? Because average wins are not always full targets "
         "the two-target exit exits T1 at just 1R, making many 'wins' smaller than the full R:R suggests.",
         eq_num=18
     ))
@@ -2122,10 +2122,10 @@ def build():
     ))
     story.append(sp(0.08))
 
-    story.append(h2("8.5.2  Probability of Ruin — What Are the Chances of Failing?"))
+    story.append(h2("8.5.2  Probability of Ruin What Are the Chances of Failing?"))
     story.extend(explain_box("What Does 'Probability of Ruin' Mean?",
         "Probability of ruin is the mathematical chance that our account hits the $1,000 "
-        "drawdown limit before we reach the $1,500 profit target — in other words, the chance "
+        "drawdown limit before we reach the $1,500 profit target in other words, the chance "
         "we FAIL the evaluation due to bad luck (not bad strategy). Even a perfect strategy "
         "can fail the evaluation if you hit an unlucky streak early. This calculation tells us "
         "exactly how unlikely that is with the Isogeny Alpha System's parameters."))
@@ -2154,13 +2154,13 @@ def build():
     ))
     story.append(sp(0.08))
 
-    story.append(h2("8.5.3  Sharpe Ratio — The Risk-Adjusted Return Metric"))
+    story.append(h2("8.5.3  Sharpe Ratio The Risk-Adjusted Return Metric"))
     story.extend(key_term("Sharpe Ratio",
         "The Sharpe Ratio measures how much return you get PER UNIT OF RISK. It divides your "
         "average return by the standard deviation (volatility) of your returns, then scales to "
         "an annual basis. A Sharpe of 1.0 is considered good for most hedge funds. A Sharpe "
         "above 2.0 is excellent. A Sharpe above 3.0 is exceptional. Most retail traders have "
-        "negative Sharpe ratios. The Isogeny Alpha System achieves a Sharpe above 30 — extremely high "
+        "negative Sharpe ratios. The Isogeny Alpha System achieves a Sharpe above 30 extremely high "
         "because the strict $50 max risk per trade caps the volatility of the P&L distribution."))
     story.append(p(
         "For a trading system operating over discrete sessions, the annualized Sharpe ratio "
@@ -2173,7 +2173,7 @@ def build():
         "square root of 252 (number of trading days per year). The sqrt(252) annualizes the ratio. "
         "If average daily P&L = $33 and standard deviation = $41, then daily Sharpe = 33/41 = 0.80, "
         "and annualized Sharpe = 0.80 x sqrt(252) = 0.80 x 15.87 = 12.7. "
-        "This is remarkably high — compare to the S&P 500's long-run Sharpe of approximately 0.4.",
+        "This is remarkably high compare to the S&P 500's long-run Sharpe of approximately 0.4.",
         eq_num=20
     ))
     sharpe_table = [
@@ -2201,7 +2201,7 @@ def build():
         "Our Sharpe is high for legitimate reason (1): we cap every single trade loss at $50. "
         "This hard dollar cap keeps the standard deviation of P&L very low while the wins "
         "accumulate freely (the two-target exit lets winners run to 4x+ risk). "
-        "The walk-forward validation (WFE=201%) confirms this is not overfitting — the system "
+        "The walk-forward validation (WFE=201%) confirms this is not overfitting the system "
         "performed BETTER out-of-sample than in-sample. A Sharpe this high in a live system "
         "would be suspicious, but in a prop firm evaluation context with strict position sizing, "
         "it is mathematically expected from the combination of high win rate and capped losses."))
@@ -2261,7 +2261,7 @@ def build():
         ["Max Drawdown",    "$150",  "$225",   "$315",   "$450",   "$600"],
         ["Win Rate",        "68.0%", "72.2%",  "76.4%",  "80.6%",  "84.8%"],
         ["Days to Target",  "35",    "42",     "51",     "61",     "75"],
-        ["P(Fail evaluation)", "—",  "—",      "3.2%",   "—",      "—"],
+        ["P(Fail evaluation)", "",  "",      "3.2%",   "",      ""],
     ]
     story.append(data_table(mc_table[0], mc_table[1:],
                              col_widths=[1.8*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.9*inch]))
@@ -2304,13 +2304,13 @@ def build():
     # ══════════════════════════════════════════════════════════════════════════
     story.extend(section_header_bar("9. Performance Results"))
     story.append(sp(0.1))
-    story.append(h2("9.1 Overall Statistics — Three-Way System Comparison (v7.0)"))
+    story.append(h2("9.1 Overall Statistics Three-Way System Comparison (v7.0)"))
     story.extend(explain_box("How to Read the Comparison Table",
         "We run three versions of the system on the same historical data and compare them: "
         "(1) BASE = the raw strategies with no filters at all, "
         "(2) INSTITUTIONAL = only the hard blocks (8 filters that prevent the worst trades), "
         "(3) HYBRID v7 = all 20 confidence signals + two-target exit + all new features. "
-        "This comparison proves that the institutional layer adds genuine value — it is not "
+        "This comparison proves that the institutional layer adds genuine value it is not "
         "just adding complexity. The key metric is NOT win rate. It is TOTAL P&L with acceptable "
         "drawdown. A system with 90% win rate that makes $300 in 60 days is worse than one "
         "with 75% win rate that makes $2,500 in 60 days."))
@@ -2324,15 +2324,15 @@ def build():
         ["Avg Loss",           "−$26",           "−$15",           "−$71",             "−$45"],
         ["Avg R:R",            "3.14x",          "3.23x",          "4.23x",            "+1.09x"],
         ["Max Drawdown",       "$87",            "$56",            "$221",             "+$134"],
-        ["Passes $1,500 target","YES",           "NO",             "YES",              "—"],
+        ["Passes $1,500 target","YES",           "NO",             "YES",              ""],
     ]
     story.append(data_table(comp_table[0], comp_table[1:],
                              col_widths=[1.8*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.3*inch]))
     story.append(p(
-        "The v7 hybrid system produces $2,499 P&L — 66% above the Tradeify target and +$812 vs the "
+        "The v7 hybrid system produces $2,499 P&L 66% above the Tradeify target and +$812 vs the "
         "base system despite trading 16 fewer times. Win rate slightly decreases (81.4% base vs 76.7% "
         "hybrid) because the two-target exit creates larger wins but occasionally triggers the Chandelier "
-        "stop at a slight loss on the T2 half. The key metric is average R:R: 4.23x vs 3.14x base — "
+        "stop at a slight loss on the T2 half. The key metric is average R:R: 4.23x vs 3.14x base "
         "a 35% improvement entirely from the two-target exit system capturing trending moves that "
         "previously went to breakeven."
     ))
@@ -2372,19 +2372,19 @@ def build():
     score_dist = [
         ["Score", "Trades", "Win Rate", "P&L",    "Contracts", "Interpretation"],
         ["20",    "4",      "75%",      "$+171",  "2 MNQ",     "Perfect consensus across all 20 factors"],
-        ["19",    "8",      "75%",      "$+363",  "2 MNQ",     "Near-perfect — top of the distribution"],
+        ["19",    "8",      "75%",      "$+363",  "2 MNQ",     "Near-perfect top of the distribution"],
         ["18",    "12",     "75%",      "$+769",  "2 MNQ",     "High conviction; most common 2-lot score"],
-        ["17",    "7",      "86%",      "$+825",  "2 MNQ",     "Sweet spot — 86% WR; highest P&L bucket"],
+        ["17",    "7",      "86%",      "$+825",  "2 MNQ",     "Sweet spot 86% WR; highest P&L bucket"],
         ["16",    "8",      "75%",      "$+234",  "2 MNQ",     "2-lot threshold; 75% WR consistent"],
         ["15",    "2",      "50%",      "$+27",   "1 MNQ",     "Below 2-lot threshold"],
         ["14",    "2",      "100%",     "$+109",  "1 MNQ",     "High WR; insufficient score for 2-lot"],
-        ["<= 5",  "(skip)", "—",        "—",      "0",         "Filtered out by 20-point scoring gate"],
+        ["<= 5",  "(skip)", "",        "",      "0",         "Filtered out by 20-point scoring gate"],
     ]
     story.append(data_table(score_dist[0], score_dist[1:],
                              col_widths=[0.6*inch, 0.6*inch, 0.8*inch, 0.8*inch, 0.9*inch, 2.8*inch]))
     story.append(p(
         "Score-17 is the sweet spot at 86% WR and $825 P&L from 7 trades. All score tiers at "
-        "2-lot level (>=16) show 75%+ WR — the 20-point system successfully identifies the "
+        "2-lot level (>=16) show 75%+ WR the 20-point system successfully identifies the "
         "highest-conviction setups. The skip threshold of <=5 filters weak setups without "
         "losing too many trades (43 traded vs 59 base = −16 filtered)."
     ))
@@ -2457,14 +2457,14 @@ def build():
     ))
     story.append(PageBreak())
 
-    story.append(h2("9.6 Drawdown Analysis — Understanding Your Risk Exposure"))
+    story.append(h2("9.6 Drawdown Analysis Understanding Your Risk Exposure"))
     story.extend(explain_box("What Is a Drawdown and Why Does It Matter for Prop Firms?",
         "A drawdown is the peak-to-trough decline in your account balance. If your account goes "
-        "from $25,000 to $24,800 before recovering — that is a $200 drawdown. For a regular "
+        "from $25,000 to $24,800 before recovering that is a $200 drawdown. For a regular "
         "trader, drawdowns are just part of the game. For a prop firm evaluation, drawdowns are "
-        "EXISTENTIAL — exceed $1,000 and the evaluation is over. "
+        "EXISTENTIAL exceed $1,000 and the evaluation is over. "
         "The Tradeify TRAILING drawdown makes this even trickier: the floor rises with your profits. "
-        "If you make $800 then lose $900, you are not just down $100 from where you started — "
+        "If you make $800 then lose $900, you are not just down $100 from where you started "
         "you have breached the $800 + $1000 = $1,800 floor from your peak, failing the evaluation. "
         "This is why a controlled, recovery-focused drawdown profile matters more than maximizing "
         "gross profit."))
@@ -2532,7 +2532,7 @@ def build():
     # ══════════════════════════════════════════════════════════════════════════
     story.extend(section_header_bar("10. Live Implementation"))
     story.append(sp(0.1))
-    story.append(h2("10.1 Real-Time Monitor Architecture — How It Works Live"))
+    story.append(h2("10.1 Real-Time Monitor Architecture How It Works Live"))
     story.extend(explain_box("What Happens When You Run the Monitor",
         "At 9:20 AM you open a terminal and type 'python3 monitor.py'. The system loads "
         "approximately 2,100 bars of 5-minute NQ data (10 days), 90 days of VIX/macro data, "
@@ -2545,28 +2545,28 @@ def build():
     story.append(p(
         "The live monitor (<code>monitor.py</code>) is designed for a single operator running "
         "it from a terminal before market open. The architecture prioritizes reliability and "
-        "speed over complexity — no websockets, no external services, no cloud dependencies. "
+        "speed over complexity no websockets, no external services, no cloud dependencies. "
         "Version 5.0 adds three critical behavioral upgrades: direction locking, trade confirmation, "
         "and bot memory integration."
     ))
     story.extend(bullet([
         "<b>Startup (9:20 AM):</b> loads 10 days of 5-minute bar history (~2,128 bars), 90 days of VIX/VIX3M/VVIX data, sector closes (XLK/SPY), and macro closes (DXY/TNX) into memory. One-time load ~5 seconds.",
         "<b>Session open brief (9:30 AM):</b> prints day type (expansion/rotation/neutral), overnight range vs ATR, PDH/PDL/PMH/PML key levels, expiry context, and bot memory insights from prior sessions.",
-        "<b>Price feed:</b> <code>fast_feed.py</code> fetches NQ price via <code>yfinance.fast_info.last_price</code> every 0.5 seconds — true real-time, not delayed bar data.",
+        "<b>Price feed:</b> <code>fast_feed.py</code> fetches NQ price via <code>yfinance.fast_info.last_price</code> every 0.5 seconds true real-time, not delayed bar data.",
         "<b>Bar close check:</b> the main loop appends only the latest 10 bars (~103ms) and runs signal detection (~15ms) on each 5-minute bar close.",
-        "<b>Background stdin thread:</b> a daemon thread reads keyboard input continuously without blocking the main price loop — enables real-time y/n trade confirmation.",
+        "<b>Background stdin thread:</b> a daemon thread reads keyboard input continuously without blocking the main price loop enables real-time y/n trade confirmation.",
     ]))
     story.append(sp(0.1))
-    story.append(h2("10.2 Direction Lock — Contradictory Signal Prevention"))
+    story.append(h2("10.2 Direction Lock Contradictory Signal Prevention"))
     story.append(p(
         "A critical bug in the original monitor allowed contradictory signals to fire within the "
         "same session window. For example: ORB long fires at 9:45 AM, then VWAP short fires at 10:15 AM "
-        "— giving opposing instructions within 30 minutes. This was confusing and led to decision paralysis."
+        " giving opposing instructions within 30 minutes. This was confusing and led to decision paralysis."
     ))
     story.append(p(
         "The fix: a <b>20-minute direction lock</b>. When any signal fires with direction X, all "
         "signals with direction opposite to X are suppressed for 20 minutes. The suppressed signals "
-        "are displayed as a dim note ('suppressed — direction lock') rather than firing a notification. "
+        "are displayed as a dim note ('suppressed direction lock') rather than firing a notification. "
         "After 20 minutes, the lock expires and any direction can fire again."
     ))
     story.extend(bullet([
@@ -2690,25 +2690,25 @@ def build():
     story.append(PageBreak())
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 11. INSTITUTIONAL SIGNAL OVERLAY — 12-POINT SCORING
+    # 11. INSTITUTIONAL SIGNAL OVERLAY 12-POINT SCORING
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_header_bar("11. Institutional Signal Overlay — 12-Point Scoring System"))
+    story.extend(section_header_bar("11. Institutional Signal Overlay 12-Point Scoring System"))
     story.append(sp(0.1))
     story.append(p(
         "Version 5.0 replaces the original 4-point confidence scoring system with a comprehensive "
         "12-point institutional overlay. Each point represents a distinct, orthogonal signal drawn "
         "from academic market microstructure research, macroeconomic data, or empirically documented "
-        "market behavior. None of these modules generate independent trade signals — they score and "
+        "market behavior. None of these modules generate independent trade signals they score and "
         "filter signals produced by the five core strategies."
     ))
     story.append(sp(0.08))
     inst_overview = [
         ["#", "Module", "File", "Source / Edge"],
-        ["1",  "TSMOM — First 30-min momentum",      "inst_tsmom.py",   "Moskowitz et al. (2012); session direction bias"],
-        ["2",  "GEX — Gamma exposure regime",         "inst_gex.py",     "Squeezemetrics; dealer hedging flow direction"],
+        ["1",  "TSMOM First 30-min momentum",      "inst_tsmom.py",   "Moskowitz et al. (2012); session direction bias"],
+        ["2",  "GEX Gamma exposure regime",         "inst_gex.py",     "Squeezemetrics; dealer hedging flow direction"],
         ["3",  "ES lead-lag confirmation",             "inst_leadlag.py", "Lo & MacKinlay (1990); ES leads NQ by 1 bar"],
-        ["4",  "HMM — Latent regime state",           "inst_hmm.py",     "Hamilton (1989); 3-state Gaussian model"],
-        ["5",  "CVD — Cumulative delta divergence",   "inst_ofi.py",     "62% WR on NQ (2024-2025), 2.4R documented"],
+        ["4",  "HMM Latent regime state",           "inst_hmm.py",     "Hamilton (1989); 3-state Gaussian model"],
+        ["5",  "CVD Cumulative delta divergence",   "inst_ofi.py",     "62% WR on NQ (2024-2025), 2.4R documented"],
         ["6",  "Overnight range type",                 "quant_regime.py", "CME auction theory; expansion vs rotation"],
         ["7",  "VIX term structure",                   "quant_regime.py", "VIX/VIX3M ratio; contango vs backwardation"],
         ["8",  "XLK/SPY sector relative strength",    "inst_sectors.py", "Tech sector institutional flow tailwind"],
@@ -2724,7 +2724,7 @@ def build():
 
     story.append(h2("11.1 Order Flow Imbalance (OFI) + CVD Divergence"))
     story.extend(explain_box("What is Order Flow and Why Does It Matter?",
-        "Every price move in NQ is caused by orders — buy orders pushing price up, sell orders "
+        "Every price move in NQ is caused by orders buy orders pushing price up, sell orders "
         "pushing price down. 'Order Flow' analysis tries to figure out WHO is buying and selling "
         "and WHETHER they are doing it urgently or patiently. When a big institutional trader "
         "needs to buy urgently (because of a mandate, a hedge, a rebalancing), they send large "
@@ -2763,7 +2763,7 @@ def build():
     story.extend(bullet([
         "<b>Scoring:</b> CVD confirms signal direction (or no divergence) -> +1 point. CVD divergence opposes signal -> 0 points.",
         "<b>Hard block:</b> bearish CVD divergence with strength > 0.30 blocks mean-rev LONG entries on VWAP Rev and FVG. Institutional distribution is actively working against the trade.",
-        "<b>Monitor display:</b> 'CVD DIVERGENCE DETECTED — distribution in progress, skip longs' alert fires when divergence strength exceeds threshold.",
+        "<b>Monitor display:</b> 'CVD DIVERGENCE DETECTED distribution in progress, skip longs' alert fires when divergence strength exceeds threshold.",
     ]))
     story.append(sp(0.1))
 
@@ -2772,7 +2772,7 @@ def build():
         "Not all traders have the same information. A hedge fund that just read a leaked earnings "
         "report (illegal, but this is hypothetical) would trade very differently from a retail "
         "trader watching CNBC. 'Informed traders' are those who trade based on information others "
-        "do not have yet — they are directional, urgent, and persistent. When informed traders "
+        "do not have yet they are directional, urgent, and persistent. When informed traders "
         "dominate the order flow, prices move in sustained directions. When uninformed traders "
         "dominate (retail, hedgers, random noise), prices oscillate. "
         "VPIN measures what fraction of the recent trading volume looks like it came from "
@@ -2780,7 +2780,7 @@ def build():
         "running in one direction = DO NOT bet against the move."))
     story.append(p(
         "VPIN (Easley et al. 2012) estimates the probability that a given bar's volume contains "
-        "informed institutional order flow. High VPIN precedes adverse price moves and wide spreads — "
+        "informed institutional order flow. High VPIN precedes adverse price moves and wide spreads "
         "the exact environment where mean-reversion entries fail catastrophically."
     ))
     story.extend(formula_explained(
@@ -2795,7 +2795,7 @@ def build():
     story.append(p(
         "When VPIN exceeds 0.70 (high toxicity), mean-reversion signals (VWAP Rev, FVG, IB Breakout) "
         "are blocked. Breakout strategies (ORB, Gap Fill) are unaffected because informed flow "
-        "is directional — exactly what breakout strategies need."
+        "is directional exactly what breakout strategies need."
     ))
     story.append(sp(0.1))
 
@@ -2808,18 +2808,18 @@ def build():
     ))
     story.append(sp(0.1))
 
-    story.append(h2("11.4 Hidden Markov Model — 5-State Regime Detection"))
+    story.append(h2("11.4 Hidden Markov Model 5-State Regime Detection"))
     story.extend(explain_box("What is a Hidden Markov Model? (Genuinely Simple Explanation)",
         "Imagine the stock market is a weather machine that can be in one of 5 hidden states: "
         "STRONG BULL (sunny and hot), BULL (sunny), NEUTRAL (cloudy), STRESS (stormy), BEAR (hurricane). "
-        "You cannot directly SEE which state the machine is in — it is HIDDEN. But you can observe "
+        "You cannot directly SEE which state the machine is in it is HIDDEN. But you can observe "
         "the OUTPUTS: how much the market moved today, how volatile the bars were, how big the "
         "daily range was. A Hidden Markov Model is a statistical algorithm that reads those "
         "observable outputs and calculates the probability that the machine is currently in each "
-        "hidden state. If it says '85% probability we are in STRESS state', the system adjusts — "
+        "hidden state. If it says '85% probability we are in STRESS state', the system adjusts "
         "mean-reversion strategies get blocked because stress regimes trend, not oscillate. "
         "The 'Markov' part means the model assumes the current state only depends on yesterday's "
-        "state, not on all of history — which is a reasonable and mathematically tractable assumption."))
+        "state, not on all of history which is a reasonable and mathematically tractable assumption."))
     story.append(p(
         "Version 5.0 used a 3-state univariate Gaussian HMM on daily log-returns only. "
         "Version 7.0 upgrades to a 5-state multivariate HMM with three features per observation, "
@@ -2828,7 +2828,7 @@ def build():
     ))
     story.extend(bullet([
         "<b>Feature 1:</b> Daily log-return (as before)",
-        "<b>Feature 2:</b> Daily range ratio — today's range / 20-session rolling average range (captures volatility state)",
+        "<b>Feature 2:</b> Daily range ratio today's range / 20-session rolling average range (captures volatility state)",
         "<b>Feature 3:</b> Intraday realized volatility from 5-minute bar returns (session-level vol estimate)",
     ]))
     story.append(p(
@@ -2858,7 +2858,7 @@ def build():
     conviction_table = [
         ["First 30-min Return", "Conviction Level", "Day Type Prediction", "Scoring"],
         ["> 30bps (0.003)", "High",   "Trending day 73% of the time",   "+1 for breakout strategies"],
-        ["10–30bps",        "Medium", "Mixed",                           "+1 neutral (all strategies)"],
+        ["1030bps",        "Medium", "Mixed",                           "+1 neutral (all strategies)"],
         ["< 10bps",         "Low",    "Range/chop day expected",         "+1 for mean-rev strategies"],
     ]
     story.append(data_table(conviction_table[0], conviction_table[1:],
@@ -2961,11 +2961,11 @@ def build():
     ))
     pdlevel_table = [
         ["Level", "How to Trade", "Setup Type", "Documented WR"],
-        ["PDH Rejection",  "Price pokes above PDH then closes back below -> short", "Institutional supply defense",    "65–70%"],
-        ["PDH Retest",     "Price broke above PDH, pulls back to test from above -> long", "New resistance becomes support", "68–72%"],
-        ["PDL Rejection",  "Price pokes below PDL then closes back above -> long",  "Institutional demand absorption",  "65–70%"],
-        ["PDL Retest",     "Price broke below PDL, rallies to test from below -> short", "New support becomes resistance", "68–72%"],
-        ["PMH/PML React",  "RTH opens and tests premarket extreme", "Premarket order absorption", "60–65%"],
+        ["PDH Rejection",  "Price pokes above PDH then closes back below -> short", "Institutional supply defense",    "6570%"],
+        ["PDH Retest",     "Price broke above PDH, pulls back to test from above -> long", "New resistance becomes support", "6872%"],
+        ["PDL Rejection",  "Price pokes below PDL then closes back above -> long",  "Institutional demand absorption",  "6570%"],
+        ["PDL Retest",     "Price broke below PDL, rallies to test from below -> short", "New support becomes resistance", "6872%"],
+        ["PMH/PML React",  "RTH opens and tests premarket extreme", "Premarket order absorption", "6065%"],
     ]
     story.append(data_table(pdlevel_table[0], pdlevel_table[1:],
                              col_widths=[1.2*inch, 2.0*inch, 1.5*inch, 1.0*inch]))
@@ -2976,37 +2976,37 @@ def build():
     ))
     story.append(sp(0.1))
 
-    story.append(h2("11.10 Volume Profile — POC, VAH, VAL, Naked VPOC"))
+    story.append(h2("11.10 Volume Profile POC, VAH, VAL, Naked VPOC"))
     story.append(p(
         "Volume Profile records where actual contracts traded, not price levels derived from price action. "
-        "The Point of Control (POC) is the price bucket with the highest volume — institutional fair value. "
+        "The Point of Control (POC) is the price bucket with the highest volume institutional fair value. "
         "The Value Area (VA) holds 70% of the session's volume."
     ))
     vp_table = [
         ["Level", "Definition", "Institutional Meaning", "Documented Edge"],
-        ["POC", "Highest-volume price bucket", "Fair value — price gravitates here on range days", "~65% WR on reversion"],
-        ["VAH", "Top of 70% volume range",     "Overhead resistance where sellers absorbed buyers", "90–93% tested in NQ"],
-        ["VAL", "Bottom of 70% volume range",  "Support where buyers absorbed sellers",             "90–93% tested in NQ"],
-        ["Naked VPOC", "Prior POC never revisited", "Unsatisfied institutional interest — price magnet", "Price hunts within 5 days"],
+        ["POC", "Highest-volume price bucket", "Fair value price gravitates here on range days", "~65% WR on reversion"],
+        ["VAH", "Top of 70% volume range",     "Overhead resistance where sellers absorbed buyers", "9093% tested in NQ"],
+        ["VAL", "Bottom of 70% volume range",  "Support where buyers absorbed sellers",             "9093% tested in NQ"],
+        ["Naked VPOC", "Prior POC never revisited", "Unsatisfied institutional interest price magnet", "Price hunts within 5 days"],
     ]
     story.append(data_table(vp_table[0], vp_table[1:],
                              col_widths=[0.9*inch, 1.5*inch, 1.8*inch, 1.6*inch]))
     story.append(p(
         "Volume is computed using uniform distribution across each bar's High-Low range in 2-point buckets "
-        "(standard for NQ). Prior session POC/VAH/VAL are computed from yesterday's bars at session open — "
+        "(standard for NQ). Prior session POC/VAH/VAL are computed from yesterday's bars at session open "
         "no new data feed required. Naked VPOCs from the last 20 sessions are tracked as persistent "
         "price magnets displayed in the live monitor."
     ))
     story.append(sp(0.1))
 
-    story.append(h2("11.11 HAR-RV Stop Multiplier — The Pre-Existing Bug Fixed"))
+    story.append(h2("11.11 HAR-RV Stop Multiplier The Pre-Existing Bug Fixed"))
     story.append(p(
         "This is the most impactful single change in Version 5.0. The HAR-RV volatility forecasting model "
         "(Andersen, Bollerslev & Diebold 2007) was already fully coded in <code>inst_harv.py</code>, "
         "returning a <code>stop_mult</code> of 0.85/1.00/1.30/skip based on realized variance regime. "
         "However, in the original <code>hybrid_engine.py</code>, <code>har_forecast()</code> was "
         "imported but <b>never called</b> and <code>stop_mult</code> was <b>never applied</b>. "
-        "This meant on high-volatility days the system used the same stop distance as calm days — "
+        "This meant on high-volatility days the system used the same stop distance as calm days "
         "stops were constantly blown through on volatile but ultimately directional moves."
     ))
     story.append(formula(
@@ -3015,36 +3015,36 @@ def build():
     ))
     har_params = [
         ["HAR vol regime", "Percentile vs trailing 22d", "stop_mult", "Action"],
-        ["Extreme",  "> 92nd percentile", "SKIP",  "Skip entire trading day — too dangerous"],
-        ["High",     "72nd–92nd pct",     "1.30×", "Widen all stops 30%"],
-        ["Normal",   "20th–72nd pct",     "1.00×", "No change to stops"],
-        ["Low",      "< 20th percentile", "0.85×", "Tighten stops 15% — take more R:R"],
+        ["Extreme",  "> 92nd percentile", "SKIP",  "Skip entire trading day too dangerous"],
+        ["High",     "72nd92nd pct",     "1.30×", "Widen all stops 30%"],
+        ["Normal",   "20th72nd pct",     "1.00×", "No change to stops"],
+        ["Low",      "< 20th percentile", "0.85×", "Tighten stops 15% take more R:R"],
     ]
     story.append(data_table(har_params[0], har_params[1:],
                              col_widths=[1.2*inch, 1.6*inch, 1.0*inch, 2.7*inch]))
     story.append(p(
         "The fix was 10 lines of code: import <code>har_forecast</code>, call it at the top of "
         "each day loop, and multiply the raw stop distance by <code>stop_mult</code> before "
-        "passing to the simulator. The impact is visible in the backtest output — trades on "
+        "passing to the simulator. The impact is visible in the backtest output trades on "
         "April 2 (HAR high vol) show stop_mult = 1.30, meaning stops were automatically 30% wider "
         "on those days, preventing premature breakeven triggers during the volatile session."
     ))
     story.append(sp(0.1))
 
-    story.append(h2("11.12 RVOL — Are Institutions Actually Here Right Now?"))
-    story.extend(explain_box("Time-of-Day Adjusted RVOL — Why Normal RVOL Does Not Work",
+    story.append(h2("11.12 RVOL Are Institutions Actually Here Right Now?"))
+    story.extend(explain_box("Time-of-Day Adjusted RVOL Why Normal RVOL Does Not Work",
         "Relative Volume (RVOL) measures how current volume compares to 'normal' volume. "
         "The problem: the 9:30 AM bar ALWAYS has 5-10x more volume than the 11:00 AM bar. "
         "If you compare 9:30 volume to the session average, it always looks extreme. "
         "The FIX: compare each 5-minute bar only to the historical average of THAT SAME "
         "5-minute slot across the past 20 sessions. The 9:30 bar is compared only to "
         "other 9:30 bars. Now RVOL=1.8x means this time slot has 80% more volume than usual "
-        "— which actually is meaningful signal. When RVOL is below 0.8x (THIN), the system "
-        "BLOCKS the trade entirely — nobody is home, and retail-driven moves reliably fail."))
+        " which actually is meaningful signal. When RVOL is below 0.8x (THIN), the system "
+        "BLOCKS the trade entirely nobody is home, and retail-driven moves reliably fail."))
     story.append(p(
         "RVOL answers the question the other 19 signals cannot: are institutions actually "
         "participating in this move right now? An ORB breakout on 2x normal volume is institutional; "
-        "the same breakout on 0.5x volume is retail. The time-of-day adjustment is critical for NQ — "
+        "the same breakout on 0.5x volume is retail. The time-of-day adjustment is critical for NQ "
         "the 9:30 bar always has 5-10x the volume of an 11:00 bar. The system compares the current "
         "bar to the historical average for the same 5-minute slot across the prior 20 sessions:"
     ))
@@ -3053,7 +3053,7 @@ def build():
     ))
     rvol_table = [
         ["RVOL Range", "Regime", "Action", "Research Basis"],
-        ["< 0.8x",   "Thin",    "HARD BLOCK — nobody home",       "40% follow-through; move will fail"],
+        ["< 0.8x",   "Thin",    "HARD BLOCK nobody home",       "40% follow-through; move will fail"],
         ["0.8-1.5x", "Normal",  "+1 scoring point",               "Baseline participation"],
         ["1.5-2.5x", "High",    "+1 scoring point (confirmation)","58.8% 3-day follow-through (best zone)"],
         ["> 2.5x",   "Climax",  "+0 for breakout (exhaustion risk)","53.4% follow-through; 43.8% next-day"],
@@ -3065,7 +3065,7 @@ def build():
     story.append(h2("11.13 Absorption Detection (Wyckoff Effort vs Result)"))
     story.append(p(
         "Richard Wyckoff's Law of Effort and Result: when large effort (high volume) produces a "
-        "small result (narrow price range), the opposing side is absorbing — institutional limit "
+        "small result (narrow price range), the opposing side is absorbing institutional limit "
         "orders sitting at a price level, eating every market order thrown at them. This is the most "
         "direct OHLCV proxy for reading the order book without L2 data:"
     ))
@@ -3100,7 +3100,7 @@ def build():
     story.extend(bullet([
         "If 9:35 bar return > 0.05% AND RVOL > 1.5: high conviction OCC -> +1 for longs all session",
         "If 9:35 bar return < -0.05% AND RVOL > 1.5: bearish OCC -> +1 for shorts, 0 for longs",
-        "Complements TSMOM: OCC fires at 9:35, TSMOM fires at 10:00 — both can confirm the same direction",
+        "Complements TSMOM: OCC fires at 9:35, TSMOM fires at 10:00 both can confirm the same direction",
     ]))
     story.append(sp(0.08))
 
@@ -3120,7 +3120,7 @@ def build():
     ))
     story.append(sp(0.08))
 
-    story.append(h2("11.17 Anchored VWAP — Yearly, Swing Low, Weekly"))
+    story.append(h2("11.17 Anchored VWAP Yearly, Swing Low, Weekly"))
     story.append(p(
         "Standard VWAP resets every session. Anchored VWAP (Brian Shannon, CMT Association 2024) "
         "starts from a meaningful institutional event and represents the average cost basis for "
@@ -3141,7 +3141,7 @@ def build():
     ))
     story.append(sp(0.08))
 
-    story.append(h2("11.18 Market Breadth — QQQ/IWM RS + $ADDN"))
+    story.append(h2("11.18 Market Breadth QQQ/IWM RS + $ADDN"))
     story.append(p(
         "Market breadth confirms whether a NQ move has broad institutional backing. "
         "When only large-cap tech stocks are driving NQ higher but small-caps (IWM) are flat, "
@@ -3162,15 +3162,15 @@ def build():
     ))
     scoring_rules = [
         ["Score Range", "Interpretation", "Contracts", "Action"],
-        [">= 16",  "Full institutional consensus (20+ factors)", "2 MNQ", "Trade — full size (76% of v7 trades)"],
-        ["6-15",   "Strong signal — majority agree",             "1 MNQ", "Trade — standard size"],
-        ["<= 5",   "Weak setup — insufficient backing",          "0",     "SKIP — do not trade"],
+        [">= 16",  "Full institutional consensus (20+ factors)", "2 MNQ", "Trade full size (76% of v7 trades)"],
+        ["6-15",   "Strong signal majority agree",             "1 MNQ", "Trade standard size"],
+        ["<= 5",   "Weak setup insufficient backing",          "0",     "SKIP do not trade"],
     ]
     story.append(data_table(scoring_rules[0], scoring_rules[1:],
                              col_widths=[1.0*inch, 2.8*inch, 1.0*inch, 1.7*inch]))
     story.append(sp(0.08))
     story.append(p(
-        "In the v7 60-day backtest, score-17 trades produced a 86% win rate — the clearest "
+        "In the v7 60-day backtest, score-17 trades produced a 86% win rate the clearest "
         "evidence that when 17+ of 20 institutional signals agree simultaneously, the edge "
         "compounds dramatically. All five score tiers at >= 16 (2-lot) show 75%+ win rates, "
         "confirming the new threshold is well-calibrated."
@@ -3182,9 +3182,9 @@ def build():
         ["BNS Jump Detection", "jump_fraction = (RV-BV)/RV > 0.20", "All strategies"],
         ["OFI Strong Opposing", "|z_OFI| > 2.0 in opposing direction", "All strategies"],
         ["CVD Distribution Block", "Bearish divergence strength > 0.30", "VWAP Rev, FVG (longs only)"],
-        ["VVIX Extreme", "VVIX > 130", "All strategies — skip entire day"],
-        ["VIX Deep Backwardation", "VIX/VIX3M > 1.15", "All strategies — skip entire day"],
-        ["HAR Extreme Vol", "RV forecast > 92nd percentile", "All strategies — skip entire day"],
+        ["VVIX Extreme", "VVIX > 130", "All strategies skip entire day"],
+        ["VIX Deep Backwardation", "VIX/VIX3M > 1.15", "All strategies skip entire day"],
+        ["HAR Extreme Vol", "RV forecast > 92nd percentile", "All strategies skip entire day"],
         ["Macro Strong Headwind", "DXY up + TNX up, combined = strong_headwind", "Mean-rev longs only"],
     ]
     story.append(data_table(hard_blocks[0], hard_blocks[1:],
@@ -3208,7 +3208,7 @@ def build():
         ["Avg win / avg loss ratio", "b",  "0.892",    "$55.50 / $62.24"],
         ["Full Kelly fraction", "f*",      "0.561",    "Equation 18"],
         ["Half Kelly fraction", "f1/2",      "0.281",    "Institutional standard; below 2-contract threshold"],
-        ["2-contract gate", "score >= 10",  "10–12 pts","12-point scoring system (77% of trades in BT)"],
+        ["2-contract gate", "score >= 10",  "1012 pts","12-point scoring system (77% of trades in BT)"],
     ]
     story.append(data_table(kelly_table[0], kelly_table[1:],
                              col_widths=[2.2*inch, 1.1*inch, 1.4*inch, 1.8*inch]))
@@ -3224,7 +3224,7 @@ def build():
         "for contract sizing. Version 5.0 completely rebuilds this into a <b>regime-contextual "
         "learning engine</b> that records every real trade the user confirms taking, learns which "
         "strategies work in which market conditions, and feeds that knowledge back into the "
-        "12-point confidence scoring system. The bot is no longer static — it improves with every "
+        "12-point confidence scoring system. The bot is no longer static it improves with every "
         "confirmed trade."
     ))
     story.append(sp(0.1))
@@ -3243,7 +3243,7 @@ def build():
         ["vix / atr",       "Live values",                "Volatility context at signal time"],
         ["trend",           "e.g. 'strong_bull'",         "EMA regime at signal time"],
         ["vix_regime",      "'low'/'normal'/'elevated'",  "VIX bucket at signal time"],
-        ["confidence_score","0–12",                       "12-point score at signal time"],
+        ["confidence_score","012",                       "12-point score at signal time"],
         ["regime_key",      "'vix:normal|trend:bull'",    "Combined regime key for stat grouping"],
         ["taken",           "null -> True/False",          "Set when user confirms y/n"],
         ["outcome",         "null -> 'WIN'/'LOSS'",        "Set when user reports w/l"],
@@ -3259,9 +3259,9 @@ def build():
         "After confirming yes, the monitor asks: <i>\"Win or Loss? (w/l/s)\"</i> when the trade closes."
     ))
     story.extend(bullet([
-        "<b>y (yes):</b> <code>confirm_signal_taken(signal_id, True)</code> — increments confirmed_trades_today; sets taken=True; enables outcome prompt.",
-        "<b>n (no):</b> <code>confirm_signal_taken(signal_id, False)</code> — sets taken=False; slot stays open for next signal; no daily count.",
-        "<b>w / l:</b> <code>report_outcome(signal_id, 'WIN'/'LOSS', pnl)</code> — updates regime stats and adaptive scoring.",
+        "<b>y (yes):</b> <code>confirm_signal_taken(signal_id, True)</code> increments confirmed_trades_today; sets taken=True; enables outcome prompt.",
+        "<b>n (no):</b> <code>confirm_signal_taken(signal_id, False)</code> sets taken=False; slot stays open for next signal; no daily count.",
+        "<b>w / l:</b> <code>report_outcome(signal_id, 'WIN'/'LOSS', pnl)</code> updates regime stats and adaptive scoring.",
         "<b>s (skip):</b> outcome not recorded; signal still counts as taken but not used in learning.",
     ]))
     story.append(sp(0.1))
@@ -3284,8 +3284,8 @@ def build():
         "Once a strategy-regime bucket has at least 5 confirmed real trades, the system can "
         "compute a reliable WR estimate for that specific condition and generate actionable insights. "
         "The session open brief displays these insights: "
-        "<i>'Yes ORB 88% WR in [vix=normal + trend=bull] (15 trades) — HOT'</i> or "
-        "<i>'No vwap_bounce 43% WR in [vix=normal + trend=bear] (7 trades) — AVOID'</i>."
+        "<i>'Yes ORB 88% WR in [vix=normal + trend=bull] (15 trades) HOT'</i> or "
+        "<i>'No vwap_bounce 43% WR in [vix=normal + trend=bear] (7 trades) AVOID'</i>."
     ))
     story.append(sp(0.1))
 
@@ -3297,35 +3297,35 @@ def build():
     ))
     adj_table = [
         ["Recent Real WR (last 20 trades)", "Confidence Adjustment", "Effect on Score"],
-        [">= 80%",   "+1",  "Hot strategy — every trade gets a bonus point"],
-        ["50–80%",  "0",   "Normal — no adjustment"],
-        ["< 50%",   "−1",  "Cold strategy — every trade loses a point; harder to reach 2-lot threshold"],
+        [">= 80%",   "+1",  "Hot strategy every trade gets a bonus point"],
+        ["5080%",  "0",   "Normal no adjustment"],
+        ["< 50%",   "−1",  "Cold strategy every trade loses a point; harder to reach 2-lot threshold"],
     ]
     story.append(data_table(adj_table[0], adj_table[1:],
                              col_widths=[2.5*inch, 1.5*inch, 2.5*inch]))
     story.append(p(
         "The minimum of 5 real trades per strategy-regime bucket prevents premature adjustments. "
-        "A strategy with 2 losses and 0 wins does not get flagged cold — it needs at least 5 "
+        "A strategy with 2 losses and 0 wins does not get flagged cold it needs at least 5 "
         "observations before the bot trusts the WR estimate. This protects against overreacting "
         "to normal variance."
     ))
     story.append(sp(0.08))
     story.append(h3("Pause Logic (unchanged from v4.0)"))
     story.extend(bullet([
-        "<b>3 or more consecutive real losses:</b> session paused — monitor stops scanning until user types to continue.",
-        "<b>Daily P&L <= −$100:</b> daily loss limit — session paused for the day.",
-        "Both conditions check only <i>confirmed</i> trades (taken=True) — skipped signals do not count.",
+        "<b>3 or more consecutive real losses:</b> session paused monitor stops scanning until user types to continue.",
+        "<b>Daily P&L <= −$100:</b> daily loss limit session paused for the day.",
+        "Both conditions check only <i>confirmed</i> trades (taken=True) skipped signals do not count.",
     ]))
     story.append(PageBreak())
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 13. ORDER FLOW UPGRADE v6 — TWO-TARGET EXIT + NEW STRATEGIES
+    # 13. ORDER FLOW UPGRADE v6 TWO-TARGET EXIT + NEW STRATEGIES
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_header_bar("13. Order Flow Upgrade — Two-Target Exit & New Strategies"))
+    story.extend(section_header_bar("13. Order Flow Upgrade Two-Target Exit & New Strategies"))
     story.append(sp(0.1))
     story.append(p(
         "The most significant finding of the entire v5.0 backtest was not a new signal or a new "
-        "strategy — it was a fundamental flaw in the exit system. Before any new modules were "
+        "strategy it was a fundamental flaw in the exit system. Before any new modules were "
         "added, this structural problem was identified and fixed as the highest-ROI change in "
         "the entire Order Flow Upgrade cycle."
     ))
@@ -3347,7 +3347,7 @@ def build():
     story.append(callout(
         "The system was CORRECTLY identifying trades. Price was moving FAR in the right direction. "
         "The edge was real. The problem was the exit system moved the stop to breakeven at 1x risk "
-        "and then just waited — and 44% of the time, price reversed back to entry after the large move. "
+        "and then just waited and 44% of the time, price reversed back to entry after the large move. "
         "This was not a signal problem. It was purely an exit architecture problem."
     ))
     story.append(sp(0.08))
@@ -3371,7 +3371,7 @@ def build():
     story.append(p(
         "The 3x intraday ATR Chandelier was chosen because it gives trending trades room to "
         "breathe while still capturing a substantial portion of the move. At a typical 5-minute "
-        "ATR of 10-15 NQ points, the Chandelier trail is 30-45 points — wide enough that normal "
+        "ATR of 10-15 NQ points, the Chandelier trail is 30-45 points wide enough that normal "
         "intraday oscillations don't prematurely stop out the trend, but tight enough to capture "
         "a reversal when the trend ends. The Chandelier activates only after T1 is hit and is "
         "clamped at a minimum of entry (never a full loss after T1)."
@@ -3388,26 +3388,26 @@ def build():
         ["Strategy", "Original Target", "Extended T2 Target", "Rationale"],
         ["ORB", "1x ORB range", "3x ORB range", "Research: trend days go 2-3x ORB range 45-52% of sessions"],
         ["IB Breakout", "0.75x IB range", "2.5x IB range", "IB theory: single-direction days go 2-3x IB"],
-        ["VWAP Bounce", "ATR extension", "Chandelier trail", "These go 15.7x avg — let the trail capture it"],
+        ["VWAP Bounce", "ATR extension", "Chandelier trail", "These go 15.7x avg let the trail capture it"],
         ["Gap Fill", "Prior close", "Prior close", "Already optimal; target is the exact fill"],
     ]
     story.append(data_table(ext_targets[0], ext_targets[1:],
                              col_widths=[1.3*inch, 1.3*inch, 1.5*inch, 2.4*inch]))
     story.append(sp(0.08))
 
-    story.append(h2("13.5 The 80% Value Area Rule — A 30-Year Documented Edge"))
+    story.append(h2("13.5 The 80% Value Area Rule A 30-Year Documented Edge"))
     story.extend(explain_box("What is the Value Area? (Market Profile Explained Simply)",
         "Every trading session, NQ trades at different prices, and different amounts of contracts "
         "trade at each price. The 'Point of Control' (POC) is the price where the MOST contracts "
-        "traded — it is the market's most agreed-upon fair value for that day. "
-        "The 'Value Area' is the price range containing 70% of all the day's volume — the range "
+        "traded it is the market's most agreed-upon fair value for that day. "
+        "The 'Value Area' is the price range containing 70% of all the day's volume the range "
         "where the majority of institutional trading happened. Think of it as the 'comfort zone' "
         "where prices are considered fair. "
         "The NEXT DAY, the prior session's Value Area becomes a reference. If price opens OUTSIDE "
         "this area and then comes back inside, there is an 80% probability (documented by Jim Dalton "
         "over 30+ years of data) that price will travel all the way to the OTHER EDGE of the "
         "value area. This is because institutions that established their positions within the value "
-        "area yesterday will defend those levels today — creating enough buying/selling to push "
+        "area yesterday will defend those levels today creating enough buying/selling to push "
         "price across the entire value area once it re-enters."))
     story.append(p(
         "From The Profile Reports (Dalton Capital Management, 1987-1991), validated across 30+ years "
@@ -3429,7 +3429,7 @@ def build():
     story.append(data_table(va_setups[0], va_setups[1:],
                              col_widths=[0.9*inch, 2.2*inch, 1.0*inch, 1.3*inch, 1.4*inch]))
     story.append(p(
-        "Backtest result: 4 trades, 75% WR, $470 P&L in 60 days — the highest P&L-per-trade of "
+        "Backtest result: 4 trades, 75% WR, $470 P&L in 60 days the highest P&L-per-trade of "
         "any strategy ($117.50/trade vs system avg $58.12/trade)."
     ))
     story.append(sp(0.08))
@@ -3437,7 +3437,7 @@ def build():
     story.append(h2("13.6 Single Print Zones as Structural Targets"))
     story.append(p(
         "From 3,117 NQ session database (2014-2026): single print zones (Market Profile price "
-        "levels traded by only one 30-minute period — unfinished auctions) fill 66.1% within "
+        "levels traded by only one 30-minute period unfinished auctions) fill 66.1% within "
         "5 trading days. They act as structural price magnets."
     ))
     story.extend(bullet([
@@ -3453,17 +3453,17 @@ def build():
     # ══════════════════════════════════════════════════════════════════════════
     story.extend(section_header_bar("14. Walk-Forward Validation"))
     story.append(sp(0.1))
-    story.append(h2("14.1 Methodology — How We Prove the System Is Not 'Cheating'"))
+    story.append(h2("14.1 Methodology How We Prove the System Is Not 'Cheating'"))
     story.extend(explain_box("The Problem With Regular Backtests (Why They Can Be Misleading)",
         "When you test a trading strategy on historical data, there is a sneaky risk called "
         "OVERFITTING or CURVE-FITTING. It works like this: imagine you test 1,000 different "
         "strategies on the same historical data and pick the one that performed best. That "
-        "strategy might look amazing on paper — but only because out of 1,000 random tries, "
+        "strategy might look amazing on paper but only because out of 1,000 random tries, "
         "one HAPPENED to fit the historical data perfectly by luck. When you try to trade it "
         "live, it fails because the rules were too specific to that particular historical period. "
         "Walk-forward validation PREVENTS this by strictly separating the data used for "
         "developing the strategy (in-sample) from the data used for testing it (out-of-sample). "
-        "The strategy cannot 'see' the test data during development — so if it performs well "
+        "The strategy cannot 'see' the test data during development so if it performs well "
         "on the test data, it is GENUINELY good, not just lucky."))
     story.append(p(
         "Walk-forward validation is the gold standard for verifying that a trading system's edge "
@@ -3483,16 +3483,16 @@ def build():
     ))
     story.append(p(
         "A WFE above 50% indicates acceptable robustness. A WFE above 80% is exceptional. "
-        "A WFE above 100% — meaning OOS outperforms IS — is rare and indicates genuine structural "
+        "A WFE above 100% meaning OOS outperforms IS is rare and indicates genuine structural "
         "edge rather than in-sample fitting."
     ))
     story.append(sp(0.08))
     story.append(h2("14.2 Results"))
     wfv_data = [
         ["Period", "Days", "Trades", "Win Rate", "P&L", "Ann. Return", "WFE"],
-        ["In-Sample (Mar 23 - May 7, 2026)", "43", "24", "83.3%", "$1,440", "~14.4%/yr", "—"],
+        ["In-Sample (Mar 23 - May 7, 2026)", "43", "24", "83.3%", "$1,440", "~14.4%/yr", ""],
         ["Out-of-Sample (May 12 - Jun 2, 2026)", "15", "14", "71.4%", "$808", "~29.0%/yr", "201%"],
-        ["Combined (all 43 trades)", "58", "43", "76.7%", "$2,499", "~22.7%/yr", "—"],
+        ["Combined (all 43 trades)", "58", "43", "76.7%", "$2,499", "~22.7%/yr", ""],
     ]
     story.append(data_table(wfv_data[0], wfv_data[1:],
                              col_widths=[2.5*inch, 0.6*inch, 0.6*inch, 0.7*inch, 0.7*inch, 1.0*inch, 0.7*inch]))
@@ -3500,17 +3500,17 @@ def build():
     story.append(p(
         "WFE of 201% means the out-of-sample period produced double the annualized return of the "
         "in-sample period on entirely unseen data. The typical failure mode of overfit systems is "
-        "WFE well below 50% — OOS performance degrades dramatically versus IS. The Isogeny Alpha System "
+        "WFE well below 50% OOS performance degrades dramatically versus IS. The Isogeny Alpha System "
         "shows the opposite: OOS WR (71.4%) is lower than IS WR (83.3%) as expected, but the "
         "OOS P&L ($808 from 14 trades = $57.7/trade) actually exceeds the IS average ($1,440 from "
-        "24 trades = $60/trade) — extremely tight degradation ratio."
+        "24 trades = $60/trade) extremely tight degradation ratio."
     ))
     story.append(sp(0.06))
     story.append(callout(
         "The walk-forward result answers the critical question: is the 76.7% win rate real or "
         "the result of testing on the same data used to tune the system? Answer: it is real. "
         "The system performed with 71.4% win rate on data it had never seen. The edge is "
-        "structural — rooted in institutional market microstructure, not parameter overfitting."
+        "structural rooted in institutional market microstructure, not parameter overfitting."
     ))
     story.extend(chart_img("05_rolling_winrate.png", caption_text="Figure 5. Rolling 15-trade performance metrics. Top: win rate with green/red shading vs 50%%. "
         "Middle: rolling average P&L per trade. Bottom: rolling Sharpe ratio with 1.0 and 2.0 reference lines."))
@@ -3615,31 +3615,31 @@ def build():
         "The Isogeny Alpha System v7.0 represents the completion of three successive development cycles: "
         "the original adaptive framework (v1-v4), the institutional overlay with 12-point scoring (v5), "
         "and now the Order Flow and Research upgrades (v6-v7) that addressed the system's two "
-        "most critical remaining weaknesses. Six core strategies — Gap Fill, ORB, IB Breakout, "
-        "VWAP Reversion, VWAP Bounce, and the new 80% Value Area Rule — are filtered by a "
+        "most critical remaining weaknesses. Six core strategies Gap Fill, ORB, IB Breakout, "
+        "VWAP Reversion, VWAP Bounce, and the new 80% Value Area Rule are filtered by a "
         "20-point institutional confidence layer combining academic microstructure signals, "
         "macro context, options market structure, and real-time order flow proxies."
     ))
     story.append(sp(0.08))
     story.append(p(
-        "The v7 60-day hybrid backtest produced 43 trades with a 76.7% win rate and $2,499 P&L — "
+        "The v7 60-day hybrid backtest produced 43 trades with a 76.7% win rate and $2,499 P&L "
         "66% above the $1,500 Tradeify target with a maximum drawdown of $221 (22% of the $1,000 limit). "
         "The average R:R of 4.23x represents a 35% improvement over v5.0 (3.14x), driven entirely "
         "by the two-target exit system that eliminated the 44% breakeven trade problem. Walk-forward "
-        "validation confirmed robustness with WFE of 201% — out-of-sample performance (71.4% WR, "
+        "validation confirmed robustness with WFE of 201% out-of-sample performance (71.4% WR, "
         "$808 P&L on 14 unseen trades) exceeded the in-sample annualized rate."
     ))
     story.append(sp(0.08))
     story.append(p(
         "The single most impactful discovery of the entire development cycle was not a new signal "
         "or a new strategy. It was the identification that 26 of 59 trades (44%) were averaging "
-        "15.7x favorable excursion before returning to breakeven. The system had the edge — "
+        "15.7x favorable excursion before returning to breakeven. The system had the edge "
         "the exit architecture was throwing it away. The two-target fix (T1 locks 50% at 1R, "
         "T2 trails with Chandelier) converted those $0 wins into real profits and added $693 "
         "of the $693 improvement in P&L vs v5.0."
     ))
     story.append(sp(0.1))
-    story.append(h2("Key Takeaways — What Every Reader Should Remember"))
+    story.append(h2("Key Takeaways What Every Reader Should Remember"))
     story.extend(explain_box("The 5 Most Important Things in This Entire Paper",
         "1. EXIT SYSTEM IS EVERYTHING. A system can be right about direction and still make $0 "
         "if the exit is wrong. 44% of trades were costing us money by exiting at breakeven. "
@@ -3651,15 +3651,15 @@ def build():
         "4. MATH PROVES THE EDGE IS REAL. Walk-forward validation with WFE=201% means the system "
         "performed BETTER on data it had never seen than on the data it was built on. "
         "5. RISK MANAGEMENT BEFORE EVERYTHING. The $50 per trade limit, the 3-trade daily cap, "
-        "the $150 daily loss limit — these are not restrictions. They are what keeps the evaluation "
+        "the $150 daily loss limit these are not restrictions. They are what keeps the evaluation "
         "alive while the edge does its work over many trades."))
     story.extend(bullet([
         "<b>The two-target exit system is the single highest-ROI change in the entire development history.</b> Converting 26 zero-P&L wins to real profits through T1+Chandelier added $693 P&L per 60 days.",
         "<b>The 20-point scoring system with WFE=201% confirms the institutional overlay is real alpha.</b> Score 17 = 86% WR. Multiple orthogonal institutional signals agreeing simultaneously compounds the edge dramatically.",
-        "<b>RVOL thin hard block filtered 17 low-participation trades</b> — the most effective single new filter. When institutions are not present, retail patterns reliably fail.",
-        "<b>The 80% Value Area Rule (Dalton 30+ years of data)</b> adds a genuinely new edge: $470 P&L from just 4 trades at $117.50 per trade — the highest P&L-per-trade of any strategy.",
+        "<b>RVOL thin hard block filtered 17 low-participation trades</b> the most effective single new filter. When institutions are not present, retail patterns reliably fail.",
+        "<b>The 80% Value Area Rule (Dalton 30+ years of data)</b> adds a genuinely new edge: $470 P&L from just 4 trades at $117.50 per trade the highest P&L-per-trade of any strategy.",
         "<b>Walk-forward validation (WFE=201%)</b> demonstrates the system's edge is structural. Out-of-sample performance exceeded in-sample annualized returns on data the system had never seen.",
-        "<b>COT extreme positioning</b> from the CFTC TFF report provides weekly macro context. When Leveraged Funds are at 90th percentile net long, the crowd is crowded — a documented contrarian warning.",
+        "<b>COT extreme positioning</b> from the CFTC TFF report provides weekly macro context. When Leveraged Funds are at 90th percentile net long, the crowd is crowded a documented contrarian warning.",
     ]))
     story.append(sp(0.1))
     story.append(h2("Future Work"))
@@ -3710,7 +3710,7 @@ def build():
     # APPENDICES
     # ══════════════════════════════════════════════════════════════════════════
     # ══════════════════════════════════════════════════════════════════════════
-    # HOW TO USE THIS SYSTEM — PRACTICAL GUIDE
+    # HOW TO USE THIS SYSTEM PRACTICAL GUIDE
     # ══════════════════════════════════════════════════════════════════════════
     story.extend(section_header_bar("Practical Guide: How to Use This System Every Day"))
     story.append(sp(0.1))
@@ -3720,7 +3720,7 @@ def build():
         "practical guide to operating the Isogeny Alpha System on a live prop firm evaluation account."
     ))
     story.extend(explain_box("The Trader's Role in This System",
-        "You are not a signal generator — the computer does that. You are a RISK MANAGER "
+        "You are not a signal generator the computer does that. You are a RISK MANAGER "
         "and EXECUTION SPECIALIST. Your job is: (1) Make sure the system is running and healthy "
         "before the session. (2) When a signal fires, quickly assess if the conditions look "
         "right on YOUR chart and decide y/n. (3) Execute the trade cleanly on Tradovate at "
@@ -3759,44 +3759,44 @@ def build():
 
     story.append(h2("In-Session Trading Protocol (9:30 AM to 12:00 PM)"))
     story.extend(flow_steps([
-        ("9:30 AM — First Bar Closes", "The 9:30 bar (first 5 minutes) closes at 9:35. The monitor scans for gap fill signals. If you hear the popup sound, check your phone/screen immediately."),
-        ("Signal Fires — Read the Popup", "The popup shows: STRATEGY (e.g. ORB LONG), ENTRY (e.g. 20,045), STOP (e.g. 20,038), TARGET (e.g. 20,180). Quickly check your chart: does price look right for this trade?"),
+        ("9:30 AM First Bar Closes", "The 9:30 bar (first 5 minutes) closes at 9:35. The monitor scans for gap fill signals. If you hear the popup sound, check your phone/screen immediately."),
+        ("Signal Fires Read the Popup", "The popup shows: STRATEGY (e.g. ORB LONG), ENTRY (e.g. 20,045), STOP (e.g. 20,038), TARGET (e.g. 20,180). Quickly check your chart: does price look right for this trade?"),
         ("Make the Decision", "Type 'y' on the monitor keyboard if you are taking it. Type 'n' if you are skipping. You have the current 5-minute bar (about 4-5 minutes) to decide and execute."),
         ("Execute on Tradovate", "Open Tradovate. Select MNQ. Choose BUY (long) or SELL (short). Market order at current price. Immediately set your stop at the price shown. Set your limit target at T1 level."),
         ("Trade is Live", "Now just watch. The monitor will tell you when T1 is hit. At T1, exit half your position manually. Let the other half run with a mental Chandelier stop."),
         ("Trade Closes", "When the trade closes (stop hit or target hit), type the outcome: 'w' for win, 'l' for loss. The bot memory records this for learning."),
-        ("12:00 PM — Hard Stop", "When you hear the 'Session Over' popup at noon, immediately close any open positions at market price. No exceptions. No 'one more minute.'"),
+        ("12:00 PM Hard Stop", "When you hear the 'Session Over' popup at noon, immediately close any open positions at market price. No exceptions. No 'one more minute.'"),
     ], title="IN-SESSION SIGNAL RESPONSE PROTOCOL"))
     story.append(sp(0.1))
 
-    story.append(h2("Signal Decision Framework — Should You Take This Trade?"))
+    story.append(h2("Signal Decision Framework Should You Take This Trade?"))
     story.append(p(
-        "The system generates a signal. The monitor shows you the confidence score (e.g. 'Score: 18 — 2 contracts'). "
+        "The system generates a signal. The monitor shows you the confidence score (e.g. 'Score: 18 2 contracts'). "
         "Here is the quick mental checklist to run before typing 'y':"
     ))
     decision_data = [
         ["Question", "If YES", "If NO"],
         ["Does price look clean on your chart (not in middle of a chaos spike)?",
-         "Proceed", "Skip — the computer might have a valid signal but execution will be messy"],
+         "Proceed", "Skip the computer might have a valid signal but execution will be messy"],
         ["Is the spread on Tradovate normal (0.25-0.50 pts, not 2+ pts)?",
-         "Proceed", "Skip — wide spreads mean low liquidity or news impact"],
+         "Proceed", "Skip wide spreads mean low liquidity or news impact"],
         ["Is your daily trade count below 3?",
-         "Proceed", "Skip — daily limit hit, monitor will have already blocked signal"],
+         "Proceed", "Skip daily limit hit, monitor will have already blocked signal"],
         ["Is your daily P&L above -$100?",
-         "Proceed", "Stop trading for the day — daily loss limit reached"],
+         "Proceed", "Stop trading for the day daily loss limit reached"],
         ["Is the score >= 16 (2-lot signal)?",
          "Trade 2 MNQ contracts", "Trade 1 MNQ contract only (score 6-15)"],
         ["Are you feeling emotional (angry from prior loss, greedy from win)?",
-         "Skip this signal", "Proceed — calm state = better execution"],
+         "Skip this signal", "Proceed calm state = better execution"],
     ]
     story.append(data_table(decision_data[0], decision_data[1:],
                              col_widths=[3.0*inch, 1.5*inch, 2.0*inch]))
     story.append(sp(0.1))
 
     story.append(h2("What to Do After a Loss"))
-    story.extend(warn_box("After a Loss — The Most Important Protocol",
+    story.extend(warn_box("After a Loss The Most Important Protocol",
         "Losses are NORMAL. Even the best trading system loses 23% of its trades. "
-        "What kills prop firm evaluations is not losses — it is REVENGE TRADING after losses. "
+        "What kills prop firm evaluations is not losses it is REVENGE TRADING after losses. "
         "After a losing trade: Close the position immediately at the system's stop price (never widen stops). "
         "Type 'l' in the monitor to log the outcome. Take 5 minutes away from the screen. "
         "Come back and let the SYSTEM decide the next trade. Do NOT immediately force the next trade "
@@ -3820,19 +3820,19 @@ def build():
 
     story.append(h2("Common Mistakes to Avoid"))
     story.extend(bullet([
-        "<b>Widening stops:</b> The system calculated the stop. It is there for a mathematical reason. If you move the stop further away 'just this once', you are no longer trading the system — you are trading your emotions.",
+        "<b>Widening stops:</b> The system calculated the stop. It is there for a mathematical reason. If you move the stop further away 'just this once', you are no longer trading the system you are trading your emotions.",
         "<b>Closing winners early:</b> The two-target exit is designed to let winners run. If you exit at T1 and then watch price rally to T2, you are leaving documented profit on the table. Trust the Chandelier trail.",
         "<b>Trading past noon:</b> The system STOPS at noon. NQ afternoon sessions have completely different dynamics. The backtested edge applies only to the 9:30 AM - 12:00 PM window.",
         "<b>Skipping signals to 'see if it works first':</b> If you skip the first trade of the day to 'confirm' the direction and then take the second signal, you have now self-selected into a system where you only trade after the edge has already partially played out.",
         "<b>Adding positions mid-trade:</b> The system sizes 1 or 2 MNQ per signal. Adding more contracts mid-trade based on 'feeling' changes the math of every risk calculation the system made.",
-        "<b>Trading on news days without adjusting:</b> FOMC days, CPI days, and NFP Fridays create unpredictable spikes. The VIX gate usually handles this, but be extra cautious — when in doubt, sit out.",
+        "<b>Trading on news days without adjusting:</b> FOMC days, CPI days, and NFP Fridays create unpredictable spikes. The VIX gate usually handles this, but be extra cautious when in doubt, sit out.",
     ]))
     story.append(PageBreak())
 
     # ══════════════════════════════════════════════════════════════════════════
     # COMPLETE TRADE WALKTHROUGHS
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_header_bar("Complete Trade Walkthroughs — 4 Real Backtest Examples"))
+    story.extend(section_header_bar("Complete Trade Walkthroughs 4 Real Backtest Examples"))
     story.append(sp(0.1))
     story.append(p(
         "This section walks through four complete trades from the v7.0 backtest in full detail. "
@@ -3841,10 +3841,10 @@ def build():
     ))
     story.append(sp(0.08))
 
-    story.append(h2("Trade 1: ORB Long — April 2, 2026 (Score: 19, 2-lot, +$388)"))
+    story.append(h2("Trade 1: ORB Long April 2, 2026 (Score: 19, 2-lot, +$388)"))
     story.extend(example_box("Trade Setup and Execution",
         ["DATE: April 2, 2026 (Thursday)",
-         "STRATEGY: Opening Range Breakout — Pullback Entry",
+         "STRATEGY: Opening Range Breakout Pullback Entry",
          "REGIME: Unavailable (early in backtest period), VIX: 15.2, trend: strong_bull",
          "",
          "9:30 bar: NQ opens at 21,350. High=21,385, Low=21,342. Range = 43 pts",
@@ -3875,7 +3875,7 @@ def build():
          "TOTAL P&L: $18 + $258 = $388  (on $18 maximum risk per MNQ = 21.6:1 R:R on T2 half!)"]))
     story.append(sp(0.08))
 
-    story.append(h2("Trade 2: VWAP Bounce — May 11, 2026 (Score: 18, 2-lot, +$151)"))
+    story.append(h2("Trade 2: VWAP Bounce May 11, 2026 (Score: 18, 2-lot, +$151)"))
     story.extend(example_box("Trade Setup and Execution",
         ["DATE: May 11, 2026 (Monday)",
          "STRATEGY: VWAP Bounce AM",
@@ -3904,10 +3904,10 @@ def build():
          "TOTAL P&L: $20 + $131 = $151"]))
     story.append(sp(0.08))
 
-    story.append(h2("Trade 3: 80% VA Rule Short — May 21, 2026 (Score: 17, 2-lot, +$232)"))
+    story.append(h2("Trade 3: 80% VA Rule Short May 21, 2026 (Score: 17, 2-lot, +$232)"))
     story.extend(example_box("Trade Setup and Execution",
         ["DATE: May 21, 2026 (Thursday)",
-         "STRATEGY: 80% Value Area Rule — Type A (opened above VAH)",
+         "STRATEGY: 80% Value Area Rule Type A (opened above VAH)",
          "REGIME: HMM=stress, VIX=21.0, HAR stop_mult=1.30",
          "",
          "Prior session Value Area: VAH=21,600, VAL=21,450, POC=21,520",
@@ -3936,8 +3936,8 @@ def build():
          "  TOTAL RECORDED P&L: $232 (slight difference from Chandelier exact exit bar)"]))
     story.append(sp(0.08))
 
-    story.append(h2("Trade 4: VWAP Bounce Loss — May 26, 2026 (Score: 17, 2-lot, -$57)"))
-    story.extend(example_box("A Losing Trade — What It Looks Like and How to Handle It",
+    story.append(h2("Trade 4: VWAP Bounce Loss May 26, 2026 (Score: 17, 2-lot, -$57)"))
+    story.extend(example_box("A Losing Trade What It Looks Like and How to Handle It",
         ["DATE: May 26, 2026 (Tuesday)",
          "STRATEGY: VWAP Bounce AM",
          "REGIME: HMM=bear, VIX=18.5",
@@ -3947,14 +3947,14 @@ def build():
          "SIGNAL: Long (buying dip at VWAP in trend direction? Wait...)",
          "Problem: trend is BEAR but signal is LONG... system still fires because",
          "VWAP bounce requires confirmed trend, and bear trend = short VWAP bounces ideally",
-         "This is a long on a bear day — the score will be lower but >5 so it fires",
+         "This is a long on a bear day the score will be lower but >5 so it fires",
          "",
          "ENTRY: Long at 21,310",
          "STOP:  21,305  (risk = 5 pts = $10 per MNQ)",
          "T1:    21,315",
          "",
          "CONFIDENCE SCORE: 17 (sufficient for 2-lot despite bear HMM because VWAP bounce",
-         "  in stress/bear regime still scores well on most factors — HMM gives 0 but",
+         "  in stress/bear regime still scores well on most factors HMM gives 0 but",
          "  17 other signals confirm)",
          "",
          "EXECUTION:",
@@ -4008,10 +4008,10 @@ def build():
                              col_widths=[0.3*inch, 0.9*inch, 1.5*inch, 2.0*inch, 1.0*inch]))
     story.append(sp(0.1))
 
-    story.append(h2("Hard Block vs Scoring — The Two-Tier Filter"))
+    story.append(h2("Hard Block vs Scoring The Two-Tier Filter"))
     story.append(p(
         "The 20-point scoring system works alongside a separate set of HARD BLOCKS. A hard block "
-        "overrides the score entirely — even a trade with a perfect score of 21 is blocked if "
+        "overrides the score entirely even a trade with a perfect score of 21 is blocked if "
         "a hard block condition is met. Think of hard blocks as absolute veto power, and the "
         "scoring system as a quality dial that adjusts position size and filters marginal setups."
     ))
@@ -4019,15 +4019,15 @@ def build():
         ["Hard Block", "Trigger Condition", "What It Prevents", "Why It's Hard vs Soft"],
         ["BNS Jump",         "Bipower variation detects price jump",    "Entering during news spikes",  "Any entry during a detected jump is dangerous regardless of other signals"],
         ["OFI Opposing",     "|z_OFI| > 2.0 against signal",           "Fighting strong flow",         "When 2-sigma institutional flow opposes you, the probability math turns negative"],
-        ["CVD Distribution", "Bearish CVD divergence > 0.30 strength", "Mean-rev longs into selling",  "Sustained distribution is not a scoring matter — it is a structural danger"],
+        ["CVD Distribution", "Bearish CVD divergence > 0.30 strength", "Mean-rev longs into selling",  "Sustained distribution is not a scoring matter it is a structural danger"],
         ["VVIX Extreme",     "VVIX > 130",                              "Vol-of-vol crisis days",       "When vol of vol is that extreme, option markets are broken and moves are unpredictable"],
-        ["Deep Backwardation","VIX/VIX3M > 1.15",                      "All strategies on fear days",  "Deep backwardation historically precedes gap-down crashes — avoid entirely"],
-        ["HAR Skip",         "RV forecast > 92nd percentile",           "Extreme vol forecast days",    "HAR model says realized vol will be extreme — stops will be too tight for any entry"],
-        ["Macro Headwind",   "DXY+TNX strong headwind + mean-rev long", "Mean-rev longs into macro wind","Strong macro headwind makes longs fail at much higher rate — structural block"],
-        ["RVOL Thin",        "RVOL < 0.8x",                            "Low-participation signals",    "Thin volume moves reliably fail — 40% follow-through rate, not worth trading"],
-        ["CVD Climax",       "Buying or selling climax detected",       "Chasing exhausted moves",     "Entering into a climax is entering at the worst possible price — no scoring overcomes this"],
+        ["Deep Backwardation","VIX/VIX3M > 1.15",                      "All strategies on fear days",  "Deep backwardation historically precedes gap-down crashes avoid entirely"],
+        ["HAR Skip",         "RV forecast > 92nd percentile",           "Extreme vol forecast days",    "HAR model says realized vol will be extreme stops will be too tight for any entry"],
+        ["Macro Headwind",   "DXY+TNX strong headwind + mean-rev long", "Mean-rev longs into macro wind","Strong macro headwind makes longs fail at much higher rate structural block"],
+        ["RVOL Thin",        "RVOL < 0.8x",                            "Low-participation signals",    "Thin volume moves reliably fail 40% follow-through rate, not worth trading"],
+        ["CVD Climax",       "Buying or selling climax detected",       "Chasing exhausted moves",     "Entering into a climax is entering at the worst possible price no scoring overcomes this"],
         ["Absorption",       "Strong opposing absorption at level",     "Entering into a wall",         "Institutional limit orders absorbing your direction = your stop WILL be hit"],
-        ["VPIN High",        "VPIN > 0.65 on mean-rev setups",         "Mean-rev into informed flow",  "High informed flow means directed institutional movement — do not fade it"],
+        ["VPIN High",        "VPIN > 0.65 on mean-rev setups",         "Mean-rev into informed flow",  "High informed flow means directed institutional movement do not fade it"],
     ]
     story.append(data_table(blocks_data[0], blocks_data[1:],
                              col_widths=[1.2*inch, 1.4*inch, 1.2*inch, 2.7*inch]))
@@ -4129,16 +4129,16 @@ def build():
          "(what each signal means) but not the derivations. The 'Plain English' boxes throughout "
          "this paper give you everything you need to operate the system confidently without "
          "being a mathematician."),
-        ("The system generated a signal but my chart looks different — should I still take it?",
+        ("The system generated a signal but my chart looks different should I still take it?",
          "The computer is using different data (yfinance 5-min bars) than your visual chart may show. "
          "Small discrepancies in bar timing are normal. The key rule: if the entry price shown looks "
          "approximately correct on your chart and there is no obvious reason to skip (extreme "
          "news spike, pre-market gap out of the signal's expected range), take the signal."),
         ("Why does the system sometimes NOT generate signals even though the market looks good to me?",
-         "Several possible reasons: (1) The confidence score was below 6 — too many institutional "
+         "Several possible reasons: (1) The confidence score was below 6 too many institutional "
          "signals disagreed. (2) A hard block was triggered (RVOL thin, CVD climax, BNS jump). "
          "(3) Daily trade limit of 3 already reached. (4) The VIX gate blocked the strategy type. "
-         "The system is MORE selective than a human eye — that is by design. No trade is better "
+         "The system is MORE selective than a human eye that is by design. No trade is better "
          "than a bad trade."),
         ("What is the maximum I can lose in a single session?",
          "With 3 trades maximum per day and $50 maximum risk per trade (1 MNQ), the absolute worst "
@@ -4153,19 +4153,19 @@ def build():
         ("What happens if internet goes out during a trade?",
          "The monitor would stop updating, but your position on Tradovate is still live and "
          "protected by the stop order you placed at entry. This is why you ALWAYS enter the "
-         "stop order on Tradovate immediately after execution — never rely solely on the system "
+         "stop order on Tradovate immediately after execution never rely solely on the system "
          "to manage your risk. The stop on the exchange protects you even if your computer dies."),
-        ("Why did the walk-forward show 201% WFE — is that too high to be real?",
+        ("Why did the walk-forward show 201% WFE is that too high to be real?",
          "It sounds suspicious but it is legitimate. Here is why: the in-sample period (March-May 7) "
          "included some of the highest-VIX, most volatile sessions (the tariff shock). These sessions "
-         "are harder to trade — the system was more cautious. The out-of-sample period (May 12-June 2) "
+         "are harder to trade the system was more cautious. The out-of-sample period (May 12-June 2) "
          "was calmer, with better trend conditions for VWAP bounce strategies. The system performed "
          "better on unseen data because the unseen data happened to be in a more favorable regime "
-         "for the system's strengths. This is not overfitting — it is genuine regime variation."),
+         "for the system's strengths. This is not overfitting it is genuine regime variation."),
         ("Why does the system use only 9:30 AM to noon? What about the afternoon?",
          "The backtest and signal calibration was done exclusively on the AM session. The strategies "
          "rely on the opening range (9:30 bar), the Initial Balance (9:30-10:00), morning TSMOM "
-         "(first 30-min), and VWAP from session open — all morning concepts. The afternoon session "
+         "(first 30-min), and VWAP from session open all morning concepts. The afternoon session "
          "has completely different dynamics (thinner volume, position-squaring ahead of close, "
          "different institutional flow patterns). Trading the same signals in the PM without "
          "separate calibration would be untested and likely less effective."),
@@ -4242,7 +4242,7 @@ def build():
     story.append(PageBreak())
 
     # ── Appendix D: Institutional Module Parameter Reference ──────────────────
-    story.extend(section_header_bar("Appendix D  —  Institutional Module Parameters"))
+    story.extend(section_header_bar("Appendix D   Institutional Module Parameters"))
     story.append(sp(0.1))
     inst_params = [
         ["Module", "Key Parameter", "Value", "Tuning Basis"],
@@ -4266,7 +4266,7 @@ def build():
     story.append(PageBreak())
 
     # ── Appendix E: Glossary ──────────────────────────────────────────────────
-    story.extend(section_header_bar("Appendix E  —  Glossary of Terms"))
+    story.extend(section_header_bar("Appendix E   Glossary of Terms"))
     story.append(sp(0.1))
     glossary = [
         ["Term", "Definition"],
