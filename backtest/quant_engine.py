@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 import yfinance as yf
 
 from backtest.data_loader import load_nq, label_sessions
@@ -44,7 +45,8 @@ from strategy.quant_fvg  import detect as detect_fvg
 
 EST = ZoneInfo("America/New_York")
 
-MNQ_PER_POINT  = 2.0
+MNQ_PER_POINT     = 2.0
+CHANDELIER_MULT   = 3.0
 MAX_RISK_USD   = 50.0
 MAX_STOP_PTS   = 25.0
 MAX_TRADES_DAY = 3
@@ -102,6 +104,22 @@ def _get_vix(vix_cache: dict, trade_date: date) -> float:
 
 # ── Trade simulation ──────────────────────────────────────────────────────────
 
+def _bar_atr(df: pd.DataFrame, bar_idx: int, window: int = 14) -> float:
+    """14-bar intraday True Range average for Chandelier trail."""
+    start = max(0, bar_idx - window)
+    w = df.iloc[start: bar_idx + 1]
+    if len(w) < 2:
+        return 5.0
+    h = w["High"].values.astype(float)
+    l = w["Low"].values.astype(float)
+    c = w["Close"].values.astype(float)
+    prev_c = np.empty_like(c)
+    prev_c[0] = float(df.iloc[max(0, start - 1)]["Close"]) if start > 0 else c[0]
+    prev_c[1:] = c[:-1]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    return max(1.0, float(np.mean(tr[-min(window, len(tr)):])))
+
+
 def _simulate_trade(
     df: pd.DataFrame,
     signal_bar_idx: int,
@@ -109,79 +127,98 @@ def _simulate_trade(
     entry: float,
     stop: float,
     target: float,
-    be_mult: float = 1.0,
+    be_mult: float = 1.0,   # retained for signature compat; T1 system supersedes it
     max_hour: int = 12,
 ) -> tuple[float, float, str]:
     """
-    Simulate bar-by-bar outcome with trailing stop.
-    Stop moves to breakeven once be_mult × risk_pts profit is reached.
-    be_mult=1.0 for mean-reversion, 2.0 for breakouts (orb).
-    max_hour: close all positions at this hour (12 for AM, 16 for PM sessions).
+    Two-target exit system.
+    T1: 1x risk -> exit 50% of position, lock that P&L.
+    T2: trail remaining 50% with 3x intraday ATR Chandelier stop.
+    Original stop holds until T1 is hit; after T1 stop is >= entry (long) / <= entry (short).
     """
-    if direction == "long":
-        risk_pts   = entry - stop
-        reward_pts = target - entry
-    else:
-        risk_pts   = stop - entry
-        reward_pts = entry - target
+    per_pt_half = MNQ_PER_POINT * 0.5
 
-    current_stop  = stop
-    at_breakeven  = False
+    risk_pts = abs(entry - stop)
+    if risk_pts < 1.0:
+        return entry, 0.0, "WIN"
 
-    for i in range(signal_bar_idx, min(signal_bar_idx + 200, len(df))):
+    t1_target   = (entry + risk_pts) if direction == "long" else (entry - risk_pts)
+    intra_atr   = _bar_atr(df, signal_bar_idx)
+
+    t1_hit     = False
+    t1_pnl     = 0.0
+    curr_stop  = stop
+    trail_anch = entry
+
+    for i in range(signal_bar_idx, min(signal_bar_idx + 300, len(df))):
         row   = df.iloc[i]
         high  = float(row["High"])
         low   = float(row["Low"])
         close = float(row["Close"])
-        open_ = float(row["Open"])
 
         ts_est = df.index[i].astimezone(EST)
         if ts_est.hour >= max_hour:
-            pnl = (close - entry) * MNQ_PER_POINT if direction == "long" \
-                  else (entry - close) * MNQ_PER_POINT
-            return close, pnl, "LOSS" if pnl < 0 else "WIN"
+            if t1_hit:
+                remain = (close - entry) if direction == "long" else (entry - close)
+                total  = t1_pnl + remain * per_pt_half
+                return close, total, "WIN" if total > 0 else "LOSS"
+            pts = (close - entry) if direction == "long" else (entry - close)
+            return close, pts * per_pt_half * 2, "WIN" if pts > 0 else "LOSS"
 
-        if direction == "long":
-            if not at_breakeven and high >= entry + risk_pts * be_mult:
-                current_stop = entry
-                at_breakeven = True
-
-            hit_stop   = low  <= current_stop
-            hit_target = high >= target
-            if hit_stop and hit_target:
-                if close >= open_:
-                    return target, reward_pts * MNQ_PER_POINT, "WIN"
-                else:
-                    pnl = (current_stop - entry) * MNQ_PER_POINT
-                    return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
-            elif hit_target:
-                return target, reward_pts * MNQ_PER_POINT, "WIN"
-            elif hit_stop:
-                pnl = (current_stop - entry) * MNQ_PER_POINT
-                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
+        if not t1_hit:
+            if direction == "long":
+                if high >= target and low > curr_stop:
+                    return target, (target - entry) * per_pt_half * 2, "WIN"
+                if high >= t1_target:
+                    t1_pnl    = risk_pts * per_pt_half
+                    t1_hit    = True
+                    trail_anch = max(high, t1_target)
+                    curr_stop  = max(entry, trail_anch - CHANDELIER_MULT * intra_atr)
+                    if high >= target:
+                        return target, t1_pnl + (target - entry) * per_pt_half, "WIN"
+                elif low <= curr_stop:
+                    pts = curr_stop - entry
+                    return curr_stop, pts * per_pt_half * 2, "LOSS" if pts < 0 else "WIN"
+            else:
+                if low <= target and high < curr_stop:
+                    return target, (entry - target) * per_pt_half * 2, "WIN"
+                if low <= t1_target:
+                    t1_pnl    = risk_pts * per_pt_half
+                    t1_hit    = True
+                    trail_anch = min(low, t1_target)
+                    curr_stop  = min(entry, trail_anch + CHANDELIER_MULT * intra_atr)
+                    if low <= target:
+                        return target, t1_pnl + (entry - target) * per_pt_half, "WIN"
+                elif high >= curr_stop:
+                    pts = entry - curr_stop
+                    return curr_stop, pts * per_pt_half * 2, "LOSS" if pts < 0 else "WIN"
         else:
-            if not at_breakeven and low <= entry - risk_pts * be_mult:
-                current_stop = entry
-                at_breakeven = True
-
-            hit_stop   = high >= current_stop
-            hit_target = low  <= target
-            if hit_stop and hit_target:
-                if close <= open_:
-                    return target, reward_pts * MNQ_PER_POINT, "WIN"
-                else:
-                    pnl = (entry - current_stop) * MNQ_PER_POINT
-                    return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
-            elif hit_target:
-                return target, reward_pts * MNQ_PER_POINT, "WIN"
-            elif hit_stop:
-                pnl = (entry - current_stop) * MNQ_PER_POINT
-                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
+            if direction == "long":
+                trail_anch = max(trail_anch, high)
+                curr_stop  = max(curr_stop, trail_anch - CHANDELIER_MULT * intra_atr)
+                curr_stop  = max(curr_stop, entry)
+                if high >= target:
+                    return target, t1_pnl + (target - entry) * per_pt_half, "WIN"
+                elif low <= curr_stop:
+                    total = t1_pnl + (curr_stop - entry) * per_pt_half
+                    return curr_stop, total, "WIN" if total > 0 else "LOSS"
+            else:
+                trail_anch = min(trail_anch, low)
+                curr_stop  = min(curr_stop, trail_anch + CHANDELIER_MULT * intra_atr)
+                curr_stop  = min(curr_stop, entry)
+                if low <= target:
+                    return target, t1_pnl + (entry - target) * per_pt_half, "WIN"
+                elif high >= curr_stop:
+                    total = t1_pnl + (entry - curr_stop) * per_pt_half
+                    return curr_stop, total, "WIN" if total > 0 else "LOSS"
 
     last = float(df["Close"].iloc[-1])
-    pnl  = (last - entry) * MNQ_PER_POINT if direction == "long" \
-           else (entry - last) * MNQ_PER_POINT
-    return last, pnl, "LOSS" if pnl < 0 else "WIN"
+    if t1_hit:
+        remain = (last - entry) if direction == "long" else (entry - last)
+        total  = t1_pnl + remain * per_pt_half
+        return last, total, "WIN" if total > 0 else "LOSS"
+    pts = (last - entry) if direction == "long" else (entry - last)
+    return last, pts * per_pt_half * 2, "LOSS" if pts < 0 else "WIN"
 
 
 def _add_trade(

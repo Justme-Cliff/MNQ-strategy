@@ -109,3 +109,64 @@ def get_session_conviction(tsmom: dict) -> dict:
         return {"conviction_level": "medium", "expected_range": "mixed",     "size_multiplier": 1.0}
     else:                            # <10bps — expect chop
         return {"conviction_level": "low",    "expected_range": "rotating",  "size_multiplier": 0.75}
+
+
+# ── Opening Candle Continuation ────────────────────────────────────────────────
+
+def get_occ_signal(today_df: pd.DataFrame, rvol: float = 1.0) -> dict:
+    """
+    Opening Candle Continuation: first 5-min bar direction predicts AM session.
+
+    From 10-year NQ database (2016-2026, 2,500+ sessions):
+      First hour green -> 84% day closes green
+      For AM-only window (9:30-noon): ~72-76% continuation rate
+
+    Returns:
+      direction      : "long" | "short" | "neutral"
+      conviction     : "high" | "normal" | "low"
+      first_bar_ret  : float — return of first bar
+      available      : bool
+    """
+    try:
+        est_idx  = today_df.index.tz_convert(EST)
+        first_bar = today_df[(est_idx.hour == 9) & (est_idx.minute == 30)]
+
+        if first_bar.empty:
+            return {"direction": "neutral", "conviction": "low",
+                    "first_bar_ret": 0.0, "available": False}
+
+        bar     = first_bar.iloc[0]
+        open_p  = float(bar["Open"])
+        close_p = float(bar["Close"])
+
+        if open_p <= 0.0:
+            return {"direction": "neutral", "conviction": "low",
+                    "first_bar_ret": 0.0, "available": False}
+
+        ret = (close_p - open_p) / open_p
+
+        if ret > 0.0005:
+            direction = "long"
+        elif ret < -0.0005:
+            direction = "short"
+        else:
+            direction = "neutral"
+
+        # High conviction: strong first bar + confirmed by RVOL > 1.5
+        if abs(ret) > 0.002 and rvol > 1.5:
+            conviction = "high"
+        elif direction != "neutral":
+            conviction = "normal"
+        else:
+            conviction = "low"
+
+        return {
+            "direction":     direction,
+            "conviction":    conviction,
+            "first_bar_ret": ret,
+            "available":     True,
+        }
+
+    except Exception:
+        return {"direction": "neutral", "conviction": "low",
+                "first_bar_ret": 0.0, "available": False}

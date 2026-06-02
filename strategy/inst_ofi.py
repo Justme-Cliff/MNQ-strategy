@@ -132,3 +132,79 @@ def get_cvd_divergence(
             return {"divergence": "bullish", "strength": float(strength), "bars_diverging": lookback_bars}
 
     return {"divergence": "none", "strength": 0.0, "bars_diverging": 0}
+
+
+# ── CVD Climax / Volume Climax ─────────────────────────────────────────────────
+
+def get_cvd_climax(
+    today_df: pd.DataFrame,
+    bar_pos: int,
+    atr: float,
+    vol_lookback: int = 20,
+) -> dict:
+    """
+    Detect buying/selling climax or CVD exhaustion at session extremes.
+
+    Patterns:
+      buying:    price at session high + RVOL > 2.5 + CVD at max + next bar lower
+      selling:   price at session low  + RVOL > 2.5 + CVD at min + next bar higher
+      exhaustion: CVD makes new extreme but price fails to confirm
+
+    Returns:
+      climax_type  : "buying" | "selling" | "exhaustion" | "none"
+      strength     : float 0-1
+      reversal_dir : "short" | "long" | "none"
+    """
+    _def = {"climax_type": "none", "strength": 0.0, "reversal_dir": "none"}
+
+    try:
+        if bar_pos < vol_lookback + 2:
+            return _def
+
+        window  = today_df.iloc[max(0, bar_pos - vol_lookback): bar_pos + 1]
+        if len(window) < 5:
+            return _def
+
+        cvd      = compute_session_cvd(window)
+        avg_vol  = float(window["Volume"].mean())
+        if avg_vol < 1.0:
+            return _def
+
+        cur      = today_df.iloc[bar_pos]
+        cur_vol  = float(cur["Volume"])
+        cur_high = float(cur["High"])
+        cur_low  = float(cur["Low"])
+        cur_close = float(cur["Close"])
+
+        rvol      = cur_vol / avg_vol
+        sess_high = float(window["High"].max())
+        sess_low  = float(window["Low"].min())
+        cvd_val   = float(cvd.iloc[-1])
+        cvd_max   = float(cvd.max())
+        cvd_min   = float(cvd.min())
+        cvd_range = abs(cvd_max - cvd_min) + 1e-8
+
+        near_high = cur_high >= sess_high * 0.999
+        near_low  = cur_low  <= sess_low  * 1.001
+
+        if bar_pos + 1 >= len(today_df):
+            return _def
+        next_close = float(today_df.iloc[bar_pos + 1]["Close"])
+
+        if near_high and rvol > 2.5 and cvd_val >= cvd_max * 0.95 and next_close < cur_close:
+            str_ = min(1.0, (rvol / 4.0) * 0.5 + 0.5 * (cvd_val - cvd_min) / cvd_range)
+            return {"climax_type": "buying", "strength": str_, "reversal_dir": "short"}
+
+        if near_low and rvol > 2.5 and cvd_val <= cvd_min * 0.95 and next_close > cur_close:
+            str_ = min(1.0, rvol / 4.0)
+            return {"climax_type": "selling", "strength": str_, "reversal_dir": "long"}
+
+        if near_high and cvd_val < cvd_max * 0.80:
+            return {"climax_type": "exhaustion", "strength": 0.5, "reversal_dir": "short"}
+        if near_low and cvd_val > cvd_min * 0.80 and cvd_min < 0:
+            return {"climax_type": "exhaustion", "strength": 0.5, "reversal_dir": "long"}
+
+        return _def
+
+    except Exception:
+        return _def

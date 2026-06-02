@@ -96,8 +96,8 @@ def print_hybrid(trades: list[HybridTrade], s: dict, blocks: dict) -> None:
 
     _print_strategy_breakdown(trades, show_lots=True)
 
-    # Score distribution (0–12 point system)
-    print(f"\n  Confidence score distribution (0–12, skip ≤3, 2-lot ≥10):")
+    # Score distribution (0–16 point system, +1 memory bonus)
+    print(f"\n  Confidence score distribution (0-16+memory, skip <=4, 2-lot >=13):")
     score_groups = defaultdict(list)
     for t in trades:
         score_groups[t.score].append(t)
@@ -121,7 +121,7 @@ def print_hybrid(trades: list[HybridTrade], s: dict, blocks: dict) -> None:
 
     # Confidence factor hit rates (from score_breakdown dict)
     if trades:
-        print(f"\n  Confidence factor hit rates (12-point system):")
+        print(f"\n  Confidence factor hit rates (16-point system):")
         all_factors = set()
         for t in trades:
             bd = getattr(t, "score_breakdown", {})
@@ -163,9 +163,13 @@ def _print_strategy_breakdown(trades: list, show_lots: bool = False) -> None:
     for t in trades:
         strats[t.strategy].append(t)
     print(f"\n  Strategy breakdown:")
-    for name in ["gap_fill", "fvg", "orb", "ib_breakout", "vwap_rev"]:
+    all_strats = sorted(set(t.strategy for t in trades))
+    for name in ["gap_fill", "fvg", "orb", "ib_breakout", "vwap_rev",
+                 "vwap_pm", "vwap_bounce", "vwap_bounce_pm", "va_rule"] + \
+                [s for s in all_strats if s not in {"gap_fill","fvg","orb",
+                 "ib_breakout","vwap_rev","vwap_pm","vwap_bounce","vwap_bounce_pm","va_rule"}]:
         if name not in strats:
-            continue
+            continue  # noqa: skip strategies with no trades
         st  = strats[name]
         sw  = [t for t in st if t.outcome == "WIN"]
         swr = len(sw) / len(st) * 100

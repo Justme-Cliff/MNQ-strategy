@@ -1,12 +1,12 @@
 """
-Hybrid Engine — Base Quant Strategies + Full 12-Point Institutional Scoring.
+Hybrid Engine — Base Quant Strategies + Full 16-Point Institutional Scoring.
 
 Philosophy:
-  The base system's trade signals are kept intact.
-  Institutional signals score each trade 0–12 and map to contract size.
+  Base trade signals are kept intact.
+  Institutional signals score each trade 0-16 and map to contract size.
   Hard blocks prevent the worst trades; soft scoring rewards the best ones.
 
-Confidence score (0–12 points):
+Confidence score (0-16 points):
   +1  TSMOM aligned with signal direction (or exempt)
   +1  GEX bias favors this strategy type
   +1  ES lead-lag confirms direction
@@ -19,21 +19,33 @@ Confidence score (0–12 points):
   +1  NQ/ES spread not extended against signal
   +1  Session conviction matches strategy type
   +1  Open type hint matches strategy type
+  +1  RVOL 1.5-2.5x (institutional participation confirmed)
+  +1  Opening Candle Continuation matches signal direction
+  +1  No opposing absorption at entry level
+  +1  Kyle's lambda informed flow aligned
   +1  (memory bonus) strategy recently performing well
 
 Contract sizing:
-  score 10-12  →  2 MNQ contracts  (full institutional consensus)
-  score 7-9    →  1 MNQ contract   (strong signal, standard size)
-  score 4-6    →  1 MNQ contract   (no size but still trade)
-  score ≤ 3   →  SKIP             (weak setup, no institutional backing)
+  score >= 13  ->  2 MNQ contracts  (full institutional consensus)
+  score 5-12   ->  1 MNQ contract   (strong signal, standard size)
+  score <= 4   ->  SKIP             (insufficient backing)
+
+Two-target exit system:
+  T1: 1x risk from entry -> exit 50% of position, lock P&L
+  T2: trail remaining 50% with 3x intraday ATR Chandelier stop
+      OR original target if hit first
 
 Hard blocks (any one blocks regardless of score):
   BNS jump detected
-  OFI z-score |z| > 2.0 opposing
+  OFI z-score opposing
   HAR extreme vol forecast (skip day)
-  VVIX > 130 (vol-of-vol crisis)
-  VIX deep backwardation (size_mult = 0)
-  Macro strong headwind + mean-rev long signal
+  VVIX > 130
+  VIX deep backwardation
+  Macro strong headwind + mean-rev long
+  RVOL thin (< 0.8x) -- nobody home, no participation
+  CVD buying climax + long signal
+  CVD selling climax + short signal
+  Strong absorption opposing signal direction
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -54,13 +66,17 @@ from strategy.quant_vwap import detect_all as detect_vwap, detect_bounce as dete
 from strategy.quant_fvg  import detect as detect_fvg
 
 from strategy.inst_harv    import bns_jump_flag, har_forecast
-from strategy.inst_ofi     import get_ofi_zscore, get_cvd_divergence
+from strategy.inst_ofi     import get_ofi_zscore, get_cvd_divergence, get_cvd_climax
 from strategy.inst_hmm     import get_hmm_gate
 from strategy.inst_gex     import compute_gex_proxy, load_vxn
-from strategy.inst_tsmom   import get_session_tsmom, get_session_conviction, TSMOM_EXEMPT
+from strategy.inst_tsmom   import get_session_tsmom, get_session_conviction, get_occ_signal, TSMOM_EXEMPT
 from strategy.inst_leadlag import check_es_confirmation, get_nq_es_spread_signal
 from strategy.inst_sectors import get_tech_sector_bias, load_sector_data
 from strategy.inst_macro   import get_macro_bias, load_macro_data
+from strategy.inst_rvol    import compute_rvol
+from strategy.inst_absorption import detect_absorption
+from strategy.inst_lambda  import get_lambda_signal
+from strategy.inst_va_rule import detect_va_rule_signal, VASignal
 from strategy.bot_memory   import get_conf_adjustment
 
 EST = ZoneInfo("America/New_York")
@@ -70,10 +86,12 @@ MAX_RISK_PTS   = 25.0
 MAX_TRADES_DAY = 3
 MAX_DAILY_LOSS = 150.0
 
-MEAN_REV_STRATS = {"vwap_rev", "vwap_pm", "fvg", "ib_breakout"}
+MEAN_REV_STRATS = {"vwap_rev", "vwap_pm", "fvg", "ib_breakout", "va_rule"}
 BREAKOUT_STRATS = {"orb", "gap_fill"}
 
-OFI_HARD_BLOCK_Z = 2.0
+OFI_HARD_BLOCK_Z    = 2.0
+CHANDELIER_MULT     = 3.0     # 3x intraday ATR for trailing stop
+ABSORPTION_BLOCK_THRESH = 0.4  # block when absorption strength > this
 
 
 @dataclass
@@ -104,7 +122,7 @@ class HybridTrade:
     stop_mult:     float = 1.0
 
 
-# ── VIX helper ────────────────────────────────────────────────────────────────
+# ── VIX helpers ───────────────────────────────────────────────────────────────
 
 def _load_vix(period: str = "90d") -> dict[date, float]:
     try:
@@ -153,7 +171,25 @@ def _get_ext_vix(cache: dict, d: date) -> Optional[float]:
     return None
 
 
-# ── Trade simulation ──────────────────────────────────────────────────────────
+# ── Intraday ATR helper ───────────────────────────────────────────────────────
+
+def _bar_atr(df: pd.DataFrame, bar_idx: int, window: int = 14) -> float:
+    """14-bar True Range average from 5-min bars — used for Chandelier trail."""
+    start = max(0, bar_idx - window)
+    w = df.iloc[start: bar_idx + 1]
+    if len(w) < 2:
+        return 5.0
+    h = w["High"].values.astype(float)
+    l = w["Low"].values.astype(float)
+    c = w["Close"].values.astype(float)
+    prev_c = np.empty_like(c)
+    prev_c[0] = float(df.iloc[max(0, start - 1)]["Close"]) if start > 0 else c[0]
+    prev_c[1:] = c[:-1]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    return max(1.0, float(np.mean(tr[-min(window, len(tr)):])))
+
+
+# ── Two-Target Exit System ────────────────────────────────────────────────────
 
 def _simulate_trade(
     df: pd.DataFrame,
@@ -163,105 +199,177 @@ def _simulate_trade(
     stop: float,
     target: float,
     n_contracts: int = 1,
-    be_mult: float = 1.0,
     max_hour: int = 12,
 ) -> tuple[float, float, str]:
-    per_pt = MNQ_PER_POINT * n_contracts
+    """
+    Two-target exit system (ORDER_FLOW_UPGRADE_PLAN Module A).
 
-    if direction == "long":
-        risk_pts   = entry - stop
-        reward_pts = target - entry
-    else:
-        risk_pts   = stop - entry
-        reward_pts = entry - target
+    T1: 1x risk distance from entry -> exit 50% of position, lock that P&L.
+    T2: trail remaining 50% with 3x intraday ATR Chandelier stop, or hit
+        original target first.
 
-    current_stop = stop
-    at_breakeven = False
+    Original stop holds until T1 is hit.
+    After T1: stop is at minimum entry; Chandelier trails higher (long) / lower (short).
 
-    for i in range(signal_bar_idx, min(signal_bar_idx + 200, len(df))):
+    This fixes the 44% breakeven trade problem: 26/59 trades were $0 wins
+    despite averaging 15.7x favorable excursion. Now T1 locks in 1R on 50%.
+    """
+    per_pt_half = MNQ_PER_POINT * n_contracts * 0.5  # 50% of position value
+
+    risk_pts = abs(entry - stop)
+    if risk_pts < 1.0:
+        return entry, 0.0, "WIN"
+
+    t1_target = (entry + risk_pts) if direction == "long" else (entry - risk_pts)
+
+    # Compute intraday ATR for Chandelier trail (from bars around signal)
+    intraday_atr = _bar_atr(df, signal_bar_idx)
+
+    t1_hit     = False
+    t1_pnl     = 0.0
+    curr_stop  = stop
+    trail_anch = entry  # tracks highest high (long) or lowest low (short) since T1
+
+    for i in range(signal_bar_idx, min(signal_bar_idx + 300, len(df))):
         row   = df.iloc[i]
         high  = float(row["High"])
         low   = float(row["Low"])
         close = float(row["Close"])
-        open_ = float(row["Open"])
 
-        if df.index[i].astimezone(EST).hour >= max_hour:
-            pnl = (close - entry) * per_pt if direction == "long" \
-                  else (entry - close) * per_pt
-            return close, pnl, "LOSS" if pnl < 0 else "WIN"
+        ts_est = df.index[i].astimezone(EST)
+        if ts_est.hour >= max_hour:
+            # Session end: exit remaining position at close
+            if t1_hit:
+                remain_pts = (close - entry) if direction == "long" else (entry - close)
+                total = t1_pnl + remain_pts * per_pt_half
+                return close, total, "WIN" if total > 0 else "LOSS"
+            pts = (close - entry) if direction == "long" else (entry - close)
+            pnl = pts * per_pt_half * 2
+            return close, pnl, "WIN" if pnl > 0 else "LOSS"
 
-        if direction == "long":
-            if not at_breakeven and high >= entry + risk_pts * be_mult:
-                current_stop = entry
-                at_breakeven = True
-            hit_stop   = low  <= current_stop
-            hit_target = high >= target
-            if hit_stop and hit_target:
-                if close >= open_:
-                    return target, reward_pts * per_pt, "WIN"
-                pnl = (current_stop - entry) * per_pt
-                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
-            elif hit_target:
-                return target, reward_pts * per_pt, "WIN"
-            elif hit_stop:
-                pnl = (current_stop - entry) * per_pt
-                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
+        if not t1_hit:
+            # Phase 1: original stop holds, watch for T1 hit
+            if direction == "long":
+                hit_orig = high >= target
+                hit_t1   = high >= t1_target
+                hit_stop = low  <= curr_stop
+
+                if hit_orig and not hit_stop:
+                    # Full target hit before stop — both T1 and T2 profit
+                    full_reward = (target - entry) * per_pt_half * 2
+                    return target, full_reward, "WIN"
+                if hit_t1:
+                    t1_pnl    = risk_pts * per_pt_half
+                    t1_hit    = True
+                    trail_anch = max(high, t1_target)
+                    curr_stop  = max(entry, trail_anch - CHANDELIER_MULT * intraday_atr)
+                    if hit_orig:
+                        remain = (target - entry) * per_pt_half
+                        return target, t1_pnl + remain, "WIN"
+                elif hit_stop:
+                    pts = curr_stop - entry
+                    pnl = pts * per_pt_half * 2
+                    return curr_stop, pnl, "LOSS" if pnl < 0 else "WIN"
+            else:  # short
+                hit_orig = low  <= target
+                hit_t1   = low  <= t1_target
+                hit_stop = high >= curr_stop
+
+                if hit_orig and not hit_stop:
+                    full_reward = (entry - target) * per_pt_half * 2
+                    return target, full_reward, "WIN"
+                if hit_t1:
+                    t1_pnl    = risk_pts * per_pt_half
+                    t1_hit    = True
+                    trail_anch = min(low, t1_target)
+                    curr_stop  = min(entry, trail_anch + CHANDELIER_MULT * intraday_atr)
+                    if hit_orig:
+                        remain = (entry - target) * per_pt_half
+                        return target, t1_pnl + remain, "WIN"
+                elif hit_stop:
+                    pts = entry - curr_stop
+                    pnl = pts * per_pt_half * 2
+                    return curr_stop, pnl, "LOSS" if pnl < 0 else "WIN"
+
         else:
-            if not at_breakeven and low <= entry - risk_pts * be_mult:
-                current_stop = entry
-                at_breakeven = True
-            hit_stop   = high >= current_stop
-            hit_target = low  <= target
-            if hit_stop and hit_target:
-                if close <= open_:
-                    return target, reward_pts * per_pt, "WIN"
-                pnl = (entry - current_stop) * per_pt
-                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
-            elif hit_target:
-                return target, reward_pts * per_pt, "WIN"
-            elif hit_stop:
-                pnl = (entry - current_stop) * per_pt
-                return current_stop, pnl, "LOSS" if pnl < 0 else "WIN"
+            # Phase 2: T1 hit, trail remaining 50% with Chandelier
+            if direction == "long":
+                trail_anch = max(trail_anch, high)
+                new_trail  = trail_anch - CHANDELIER_MULT * intraday_atr
+                curr_stop  = max(curr_stop, new_trail)
+                curr_stop  = max(curr_stop, entry)   # never below entry after T1
 
+                hit_tgt  = high >= target
+                hit_stop_trail = low <= curr_stop
+
+                if hit_tgt:
+                    remain = (target - entry) * per_pt_half
+                    return target, t1_pnl + remain, "WIN"
+                elif hit_stop_trail:
+                    remain = (curr_stop - entry) * per_pt_half
+                    total  = t1_pnl + remain
+                    return curr_stop, total, "WIN" if total > 0 else "LOSS"
+            else:  # short
+                trail_anch = min(trail_anch, low)
+                new_trail  = trail_anch + CHANDELIER_MULT * intraday_atr
+                curr_stop  = min(curr_stop, new_trail)
+                curr_stop  = min(curr_stop, entry)   # never above entry after T1
+
+                hit_tgt  = low <= target
+                hit_stop_trail = high >= curr_stop
+
+                if hit_tgt:
+                    remain = (entry - target) * per_pt_half
+                    return target, t1_pnl + remain, "WIN"
+                elif hit_stop_trail:
+                    remain = (entry - curr_stop) * per_pt_half
+                    total  = t1_pnl + remain
+                    return curr_stop, total, "WIN" if total > 0 else "LOSS"
+
+    # End of data
     last = float(df["Close"].iloc[-1])
-    pnl  = (last - entry) * per_pt if direction == "long" \
-           else (entry - last) * per_pt
+    if t1_hit:
+        remain_pts = (last - entry) if direction == "long" else (entry - last)
+        total = t1_pnl + remain_pts * per_pt_half
+        return last, total, "WIN" if total > 0 else "LOSS"
+    pts = (last - entry) if direction == "long" else (entry - last)
+    pnl = pts * per_pt_half * 2
     return last, pnl, "LOSS" if pnl < 0 else "WIN"
 
 
-# ── Confidence scorer (0–12 points) ──────────────────────────────────────────
+# ── Confidence scorer (0–16 points) ──────────────────────────────────────────
 
 def _score_trade(
-    strategy:   str,
+    strategy:     str,
     sig,
-    today_df:   pd.DataFrame,
+    today_df:     pd.DataFrame,
     local_bar_pos: int,
-    df:         pd.DataFrame,
-    es_df:      pd.DataFrame,
-    hmm:        dict,
-    gex:        dict,
-    tsmom:      dict,
-    market:     dict,
-    sector:     dict,
-    macro:      dict,
+    df:           pd.DataFrame,
+    es_df:        pd.DataFrame,
+    hmm:          dict,
+    gex:          dict,
+    tsmom:        dict,
+    market:       dict,
+    sector:       dict,
+    macro:        dict,
     nq_es_spread: dict,
+    occ:          dict,
 ) -> tuple[int, dict]:
-    """Score a trade 0–12 using all institutional signals."""
+    """Score a trade 0-16 using all institutional signals."""
     bd: dict[str, int] = {}
+    atr = market.get("atr", 0.0)
 
-    # 1. TSMOM: first 30-min momentum aligned?
+    # 1. TSMOM
     if strategy in TSMOM_EXEMPT:
         bd["tsmom"] = 1
     elif not tsmom.get("available", False):
         bd["tsmom"] = 1
-    elif tsmom["bias"] == sig.direction:
-        bd["tsmom"] = 1
-    elif tsmom["bias"] == "neutral":
+    elif tsmom["bias"] == sig.direction or tsmom["bias"] == "neutral":
         bd["tsmom"] = 1
     else:
         bd["tsmom"] = 0
 
-    # 2. GEX ratio: gamma regime favors strategy type?
+    # 2. GEX
     bias = gex.get("bias", "neutral")
     if bias == "neutral":
         bd["gex"] = 1
@@ -272,18 +380,15 @@ def _score_trade(
     else:
         bd["gex"] = 0
 
-    # 3. ES lead-lag: ES confirms signal direction?
+    # 3. ES lead-lag
     try:
-        es_ok = check_es_confirmation(es_df, df, sig.signal_bar_idx, sig.direction)
-        bd["es"] = 1 if es_ok else 0
+        bd["es"] = 1 if check_es_confirmation(es_df, df, sig.signal_bar_idx, sig.direction) else 0
     except Exception:
         bd["es"] = 1
 
-    # 4. HMM: regime state supports this trade?
+    # 4. HMM regime
     state = hmm.get("state", "unavailable")
-    if state == "unavailable":
-        bd["hmm"] = 1
-    elif state == "bull":
+    if state in ("unavailable", "bull"):
         bd["hmm"] = 1
     elif state == "volatile":
         bd["hmm"] = 1 if strategy in BREAKOUT_STRATS else 0
@@ -292,7 +397,7 @@ def _score_trade(
     else:
         bd["hmm"] = 1
 
-    # 5. CVD divergence: cumulative delta confirms direction?
+    # 5. CVD divergence
     try:
         cvd = get_cvd_divergence(today_df, local_bar_pos)
         div = cvd.get("divergence", "none")
@@ -307,44 +412,38 @@ def _score_trade(
     except Exception:
         bd["cvd"] = 1
 
-    # 6. Overnight range: day type matches strategy type?
+    # 6. Overnight range
     ov = market.get("overnight", {})
     if ov.get("day_type_bias") == "expansion" and strategy in BREAKOUT_STRATS:
         bd["overnight"] = 1
     elif ov.get("day_type_bias") == "rotation" and strategy in MEAN_REV_STRATS:
         bd["overnight"] = 1
-    elif ov.get("day_type_bias") == "neutral":
-        bd["overnight"] = 1
-    elif not ov:
+    elif ov.get("day_type_bias") in ("neutral", None) or not ov:
         bd["overnight"] = 1
     else:
         bd["overnight"] = 0
 
-    # 7. VIX term structure: contango/backwardation aligns with strategy?
+    # 7. VIX term structure
     vix_term = market.get("vix_term", {})
     structure = vix_term.get("structure", "contango")
     if structure in ("deep_contango", "contango", "flat"):
-        bd["vix_term"] = 1   # calm = all strategies fine
-    elif structure in ("backwardation", "deep_backwardation") and strategy in BREAKOUT_STRATS:
-        bd["vix_term"] = 1   # stress = only breakouts
-    elif structure in ("backwardation", "deep_backwardation") and strategy in MEAN_REV_STRATS:
-        bd["vix_term"] = 0   # stress + mean-rev = bad combo
-    else:
         bd["vix_term"] = 1
+    elif structure in ("backwardation", "deep_backwardation") and strategy in BREAKOUT_STRATS:
+        bd["vix_term"] = 1
+    else:
+        bd["vix_term"] = 0 if strategy in MEAN_REV_STRATS else 1
 
-    # 8. XLK sector bias: tech flow aligned with signal direction?
-    if not sector.get("available", False):
+    # 8. XLK sector bias
+    if not sector.get("available", False) or sector.get("bias") == "neutral":
         bd["sector"] = 1
     elif sig.direction == "long" and sector.get("long_favored", False):
         bd["sector"] = 1
     elif sig.direction == "short" and sector.get("short_favored", False):
         bd["sector"] = 1
-    elif sector.get("bias") == "neutral":
-        bd["sector"] = 1
     else:
         bd["sector"] = 0
 
-    # 9. Macro DXY+TNX: no strong headwind for this signal direction?
+    # 9. Macro DXY+TNX
     if not macro.get("available", False):
         bd["macro"] = 1
     elif macro.get("combined") == "strong_headwind" and sig.direction == "long":
@@ -356,46 +455,85 @@ def _score_trade(
     else:
         bd["macro"] = 1
 
-    # 10. NQ/ES spread: NQ fairly priced relative to ES?
-    if not nq_es_spread.get("available", False):
+    # 10. NQ/ES spread
+    if not nq_es_spread.get("available", False) or nq_es_spread.get("signal") == "neutral":
         bd["nq_es_spread"] = 1
     elif sig.direction == "long" and nq_es_spread.get("nq_favor_long", False):
         bd["nq_es_spread"] = 1
     elif sig.direction == "short" and nq_es_spread.get("nq_favor_short", False):
         bd["nq_es_spread"] = 1
-    elif nq_es_spread.get("signal") == "neutral":
-        bd["nq_es_spread"] = 1
     else:
         bd["nq_es_spread"] = 0
 
-    # 11. Session conviction: first 30-min magnitude predicts day type
+    # 11. Session conviction
     conviction = get_session_conviction(tsmom)
     if conviction["expected_range"] == "trending" and strategy in BREAKOUT_STRATS:
         bd["conviction"] = 1
     elif conviction["expected_range"] == "rotating" and strategy in MEAN_REV_STRATS:
         bd["conviction"] = 1
     else:
-        bd["conviction"] = 1   # neutral → give point (no penalty)
+        bd["conviction"] = 1  # neutral -> no penalty
 
-    # 12. Open type: opening drive type matches strategy?
-    open_type = market.get("open_type", {})
-    hint = open_type.get("day_type_hint", "mixed")
+    # 12. Open type
+    hint = market.get("open_type", {}).get("day_type_hint", "mixed")
     if hint == "trend" and strategy in BREAKOUT_STRATS:
         bd["open_type"] = 1
     elif hint == "trend" and strategy in MEAN_REV_STRATS:
         bd["open_type"] = 0
-    elif hint == "range" and strategy in MEAN_REV_STRATS:
-        bd["open_type"] = 1
-    elif hint == "reversal" and strategy in MEAN_REV_STRATS:
-        bd["open_type"] = 1
-    elif hint == "mixed":
+    elif hint in ("range", "reversal") and strategy in MEAN_REV_STRATS:
         bd["open_type"] = 1
     else:
-        bd["open_type"] = 1
+        bd["open_type"] = 1  # mixed -> no penalty
 
-    # Memory bonus: apply per-strategy confidence adjustment from real trade history
+    # 13. RVOL — institutional participation
+    try:
+        today = today_df.index[0].astimezone(EST).date()
+        rvol_data = compute_rvol(df, today, local_bar_pos)
+        regime = rvol_data.get("regime", "normal")
+        if regime in ("high", "normal"):
+            bd["rvol"] = 1
+        elif regime == "climax" and strategy in BREAKOUT_STRATS:
+            bd["rvol"] = 0  # potential exhaustion on breakout = caution
+        elif regime == "thin":
+            bd["rvol"] = 0
+        else:
+            bd["rvol"] = 1
+    except Exception:
+        bd["rvol"] = 1
+
+    # 14. OCC — opening candle continuation
+    occ_dir = occ.get("direction", "neutral")
+    if occ_dir == sig.direction:
+        bd["occ"] = 1
+    elif occ_dir == "neutral" or not occ.get("available", False):
+        bd["occ"] = 1
+    else:
+        bd["occ"] = 0
+
+    # 15. Absorption — no opposing at entry level
+    try:
+        abs_data = detect_absorption(today_df, local_bar_pos, atr)
+        if not abs_data["absorbed"]:
+            bd["absorption"] = 1
+        elif abs_data["direction"] == "sell_side" and sig.direction == "short":
+            bd["absorption"] = 1  # aligned: selling absorption at resistance = good for short
+        elif abs_data["direction"] == "buy_side" and sig.direction == "long":
+            bd["absorption"] = 1  # aligned: buying absorption at support = good for long
+        else:
+            bd["absorption"] = 0  # opposing absorption = friction
+    except Exception:
+        bd["absorption"] = 1
+
+    # 16. Kyle's lambda — informed flow intensity
+    try:
+        lam = get_lambda_signal(today_df, local_bar_pos, sig.direction)
+        bd["lambda"] = 1 if lam.get("aligned", True) else 0
+    except Exception:
+        bd["lambda"] = 1
+
+    # Memory bonus
     mem_adj = get_conf_adjustment(strategy)
-    bd["memory"] = max(0, min(1, 1 + mem_adj))  # clamp to 0-1; default 1 neutral
+    bd["memory"] = max(0, min(1, 1 + mem_adj))
 
     score = sum(bd.values())
     return score, bd
@@ -404,25 +542,29 @@ def _score_trade(
 # ── Hard-block check ──────────────────────────────────────────────────────────
 
 def _is_hard_blocked(
-    strategy:     str,
+    strategy:      str,
     sig,
-    today_df:     pd.DataFrame,
+    today_df:      pd.DataFrame,
     local_bar_pos: int,
-    market:       dict,
-    macro:        dict,
+    df:            pd.DataFrame,
+    today:         date,
+    market:        dict,
+    macro:         dict,
 ) -> tuple[bool, str]:
-    # BNS jump: fat-tail risk
+    atr = market.get("atr", 0.0)
+
+    # BNS jump
     if bns_jump_flag(today_df, local_bar_pos):
         return True, "bns_jump"
 
-    # OFI: strong opposing institutional flow
+    # OFI opposing
     ofi_z = get_ofi_zscore(today_df, local_bar_pos)
     if sig.direction == "long" and ofi_z < -OFI_HARD_BLOCK_Z:
         return True, "ofi_opposing"
     if sig.direction == "short" and ofi_z > OFI_HARD_BLOCK_Z:
         return True, "ofi_opposing"
 
-    # CVD: strong bearish divergence → hard block on mean-rev longs
+    # CVD distribution on mean-rev longs
     try:
         cvd = get_cvd_divergence(today_df, local_bar_pos)
         if (strategy in MEAN_REV_STRATS and sig.direction == "long"
@@ -431,21 +573,49 @@ def _is_hard_blocked(
     except Exception:
         pass
 
-    # VVIX: vol-of-vol crisis
-    vvix_regime = market.get("vvix_regime", {})
-    if vvix_regime.get("skip_day", False):
+    # VVIX crisis
+    if market.get("vvix_regime", {}).get("skip_day", False):
         return True, "vvix_extreme"
 
-    # VIX deep backwardation: skip everything
-    vix_term = market.get("vix_term", {})
-    if vix_term.get("structure") == "deep_backwardation":
+    # VIX deep backwardation
+    if market.get("vix_term", {}).get("structure") == "deep_backwardation":
         return True, "vix_backwardation"
 
-    # Macro strong headwind + mean-rev long = dangerous
+    # Macro strong headwind + mean-rev long
     if (macro.get("combined") == "strong_headwind"
             and sig.direction == "long"
             and strategy in MEAN_REV_STRATS):
         return True, "macro_headwind"
+
+    # RVOL thin — no institutional participation
+    try:
+        rvol_data = compute_rvol(df, today, local_bar_pos)
+        if rvol_data.get("regime") == "thin":
+            return True, "rvol_thin"
+    except Exception:
+        pass
+
+    # CVD climax opposing signal
+    try:
+        climax = get_cvd_climax(today_df, local_bar_pos, atr)
+        rev_dir = climax.get("reversal_dir", "none")
+        if rev_dir == "short" and sig.direction == "long":
+            return True, "cvd_buying_climax"
+        if rev_dir == "long" and sig.direction == "short":
+            return True, "cvd_selling_climax"
+    except Exception:
+        pass
+
+    # Strong absorption opposing signal direction
+    try:
+        abs_data = detect_absorption(today_df, local_bar_pos, atr)
+        if abs_data["absorbed"] and abs_data["strength"] > ABSORPTION_BLOCK_THRESH:
+            if abs_data["direction"] == "sell_side" and sig.direction == "long":
+                return True, "absorption_resistance"
+            if abs_data["direction"] == "buy_side" and sig.direction == "short":
+                return True, "absorption_support"
+    except Exception:
+        pass
 
     return False, ""
 
@@ -456,14 +626,14 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
     print(f"[HYB] Loading NQ data ({period}/{interval}) ...")
     df = load_nq(interval=interval, period=period)
     df = label_sessions(df, interval=interval)
-    print(f"[HYB] {len(df)} bars | {df.index[0].date()} → {df.index[-1].date()}")
+    print(f"[HYB] {len(df)} bars | {df.index[0].date()} -> {df.index[-1].date()}")
 
     print("[HYB] Loading ES data ...")
     es_df = load_es(interval=interval, period=period)
     print(f"[HYB] ES: {len(es_df)} bars" if not es_df.empty else "[HYB] ES unavailable")
 
     print("[HYB] Loading VIX / VIX3M / VVIX / VXN ...")
-    vix_cache  = _load_vix(period="90d")
+    vix_cache   = _load_vix(period="90d")
     vix3m_cache = _load_extended_vix("^VIX3M", "90d")
     vvix_cache  = _load_extended_vix("^VVIX",  "90d")
     vxn_cache   = load_vxn(period="90d")
@@ -499,13 +669,11 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
         atr    = market["atr"]
         trend  = market["ema_trend"]
 
-        # Skip day if vol regime blocks all trading
         if market["vvix_regime"]["skip_day"]:
             continue
         if market["vix_term"]["structure"] == "deep_backwardation":
             continue
 
-        # Day-level institutional context
         hmm    = get_hmm_gate(df, today)
         gex    = compute_gex_proxy(vix_cache, vxn_cache, today)
         tsmom  = get_session_tsmom(today_df)
@@ -513,7 +681,9 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
         macro  = get_macro_bias(today, dxy_closes, tnx_closes)
         nq_es_spread = get_nq_es_spread_signal(df, es_df, today)
 
-        # HAR vol forecast — key fix: now actually wired up
+        # OCC computed once per day (from first bar)
+        occ = get_occ_signal(today_df)
+
         har = har_forecast(df, today)
         if har["skip_day"]:
             continue
@@ -546,7 +716,7 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
 
             local_pos = _local_pos(sig)
 
-            # Apply HAR stop multiplier to widen/narrow stops based on vol forecast
+            # HAR stop multiplier
             if sig.direction == "long":
                 adjusted_stop = sig.entry - (sig.entry - sig.stop) * stop_mult
             else:
@@ -554,37 +724,49 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
 
             # Hard blocks
             blocked, block_reason = _is_hard_blocked(
-                strategy, sig, today_df, local_pos, market, macro
+                strategy, sig, today_df, local_pos, df, today, market, macro
             )
             if blocked:
                 hard_block_counts[block_reason] = hard_block_counts.get(block_reason, 0) + 1
                 return False
 
-            # 12-point confidence scoring
+            # 16-point confidence scoring
             score, breakdown = _score_trade(
                 strategy, sig, today_df, local_pos,
-                df, es_df, hmm, gex, tsmom, market, sector, macro, nq_es_spread,
+                df, es_df, hmm, gex, tsmom, market, sector, macro, nq_es_spread, occ,
             )
 
-            # Skip very weak setups
-            if score <= 3:
+            # Skip weak setups (new threshold: <=4 instead of <=3)
+            if score <= 4:
                 return False
 
-            n_contracts = 2 if score >= 10 else 1
+            n_contracts = 2 if score >= 13 else 1
 
-            be_mult = 2.0 if strategy == "orb" else 1.0
+            # Strategy-specific target extensions for T2
+            effective_target = sig.target
+            if strategy == "orb" and hasattr(sig, "orb_range") and sig.orb_range > 0:
+                ext = sig.entry + sig.orb_range * 3.0 if sig.direction == "long" \
+                      else sig.entry - sig.orb_range * 3.0
+                effective_target = max(sig.target, ext) if sig.direction == "long" \
+                                   else min(sig.target, ext)
+            elif strategy == "ib_breakout" and hasattr(sig, "ib_range") and sig.ib_range > 0:
+                ext = sig.entry + sig.ib_range * 2.5 if sig.direction == "long" \
+                      else sig.entry - sig.ib_range * 2.5
+                effective_target = max(sig.target, ext) if sig.direction == "long" \
+                                   else min(sig.target, ext)
+
             exit_p, pnl, outcome = _simulate_trade(
                 df, sig.signal_bar_idx,
-                sig.direction, sig.entry, adjusted_stop, sig.target,
-                n_contracts=n_contracts, be_mult=be_mult, max_hour=max_hour,
+                sig.direction, sig.entry, adjusted_stop, effective_target,
+                n_contracts=n_contracts, max_hour=max_hour,
             )
-            reward_pts = abs(sig.target - sig.entry)
+            reward_pts = abs(effective_target - sig.entry)
             rr = reward_pts / risk_pts if risk_pts > 0 else 0
 
             trades.append(HybridTrade(
                 date=today, day_name=day_names[dow],
                 strategy=strategy, direction=sig.direction,
-                entry=sig.entry, stop=adjusted_stop, target=sig.target,
+                entry=sig.entry, stop=adjusted_stop, target=effective_target,
                 exit_price=exit_p, pnl=pnl, outcome=outcome,
                 risk_pts=risk_pts, reward_pts=reward_pts, rr=rr,
                 vix=vix, regime=market["vix_regime"],
@@ -619,7 +801,7 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                 _try_hybrid("fvg", fvg,
                             f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
 
-        # ── Priority 3: ORB (pullback entry) ─────────────────────────────────
+        # ── Priority 3: ORB ───────────────────────────────────────────────────
         if _can_trade() and vix_ok:
             orb = detect_orb(df, today, atr, dow)
             if orb:
@@ -638,20 +820,19 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                 _try_hybrid("ib_breakout", ib,
                             f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR)")
 
-        # ── Priority 5: AM VWAP Reversion ─────────────────────────────────────
+        # ── Priority 5: AM VWAP Reversion ────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
-            for vs in detect_vwap(df, today, vix, atr, max_signals=remaining):
+            for vs in detect_vwap(df, today, vix, atr, max_signals=MAX_TRADES_DAY - trades_today):
                 if not _can_trade():
                     break
                 if direction_allowed(vs.direction, trend, strict=True):
                     _try_hybrid("vwap_rev", vs,
                                 f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
 
-        # ── Priority 6: PM VWAP Reversion ─────────────────────────────────────
+        # ── Priority 6: PM VWAP Reversion ────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
-            for vs in detect_vwap(df, today, vix, atr, max_signals=remaining,
+            for vs in detect_vwap(df, today, vix, atr,
+                                  max_signals=MAX_TRADES_DAY - trades_today,
                                   start_min=13*60+30, end_min=15*60+30):
                 if not _can_trade():
                     break
@@ -662,9 +843,8 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
 
         # ── Priority 7: AM VWAP Bounce ────────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
             for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
-                                         max_signals=remaining):
+                                         max_signals=MAX_TRADES_DAY - trades_today):
                 if not _can_trade():
                     break
                 if direction_allowed(vs.direction, trend, strict=True):
@@ -673,9 +853,8 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
 
         # ── Priority 8: PM VWAP Bounce ────────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:
-            remaining = MAX_TRADES_DAY - trades_today
             for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
-                                         max_signals=remaining,
+                                         max_signals=MAX_TRADES_DAY - trades_today,
                                          start_min=13*60+30, end_min=15*60+30):
                 if not _can_trade():
                     break
@@ -683,6 +862,14 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                     _try_hybrid("vwap_bounce_pm", vs,
                                 f"PM VWAP bounce {trend['direction']}",
                                 max_hour=16)
+
+        # ── Priority 9: 80% Value Area Rule ───────────────────────────────────
+        if _can_trade() and vix_ok:
+            va_sig = detect_va_rule_signal(df, today, atr)
+            if va_sig and direction_allowed(va_sig.direction, trend, strict=False):
+                _try_hybrid("va_rule", va_sig,
+                            f"VA rule type={va_sig.setup_type} "
+                            f"vah-val={abs(va_sig.va_target_edge - va_sig.va_entry_edge):.0f}pts")
 
     run_hybrid_backtest._hard_blocks = hard_block_counts
     return trades
