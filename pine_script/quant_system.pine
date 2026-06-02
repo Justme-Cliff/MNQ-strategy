@@ -258,20 +258,20 @@ if is_930
              bgcolor=color.new(color.blue, 92))
 
 orb_range   = nz(orb_hi) - nz(orb_lo)
-orb_ok_size = atr_adapt > 0 and
-              orb_range >= math.max(3.0, atr_adapt * orb_min_atr) and
-              orb_range <= atr_adapt * orb_max_atr
+orb_ok_size = (atr_adapt > 0 and
+               orb_range >= math.max(3.0, atr_adapt * orb_min_atr) and
+               orb_range <= atr_adapt * orb_max_atr)
 
 // Mon + Tue longs historically weak for ORB
 no_mon_tue  = dayofweek != dayofweek.monday and dayofweek != dayofweek.tuesday
 
-orb_long_sig  = not orb_done and in_rth and not is_in_ib and
-                not na(orb_hi) and orb_ok_size and orb_long_ok and
-                close > orb_hi and close > vwap_val and no_mon_tue
+orb_long_sig  = (not orb_done and in_rth and not is_in_ib and
+                 not na(orb_hi) and orb_ok_size and orb_long_ok and
+                 close > orb_hi and close > vwap_val and no_mon_tue)
 
-orb_short_sig = not orb_done and in_rth and not is_in_ib and
-                not na(orb_lo) and orb_ok_size and orb_short_ok and
-                close < orb_lo and close < vwap_val
+orb_short_sig = (not orb_done and in_rth and not is_in_ib and
+                 not na(orb_lo) and orb_ok_size and orb_short_ok and
+                 close < orb_lo and close < vwap_val)
 
 if orb_long_sig or orb_short_sig
     orb_done := true
@@ -317,17 +317,17 @@ if not ib_drawn and not is_in_ib and in_rth and not na(ib_hi) and not na(rth_ope
              bgcolor=color.new(color.purple, 92))
 
 ib_range   = nz(ib_hi) - nz(ib_lo)
-ib_ok_size = atr_adapt > 0 and
-             ib_range >= math.max(5.0, atr_adapt * ib_min_atr) and
-             ib_range <= atr_adapt * ib_max_atr
+ib_ok_size = (atr_adapt > 0 and
+              ib_range >= math.max(5.0, atr_adapt * ib_min_atr) and
+              ib_range <= atr_adapt * ib_max_atr)
 
-ib_long_sig  = not ib_done and is_c_period and not na(ib_hi) and ib_ok_size and ib_ok and
-               ib_bias == "bullish" and close > ib_hi and (close - ib_hi) <= 30.0 and
-               (trend_any_bull or trend_neutral)
+ib_long_sig  = (not ib_done and is_c_period and not na(ib_hi) and ib_ok_size and ib_ok and
+                ib_bias == "bullish" and close > ib_hi and (close - ib_hi) <= 30.0 and
+                (trend_any_bull or trend_neutral))
 
-ib_short_sig = not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and ib_ok and
-               ib_bias == "bearish" and close < ib_lo and (ib_lo - close) <= 30.0 and
-               (trend_any_bear or trend_neutral)
+ib_short_sig = (not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and ib_ok and
+                ib_bias == "bearish" and close < ib_lo and (ib_lo - close) <= 30.0 and
+                (trend_any_bear or trend_neutral))
 
 if ib_long_sig or ib_short_sig
     ib_done := true
@@ -351,22 +351,22 @@ vwap_max_dev = math.min(30.0, atr_adapt * 0.12)
 vwap_dev     = math.abs(close - vwap_val)
 dev_ok       = vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev
 
-vwap_long_sig  = not vwap_l_done and am_window and vwap_rev_ok and not no_data_w and
-                 (trend_neutral or trend_any_bull) and close < vwap_l15 and dev_ok
+vwap_long_sig  = (not vwap_l_done and am_window and vwap_rev_ok and not no_data_w and
+                  (trend_neutral or trend_any_bull) and close < vwap_l15 and dev_ok)
 
-vwap_short_sig = not vwap_s_done and am_window and vwap_rev_ok and not no_data_w and
-                 (trend_neutral or trend_any_bear) and close > vwap_u15 and dev_ok
+vwap_short_sig = (not vwap_s_done and am_window and vwap_rev_ok and not no_data_w and
+                  (trend_neutral or trend_any_bear) and close > vwap_u15 and dev_ok)
 
 if vwap_long_sig
     vwap_l_done := true
 if vwap_short_sig
     vwap_s_done := true
 
-vwap_pm_long_sig  = not vwap_pm_l_done and pm_window and vwap_rev_ok and
-                    trend_strong_bull and close < vwap_l15 and dev_ok
+vwap_pm_long_sig  = (not vwap_pm_l_done and pm_window and vwap_rev_ok and
+                     trend_strong_bull and close < vwap_l15 and dev_ok)
 
-vwap_pm_short_sig = not vwap_pm_s_done and pm_window and vwap_rev_ok and
-                    trend_strong_bear and close > vwap_u15 and dev_ok
+vwap_pm_short_sig = (not vwap_pm_s_done and pm_window and vwap_rev_ok and
+                     trend_strong_bear and close > vwap_u15 and dev_ok)
 
 if vwap_pm_long_sig
     vwap_pm_l_done := true
