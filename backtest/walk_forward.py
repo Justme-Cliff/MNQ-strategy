@@ -29,35 +29,31 @@ from backtest.hybrid_engine import (
     run_hybrid_backtest, HybridTrade,
 )
 
-EST_TRAIN_DAYS = 90     # in-sample window
-EST_OOS_DAYS   = 30     # out-of-sample window
-EMBARGO_DAYS   = 5      # trading days between IS end and OOS start
+# NOTE: yfinance 5m data is limited to the last 60 trading days.
+# A proper walk-forward needs 1+ year of data. Until we have a longer data
+# source (Databento historical, proprietary CSV), we use a simple IS/OOS split:
+#   IS: first 75% of available days
+#   OOS: last 25% of available days
+# This is statistically limited (1 OOS period) but still gives a directional signal.
+# Run multiple times as new 60-day windows become available to build confidence.
+IS_PCT         = 0.75   # fraction of data used as in-sample
+EMBARGO_DAYS   = 3      # trading days between IS end and OOS start
 TRADING_DAYS_PER_YEAR = 252
 
 
 def _split_dates(all_dates: list[date]) -> list[tuple[list[date], list[date]]]:
-    """Generate (IS dates, OOS dates) splits."""
-    splits = []
+    """
+    Single IS/OOS split (limited by yfinance 60-day 5m window).
+    IS = first 75%, OOS = last 25% after a 3-day embargo.
+    """
     n = len(all_dates)
-    start = 0
+    is_end    = int(n * IS_PCT)
+    oos_start = is_end + EMBARGO_DAYS
 
-    while True:
-        is_end   = start + EST_TRAIN_DAYS
-        oos_start = is_end + EMBARGO_DAYS
-        oos_end   = oos_start + EST_OOS_DAYS
+    if oos_start >= n or is_end < 20 or n - oos_start < 5:
+        return []
 
-        if oos_end > n:
-            break
-
-        is_dates  = all_dates[start:is_end]
-        oos_dates = all_dates[oos_start:oos_end]
-
-        if len(is_dates) >= 40 and len(oos_dates) >= 10:
-            splits.append((is_dates, oos_dates))
-
-        start += EST_OOS_DAYS   # slide forward by OOS window
-
-    return splits
+    return [(all_dates[:is_end], all_dates[oos_start:])]
 
 
 def _stats_for_dates(
@@ -88,10 +84,14 @@ def _stats_for_dates(
 def run_walk_forward(period: str = "1y") -> None:
     print("=" * 70)
     print("  WALK-FORWARD VALIDATION")
-    print(f"  IS={EST_TRAIN_DAYS}d  OOS={EST_OOS_DAYS}d  Embargo={EMBARGO_DAYS}d  Data={period}")
+    print(f"  IS=75%  OOS=25%  Embargo={EMBARGO_DAYS}d  Data={period}")
     print("=" * 70)
 
-    # Run full backtest on the extended period (strategy rules fixed — no re-optimization)
+    print(f"\nNOTE: yfinance 5m data is limited to 60 days. Using a single 75%/25%")
+    print(f"IS/OOS split. This gives 1 OOS period — directional signal only.")
+    print(f"For proper walk-forward, collect 1yr of daily backtest runs over time.")
+
+    # Run full backtest on the available period (strategy rules fixed — no re-optimization)
     print(f"\nRunning full hybrid backtest ({period}) ...")
     trades = run_hybrid_backtest(interval="5m", period=period)
 
@@ -100,7 +100,6 @@ def run_walk_forward(period: str = "1y") -> None:
         return
 
     all_trade_dates = sorted(set(t.date for t in trades))
-    from backtest.data_loader import load_nq, label_sessions
     from zoneinfo import ZoneInfo
     EST = ZoneInfo("America/New_York")
 
@@ -174,4 +173,4 @@ def run_walk_forward(period: str = "1y") -> None:
 
 
 if __name__ == "__main__":
-    run_walk_forward(period="1y")
+    run_walk_forward(period="60d")
