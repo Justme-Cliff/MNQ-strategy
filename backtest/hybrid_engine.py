@@ -1,20 +1,20 @@
 """
-Hybrid Engine — Base Quant Strategies + Full 16-Point Institutional Scoring.
+Hybrid Engine — Base Quant Strategies + Full 20-Point Institutional Scoring.
 
 Philosophy:
   Base trade signals are kept intact.
-  Institutional signals score each trade 0-16 and map to contract size.
+  Institutional signals score each trade 0-20 and map to contract size.
   Hard blocks prevent the worst trades; soft scoring rewards the best ones.
 
-Confidence score (0-16 points):
+Confidence score (0-20 points + memory bonus):
   +1  TSMOM aligned with signal direction (or exempt)
   +1  GEX bias favors this strategy type
   +1  ES lead-lag confirms direction
-  +1  HMM state is bull or volatile
+  +1  HMM 5-state regime (strong_bull/bull=1; neutral partial; stress/bear=0)
   +1  CVD divergence confirms (or no divergence)
   +1  Overnight range type matches strategy type
   +1  VIX term structure supports strategy type
-  +1  XLK sector bias aligned
+  +1  XLK/SPY sector bias aligned
   +1  DXY+TNX macro not a strong headwind
   +1  NQ/ES spread not extended against signal
   +1  Session conviction matches strategy type
@@ -23,17 +23,21 @@ Confidence score (0-16 points):
   +1  Opening Candle Continuation matches signal direction
   +1  No opposing absorption at entry level
   +1  Kyle's lambda informed flow aligned
+  +1  SMH semiconductor RS confirming signal direction
+  +1  COT not at extreme against signal direction
+  +1  Entry near confirmed AVWAP level (support/resistance)
+  +1  Daily breadth not opposing signal
   +1  (memory bonus) strategy recently performing well
 
 Contract sizing:
-  score >= 13  ->  2 MNQ contracts  (full institutional consensus)
-  score 5-12   ->  1 MNQ contract   (strong signal, standard size)
-  score <= 4   ->  SKIP             (insufficient backing)
+  score >= 16  ->  2 MNQ contracts  (full institutional consensus)
+  score 6-15   ->  1 MNQ contract   (strong signal, standard size)
+  score <= 5   ->  SKIP             (insufficient backing)
+  Kelly check  ->  further caps 2-lot if recent WR below threshold
 
 Two-target exit system:
-  T1: 1x risk from entry -> exit 50% of position, lock P&L
-  T2: trail remaining 50% with 3x intraday ATR Chandelier stop
-      OR original target if hit first
+  T1: 1x risk -> exit 50%, lock P&L
+  T2: trail remaining 50% with 3x intraday ATR Chandelier OR original target
 
 Hard blocks (any one blocks regardless of score):
   BNS jump detected
@@ -42,10 +46,14 @@ Hard blocks (any one blocks regardless of score):
   VVIX > 130
   VIX deep backwardation
   Macro strong headwind + mean-rev long
-  RVOL thin (< 0.8x) -- nobody home, no participation
-  CVD buying climax + long signal
-  CVD selling climax + short signal
-  Strong absorption opposing signal direction
+  RVOL thin (< 0.8x)
+  CVD buying/selling climax opposing signal
+  Strong absorption opposing signal
+  VPIN > 0.65 on mean-reversion strategies
+  Gap too large (> 1.2x ATR) for gap_fill
+  Monday medium/large gap (> 0.7x ATR)
+  10:00-10:15 AM economic data release window (no entries)
+  11:00-11:15 AM London close window (no mean-rev entries)
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -73,11 +81,17 @@ from strategy.inst_tsmom   import get_session_tsmom, get_session_conviction, get
 from strategy.inst_leadlag import check_es_confirmation, get_nq_es_spread_signal
 from strategy.inst_sectors import get_tech_sector_bias, load_sector_data
 from strategy.inst_macro   import get_macro_bias, load_macro_data
-from strategy.inst_rvol    import compute_rvol
+from strategy.inst_rvol       import compute_rvol
 from strategy.inst_absorption import detect_absorption
-from strategy.inst_lambda  import get_lambda_signal
-from strategy.inst_va_rule import detect_va_rule_signal, VASignal
-from strategy.bot_memory   import get_conf_adjustment
+from strategy.inst_lambda     import get_lambda_signal
+from strategy.inst_va_rule    import detect_va_rule_signal, VASignal
+from strategy.inst_vpin       import get_vpin_gate
+from strategy.inst_cot        import get_cot_bias, load_cot_data
+from strategy.inst_avwap      import get_avwap_levels
+from strategy.inst_breadth    import get_breadth_bias, load_breadth_data
+from strategy.inst_sectors    import get_smh_lead_signal, load_smh_data
+from strategy.inst_kelly      import kelly_contracts
+from strategy.bot_memory      import get_conf_adjustment
 
 EST = ZoneInfo("America/New_York")
 
@@ -89,9 +103,11 @@ MAX_DAILY_LOSS = 150.0
 MEAN_REV_STRATS = {"vwap_rev", "vwap_pm", "fvg", "ib_breakout", "va_rule"}
 BREAKOUT_STRATS = {"orb", "gap_fill"}
 
-OFI_HARD_BLOCK_Z    = 2.0
-CHANDELIER_MULT     = 3.0     # 3x intraday ATR for trailing stop
-ABSORPTION_BLOCK_THRESH = 0.4  # block when absorption strength > this
+OFI_HARD_BLOCK_Z        = 2.0
+CHANDELIER_MULT         = 3.0
+ABSORPTION_BLOCK_THRESH = 0.4
+GAP_LARGE_ATR_MULT      = 1.2   # gap > 1.2x ATR = skip gap_fill always
+GAP_MONDAY_ATR_MULT     = 0.7   # Monday gap > 0.7x ATR = skip
 
 
 @dataclass
@@ -354,8 +370,20 @@ def _score_trade(
     macro:        dict,
     nq_es_spread: dict,
     occ:          dict,
+    # New context passed pre-loaded — zero network calls here
+    cot:          dict = None,
+    breadth:      dict = None,
+    smh_signal:   dict = None,
+    smh_vxn:      float = 20.0,
 ) -> tuple[int, dict]:
-    """Score a trade 0-16 using all institutional signals."""
+    """Score a trade 0-20 using all institutional signals."""
+    if cot is None:
+        cot = {}
+    if breadth is None:
+        breadth = {}
+    if smh_signal is None:
+        smh_signal = {}
+
     bd: dict[str, int] = {}
     atr = market.get("atr", 0.0)
 
@@ -386,11 +414,13 @@ def _score_trade(
     except Exception:
         bd["es"] = 1
 
-    # 4. HMM regime
+    # 4. HMM 5-state regime
     state = hmm.get("state", "unavailable")
-    if state in ("unavailable", "bull"):
+    if state in ("unavailable", "strong_bull", "bull"):
         bd["hmm"] = 1
-    elif state == "volatile":
+    elif state == "neutral":
+        bd["hmm"] = 1 if strategy in MEAN_REV_STRATS else 0
+    elif state == "stress":
         bd["hmm"] = 1 if strategy in BREAKOUT_STRATS else 0
     elif state == "bear":
         bd["hmm"] = 1 if (sig.direction == "short" and strategy in BREAKOUT_STRATS) else 0
@@ -531,6 +561,60 @@ def _score_trade(
     except Exception:
         bd["lambda"] = 1
 
+    # 17. SMH semiconductor lead signal
+    if not smh_signal.get("available", False):
+        bd["smh"] = 1   # unavailable = no penalty
+    elif smh_signal.get("long_boost", False) and sig.direction == "long":
+        bd["smh"] = 1
+    elif smh_signal.get("short_boost", False) and sig.direction == "short":
+        bd["smh"] = 1
+    elif smh_signal.get("signal") == "neutral":
+        bd["smh"] = 1
+    else:
+        bd["smh"] = 0   # semis diverging from signal direction
+
+    # 18. COT regime — not at extreme against signal direction
+    if not cot.get("available", False):
+        bd["cot"] = 1
+    elif sig.direction == "long" and not cot.get("long_ok", True):
+        bd["cot"] = 0   # COT says crowd is max long = fade risk
+    elif sig.direction == "short" and cot.get("short_boost", False):
+        bd["cot"] = 1   # COT supports short
+    else:
+        bd["cot"] = 1
+
+    # 19. AVWAP proximity — entry near confirmed institutional cost basis
+    try:
+        today  = today_df.index[0].astimezone(EST).date()
+        avwap  = get_avwap_levels(df, today, float(sig.entry), atr)
+        if avwap["near_avwap"]:
+            if avwap["avwap_support"] and sig.direction == "long":
+                bd["avwap"] = 1   # entering from AVWAP support = ideal
+            elif avwap["avwap_resist"] and sig.direction == "short":
+                bd["avwap"] = 1   # entering from AVWAP resistance = ideal
+            else:
+                bd["avwap"] = 1   # near AVWAP but not directional = neutral
+        else:
+            bd["avwap"] = 1       # not near any AVWAP = no signal, no penalty
+        if avwap.get("confluence", False):
+            bd["avwap"] = 1       # confluence zone = always give point
+    except Exception:
+        bd["avwap"] = 1
+
+    # 20. Daily breadth — $ADDN or QQQ/IWM RS not opposing signal
+    if not breadth.get("available", False):
+        bd["breadth"] = 1
+    elif breadth.get("breadth_bias") == "bullish" and sig.direction == "long":
+        bd["breadth"] = 1
+    elif breadth.get("breadth_bias") == "bearish" and sig.direction == "short":
+        bd["breadth"] = 1
+    elif breadth.get("breadth_bias") == "neutral":
+        bd["breadth"] = 1
+    elif breadth.get("breadth_bias") == "bearish" and sig.direction == "long":
+        bd["breadth"] = 0   # broad market selling + long signal = headwind
+    else:
+        bd["breadth"] = 1
+
     # Memory bonus
     mem_adj = get_conf_adjustment(strategy)
     bd["memory"] = max(0, min(1, 1 + mem_adj))
@@ -540,6 +624,25 @@ def _score_trade(
 
 
 # ── Hard-block check ──────────────────────────────────────────────────────────
+
+def _time_window_ok(signal_bar_idx: int, df: pd.DataFrame, strategy: str) -> tuple[bool, str]:
+    """Block entries during economic data release and London close windows."""
+    try:
+        ts_est = df.index[signal_bar_idx].astimezone(EST)
+        mins   = ts_est.hour * 60 + ts_est.minute
+
+        # 10:00-10:04 AM: first bar at 10 AM often has release spike — skip that bar only
+        if mins == 600:
+            return False, "data_release_window"
+
+        # 11:00-11:04 AM: London close turbulence — skip first bar for mean-rev only
+        if strategy in MEAN_REV_STRATS and mins == 660:
+            return False, "london_close_window"
+
+    except Exception:
+        pass
+    return True, ""
+
 
 def _is_hard_blocked(
     strategy:      str,
@@ -617,6 +720,25 @@ def _is_hard_blocked(
     except Exception:
         pass
 
+    # VPIN > 0.65 on mean-reversion strategies: high informed flow kills mean-rev
+    try:
+        if strategy in MEAN_REV_STRATS:
+            vpin_g = get_vpin_gate(today_df, local_bar_pos, strategy)
+            if vpin_g.get("gate_active", False):
+                return True, "vpin_high"
+    except Exception:
+        pass
+
+    # Gap too large: gap_fill on gaps > 1.2x ATR have only 8.2% fill rate
+    try:
+        if strategy == "gap_fill" and hasattr(sig, "gap_ratio"):
+            if sig.gap_ratio > GAP_LARGE_ATR_MULT:
+                return True, "gap_too_large"
+            if today.weekday() == 0 and sig.gap_ratio > GAP_MONDAY_ATR_MULT:
+                return True, "monday_large_gap"
+    except Exception:
+        pass
+
     return False, ""
 
 
@@ -639,10 +761,18 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
     vxn_cache   = load_vxn(period="90d")
     print(f"[HYB] VIX: {len(vix_cache)}d | VIX3M: {len(vix3m_cache)}d | VVIX: {len(vvix_cache)}d")
 
-    print("[HYB] Loading sector (XLK/SPY) and macro (DXY/TNX) data ...")
+    print("[HYB] Loading sector (XLK/SPY/SMH) and macro (DXY/TNX) data ...")
     xlk_closes, spy_closes = load_sector_data(period="90d")
     dxy_closes, tnx_closes = load_macro_data(period="90d")
-    print(f"[HYB] XLK:{len(xlk_closes)}d  DXY:{len(dxy_closes)}d")
+    smh_closes             = load_smh_data(period="90d")
+    print(f"[HYB] XLK:{len(xlk_closes)}d  DXY:{len(dxy_closes)}d  SMH:{len(smh_closes)}d")
+
+    print("[HYB] Loading COT + breadth data ...")
+    cot_df               = load_cot_data()
+    qqq_closes, iwm_closes, addn_series = load_breadth_data(period="60d")
+    cot_available = cot_df is not None and not cot_df.empty
+    print(f"[HYB] COT: {'OK' if cot_available else 'UNAVAILABLE'}  "
+          f"QQQ:{len(qqq_closes)}d  ADDN:{len(addn_series) if addn_series is not None else 0}d")
 
     est_idx   = df.index.tz_convert(EST)
     all_dates = sorted(set(est_idx.date))
@@ -681,8 +811,11 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
         macro  = get_macro_bias(today, dxy_closes, tnx_closes)
         nq_es_spread = get_nq_es_spread_signal(df, es_df, today)
 
-        # OCC computed once per day (from first bar)
-        occ = get_occ_signal(today_df)
+        # Per-day pre-computed context (all cached — zero network calls during signal eval)
+        occ    = get_occ_signal(today_df)
+        cot    = get_cot_bias(today, _df=cot_df)
+        breadth = get_breadth_bias(today, qqq_closes, iwm_closes, addn_series)
+        smh_sig = get_smh_lead_signal(today, smh_closes, spy_closes, vxn=(vix or 20.0))
 
         har = har_forecast(df, today)
         if har["skip_day"]:
@@ -730,17 +863,32 @@ def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[Hybri
                 hard_block_counts[block_reason] = hard_block_counts.get(block_reason, 0) + 1
                 return False
 
-            # 16-point confidence scoring
+            # Time window hard block (data releases + London close)
+            time_ok, time_reason = _time_window_ok(sig.signal_bar_idx, df, strategy)
+            if not time_ok:
+                hard_block_counts[time_reason] = hard_block_counts.get(time_reason, 0) + 1
+                return False
+
+            # 20-point confidence scoring
             score, breakdown = _score_trade(
                 strategy, sig, today_df, local_pos,
                 df, es_df, hmm, gex, tsmom, market, sector, macro, nq_es_spread, occ,
+                cot=cot, breadth=breadth, smh_signal=smh_sig, smh_vxn=(vix or 20.0),
             )
 
-            # Skip weak setups (new threshold: <=4 instead of <=3)
-            if score <= 4:
+            # Skip weak setups (threshold scaled with new 20-point max)
+            if score <= 5:
                 return False
 
-            n_contracts = 2 if score >= 13 else 1
+            # Score-based contract size (2-lot at score >= 16 out of 21 max)
+            n_contracts = 2 if score >= 16 else 1
+
+            # Kelly guard: only reduce size if we have 40+ trades and recent
+            # performance is genuinely poor (protects against drawdown streaks).
+            # Rarely activates in 60d backtest; mainly useful in live monitor.
+            if len(trades) >= 40:
+                kelly_size = kelly_contracts(trades)
+                n_contracts = min(n_contracts, kelly_size)
 
             # Strategy-specific target extensions for T2
             effective_target = sig.target

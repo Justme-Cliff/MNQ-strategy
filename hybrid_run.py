@@ -96,8 +96,8 @@ def print_hybrid(trades: list[HybridTrade], s: dict, blocks: dict) -> None:
 
     _print_strategy_breakdown(trades, show_lots=True)
 
-    # Score distribution (0–16 point system, +1 memory bonus)
-    print(f"\n  Confidence score distribution (0-16+memory, skip <=4, 2-lot >=13):")
+    # Score distribution (0–20 point system, +1 memory bonus)
+    print(f"\n  Confidence score distribution (0-20+memory, skip <=5, 2-lot >=16):")
     score_groups = defaultdict(list)
     for t in trades:
         score_groups[t.score].append(t)

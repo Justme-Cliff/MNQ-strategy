@@ -126,6 +126,7 @@ def get_tech_sector_bias(
 # Module-level cache to avoid re-fetching within a session
 _xlk_cache: Optional[pd.Series] = None
 _spy_cache: Optional[pd.Series] = None
+_smh_cache: Optional[pd.Series] = None
 
 
 def load_sector_data(period: str = "60d") -> tuple[pd.Series, pd.Series]:
@@ -136,3 +137,97 @@ def load_sector_data(period: str = "60d") -> tuple[pd.Series, pd.Series]:
     if _spy_cache is None:
         _spy_cache = _load_etf_closes("SPY", period)
     return _xlk_cache, _spy_cache
+
+
+def load_smh_data(period: str = "60d") -> pd.Series:
+    """Load and cache SMH (semiconductor ETF) closes."""
+    global _smh_cache
+    if _smh_cache is None:
+        _smh_cache = _load_etf_closes("SMH", period)
+    return _smh_cache
+
+
+def get_smh_lead_signal(
+    today: date,
+    smh_closes: Optional[pd.Series] = None,
+    qqq_closes: Optional[pd.Series] = None,
+    vxn: float = 20.0,
+    slope_bars: int = 6,
+) -> dict:
+    """
+    SMH/QQQ 6-bar relative strength slope as NQ breadth confirmation.
+
+    Semis (NVDA, AMD, AVGO, TSM) = 20-25% of QQQ weight. When semis
+    diverge FROM NQ, the move has weak institutional backing.
+
+    Only reliable when VXN 15-30. Above 30, macro dominates.
+
+    Returns:
+      smh_rs_slope : float  — recent RS trend (positive = SMH leading)
+      signal       : "confirming" | "diverging" | "neutral"
+      long_boost   : bool — semis confirm long direction
+      short_boost  : bool — semis confirm short direction
+      available    : bool
+    """
+    default = {
+        "smh_rs_slope": 0.0, "signal": "neutral",
+        "long_boost": False, "short_boost": False, "available": False,
+    }
+
+    try:
+        # Only meaningful when VXN is in normal range
+        if vxn > 30.0 or vxn < 12.0:
+            return default
+
+        if smh_closes is None:
+            smh_closes = _load_etf_closes("SMH")
+        if qqq_closes is None:
+            qqq_closes = _load_etf_closes("QQQ")
+
+        if smh_closes.empty or qqq_closes.empty:
+            return default
+
+        common = sorted(set(smh_closes.index) & set(qqq_closes.index))
+        common = [d for d in common if d < today]
+        if len(common) < slope_bars + 2:
+            return default
+
+        smh = smh_closes.reindex(common).tail(slope_bars + 2)
+        qqq = qqq_closes.reindex(common).tail(slope_bars + 2)
+
+        rs = (smh / qqq).dropna()
+        if len(rs) < slope_bars:
+            return default
+
+        # Linear slope of RS over last slope_bars bars
+        y = rs.values[-slope_bars:]
+        x = np.arange(slope_bars, dtype=float)
+        slope = float(np.polyfit(x, y, 1)[0])
+
+        # Normalized by mean RS to get % slope per bar
+        mean_rs = float(np.mean(y))
+        norm_slope = slope / (mean_rs + 1e-8)
+
+        if norm_slope > 0.0003:   # SMH leading
+            signal = "confirming"
+            long_boost  = True
+            short_boost = False
+        elif norm_slope < -0.0003:  # SMH lagging
+            signal = "diverging"
+            long_boost  = False
+            short_boost = True
+        else:
+            signal = "neutral"
+            long_boost  = False
+            short_boost = False
+
+        return {
+            "smh_rs_slope": norm_slope,
+            "signal":       signal,
+            "long_boost":   long_boost,
+            "short_boost":  short_boost,
+            "available":    True,
+        }
+
+    except Exception:
+        return default
