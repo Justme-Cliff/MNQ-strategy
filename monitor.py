@@ -696,108 +696,34 @@ def run_monitor():
                     console.print()
                     _be_alert(watch["strategy"], watch["direction"], watch["entry"])
 
-        # ── Real-time level alerts: approaching + crossing ────────────────
-        _APPROACH = 10.0
+        # ── Real-time level proximity — INFO ONLY, no trade instructions ────
+        # Only confirmed strategy signals (bar-close engine) generate trades.
+        # These just tell you which key level price is near so you stay aware.
+        _APPROACH = 8.0
         if price and key_levels and 9 <= h < 12:
-            # Pause if bot says so
-            paused, pause_reason = is_paused()
-
             checks = [
-                ("ORB HIGH", key_levels.get("orb_high"), "long",  "[cyan]"),
-                ("ORB LOW",  key_levels.get("orb_low"),  "short", "[cyan]"),
-                ("IB HIGH",  key_levels.get("ib_high"),  "long",  "[blue]"),
-                ("IB LOW",   key_levels.get("ib_low"),   "short", "[blue]"),
-                ("PDH",      key_levels.get("pdh"),      "short", "[orange1]"),
-                ("PDL",      key_levels.get("pdl"),      "long",  "[orange1]"),
-                ("PMH",      key_levels.get("pmh"),      "short", "[yellow]"),
-                ("PML",      key_levels.get("pml"),      "long",  "[yellow]"),
+                ("ORB HIGH", key_levels.get("orb_high"), "long",  "cyan"),
+                ("ORB LOW",  key_levels.get("orb_low"),  "short", "cyan"),
+                ("IB HIGH",  key_levels.get("ib_high"),  "long",  "blue"),
+                ("IB LOW",   key_levels.get("ib_low"),   "short", "blue"),
+                ("VWAP",     key_levels.get("vwap"),     None,    "orange1"),
+                ("PDH",      key_levels.get("pdh"),      "short", "orange1"),
+                ("PDL",      key_levels.get("pdl"),      "long",  "orange1"),
+                ("PMH",      key_levels.get("pmh"),      "short", "yellow"),
+                ("PML",      key_levels.get("pml"),      "long",  "yellow"),
             ]
-            for name, lvl, direction, col_tag in checks:
+            for name, lvl, direction, col in checks:
                 if not lvl:
                     continue
-
-                # Direction lock check: suppress if opposite direction is locked
-                if _direction_is_locked(direction):
-                    continue
-
-                if direction == "long":
-                    approaching = (lvl - _APPROACH) <= price < lvl
-                    crossed     = price >= lvl
-                else:
-                    approaching = lvl < price <= (lvl + _APPROACH)
-                    crossed     = price <= lvl
-
-                col = col_tag.strip("[]")
-
-                atr = key_levels.get("atr", 50.0)
-                def _calc_sl_tp(n, d, lv, a):
-                    if "ORB" in n:
-                        oh = key_levels.get("orb_high", lv); ol = key_levels.get("orb_low", lv)
-                        sl = (ol - 2) if d == "long" else (oh + 2)
-                        tp = lv + (lv - sl) * 2 if d == "long" else lv - (sl - lv) * 2
-                    elif "IB" in n:
-                        sl = (lv - a * 0.5) if d == "long" else (lv + a * 0.5)
-                        tp = (lv + a * 1.5) if d == "long" else (lv - a * 1.5)
-                    else:
-                        sl = (lv - a * 0.04) if d == "long" else (lv + a * 0.04)
-                        tp = (lv + a * 0.08) if d == "long" else (lv - a * 0.08)
-                    return _tick(sl), _tick(tp)
-
-                app_key = f"APPROACH_{name}_{lvl:.0f}"
-                if approaching and app_key not in level_alerts:
-                    level_alerts.add(app_key)
-                    sl, tp = _calc_sl_tp(name, direction, lvl, atr)
-                    _level_alert(name, lvl, direction, lvl, sl, tp, crossing=False)
-                    alert_warning(
-                        f"SET LIMIT  E:{lvl:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
-                        f"{name} approaching — place {direction.upper()} limit NOW"
+                near = abs(price - lvl) <= _APPROACH
+                alert_key = f"NEAR_{name}_{lvl:.0f}"
+                if near and alert_key not in level_alerts:
+                    level_alerts.add(alert_key)
+                    console.print(
+                        f"\n  [dim]{now.strftime('%H:%M')}[/dim]  "
+                        f"[{col}]{name} {lvl:,.2f}[/{col}]  "
+                        f"[dim]price within {abs(price-lvl):.1f}pts — watch for engine signal[/dim]"
                     )
-
-                cross_key = f"CROSS_{name}_{lvl:.0f}"
-                if crossed and cross_key not in level_alerts:
-                    level_alerts.add(cross_key)
-                    sl, tp = _calc_sl_tp(name, direction, lvl, atr)
-                    _level_alert(name, lvl, direction, price, sl, tp, crossing=True)
-                    alert_signal(name, direction, price, sl, tp)
-
-            # ── VWAP bounce pre-alert ─────────────────────────────────────
-            vwap = key_levels.get("vwap")
-            atr  = key_levels.get("atr", 50.0)
-            if vwap and (h > 9 or (h == 9 and m >= 30)):
-                dist = price - vwap
-                vwap_key = round(vwap / 5) * 5
-
-                last_vwap_alert = getattr(run_monitor, "_last_vwap_alert", None)
-                last_vwap_dir   = getattr(run_monitor, "_last_vwap_dir", None)
-                cooldown_ok = True
-                if last_vwap_alert is not None:
-                    elapsed = (now - last_vwap_alert).total_seconds()
-                    if elapsed < 300 and last_vwap_dir != (dist > 0):
-                        cooldown_ok = False
-
-                if 0 < dist <= _APPROACH and cooldown_ok and not _direction_is_locked("long"):
-                    app_key = f"APPROACH_VWAP_LONG_{vwap_key}"
-                    if app_key not in level_alerts:
-                        level_alerts.add(app_key)
-                        run_monitor._last_vwap_alert = now
-                        run_monitor._last_vwap_dir   = True
-                        sl = vwap - atr * 0.5
-                        tp = vwap + atr * 1.5
-                        _level_alert("VWAP", vwap, "long", vwap, sl, tp, crossing=False)
-                        alert_warning(f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
-                                      f"VWAP {vwap:.1f} — LONG bounce setup forming")
-
-                elif -_APPROACH <= dist < 0 and cooldown_ok and not _direction_is_locked("short"):
-                    app_key = f"APPROACH_VWAP_SHORT_{vwap_key}"
-                    if app_key not in level_alerts:
-                        level_alerts.add(app_key)
-                        run_monitor._last_vwap_alert = now
-                        run_monitor._last_vwap_dir   = False
-                        sl = vwap + atr * 0.5
-                        tp = vwap - atr * 1.5
-                        _level_alert("VWAP", vwap, "short", vwap, sl, tp, crossing=False)
-                        alert_warning(f"VWAP BOUNCE  E:{vwap:.0f}  SL:{sl:.0f}  TP:{tp:.0f}",
-                                      f"VWAP {vwap:.1f} — SHORT bounce setup forming")
 
         # ── Live price ticker ─────────────────────────────────────────────
         if 9 <= h < 12 and price:
