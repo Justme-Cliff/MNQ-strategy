@@ -1,9 +1,20 @@
 """
-Fast price feed — Yahoo Finance WebSocket (^NDX + basis) with yfinance fallback.
+Price feed — uses the most recent NQ=F 1-minute bar close from yfinance.
 
-Strategy: both feeds run simultaneously. WS is preferred whenever it has a fresh
-price (age < 30s). yfinance covers the gap while WS is connecting pre-market.
-Once WS gets its first tick, it takes over automatically — no restart needed.
+Why not the WebSocket?
+  The Yahoo WS streams ^NDX (the index, not futures) and applies a
+  cost-of-carry basis to estimate NQ. The basis drifts badly — producing
+  prices 900-1000+ points off from the actual MNQ price. Unusable.
+
+Why 1-minute bars instead of fast_info?
+  yf.Ticker("NQ=F").fast_info.last_price is 15-min delayed (CME embargo).
+  yf.download("NQ=F", period="1d", interval="1m") is also delayed but
+  typically only 1-2 minutes behind — good enough for display purposes.
+  The last 1-min bar close is accurate and at most 1-2 minutes old.
+
+Important: signals come from 5-min bar close data, NOT from this feed.
+  This feed is cosmetic only — it keeps the status line updated between
+  bar closes so the trader can see roughly where NQ is.
 """
 from __future__ import annotations
 import threading
@@ -19,15 +30,18 @@ EST = ZoneInfo("America/New_York")
 
 
 class FastPriceFeed:
-    """yfinance fallback feed — polled every 0.5s."""
+    """
+    Polls the latest NQ=F 1-minute bar every 10 seconds.
+    Accurate to within 1-2 minutes — far better than the broken WS.
+    """
 
-    def __init__(self, interval: float = 0.5):
-        self._interval = max(interval, 0.5)
+    def __init__(self, interval: float = 10.0):
+        self._interval = max(interval, 5.0)
         self._price:   float | None    = None
         self._updated: datetime | None = None
         self._lock     = threading.Lock()
         self._running  = True
-        self._errors   = 0
+        self.source    = "NQ1m"
 
         self._fetch_once()
         t = threading.Thread(target=self._loop, daemon=True)
@@ -45,7 +59,7 @@ class FastPriceFeed:
                 return 999.0
             return (datetime.now(tz=EST) - self._updated).total_seconds()
 
-    def is_stale(self, max_age: float = 10.0) -> bool:
+    def is_stale(self, max_age: float = 60.0) -> bool:
         return self.age_seconds > max_age
 
     def stop(self):
@@ -53,94 +67,48 @@ class FastPriceFeed:
 
     def _fetch_once(self) -> None:
         try:
-            p = yf.Ticker("NQ=F").fast_info.last_price
-            if p and p > 0:
-                with self._lock:
-                    self._price   = float(p)
-                    self._updated = datetime.now(tz=EST)
-                    self._errors  = 0
+            # 1-minute bars — last close is 1-2 min old at most
+            df = yf.download("NQ=F", period="1d", interval="1m",
+                             auto_adjust=True, progress=False)
+            if df is not None and not df.empty:
+                close_col = df["Close"]
+                # yfinance returns multi-level columns — flatten if needed
+                if hasattr(close_col.iloc[-1], "__len__"):
+                    close_col = close_col.iloc[:, 0]
+                p = float(close_col.iloc[-1])
+                if p and p > 1000:
+                    with self._lock:
+                        self._price   = p
+                        self._updated = datetime.now(tz=EST)
+            else:
+                # Fallback: fast_info (15-min delayed but better than nothing)
+                p = yf.Ticker("NQ=F").fast_info.last_price
+                if p and p > 1000:
+                    with self._lock:
+                        self._price   = float(p)
+                        self._updated = datetime.now(tz=EST)
         except Exception as e:
-            with self._lock:
-                self._errors += 1
-            if self._errors % 20 == 1:
-                log.warning("yfinance price error: %s", e)
+            log.debug("price fetch: %s", e)
 
     def _loop(self):
         while self._running:
-            self._fetch_once()
             time.sleep(self._interval)
+            self._fetch_once()
 
 
-class HybridFeed:
-    """
-    Runs Yahoo WS and yfinance simultaneously.
-    Returns WS price when fresh (age < 30s), yfinance otherwise.
-    WS takes over automatically once it connects — no restart needed.
-    """
-
-    def __init__(self):
-        from yahoo_ws_feed import YahooWsFeed
-        self._ws       = YahooWsFeed()
-        self._fallback = FastPriceFeed(interval=0.5)
-        self._ws_ever_connected = False
-        self.source    = "hybrid"
-
-    @property
-    def price(self) -> float | None:
-        ws_price = self._ws.price
-        ws_age   = self._ws.age_seconds
-
-        if ws_price and ws_age < 30:
-            self._ws_ever_connected = True
-            self.source = "^NDX+basis"
-            return ws_price
-
-        # WS not ready yet — use yfinance but keep WS running in background
-        fb = self._fallback.price
-        if not self._ws_ever_connected:
-            self.source = "yfinance(delayed)"
-        else:
-            # WS was working but went stale — could be a gap (lunch, etc.)
-            self.source = "yfinance(WS stale)"
-        return fb
-
-    @property
-    def age_seconds(self) -> float:
-        ws_age = self._ws.age_seconds
-        if ws_age < 30:
-            return ws_age
-        return self._fallback.age_seconds
-
-    def is_stale(self, max_age: float = 30.0) -> bool:
-        return self.age_seconds > max_age
-
-    @property
-    def connected(self) -> bool:
-        return self._ws.connected
-
-    def stop(self):
-        self._ws.stop()
-        self._fallback.stop()
+# Keep HybridFeed name so monitor.py import doesn't break
+HybridFeed = FastPriceFeed
 
 
-# ── Feed selector ─────────────────────────────────────────────────────────────
-
-_feed = None
-
-
-def get_feed() -> HybridFeed | FastPriceFeed:
+def get_feed() -> FastPriceFeed:
     global _feed
     if _feed is not None:
         return _feed
-
-    try:
-        _feed = HybridFeed()
-        log.info("HybridFeed started: WS + yfinance running simultaneously")
-    except Exception as e:
-        log.warning("HybridFeed failed (%s) — using yfinance only", e)
-        _feed = FastPriceFeed(interval=0.5)
-
+    _feed = FastPriceFeed(interval=10.0)
     return _feed
+
+
+_feed = None
 
 
 def get_price() -> float | None:

@@ -588,8 +588,8 @@ def run_monitor():
     load_t.add_column(min_width=36, style="dim")
     load_t.add_column()
 
-    console.print("[dim]Connecting to NQ price feed...[/dim]", end=" ")
-    for _ in range(40):
+    console.print("[dim]Loading NQ price (1-min bars)...[/dim]", end=" ")
+    for _ in range(20):
         if feed.price:
             break
         time.sleep(0.5)
@@ -729,8 +729,7 @@ def run_monitor():
         if 9 <= h < 12 and price:
             confirmed = get_confirmed_trades_today()
             age       = feed.age_seconds
-            source    = getattr(feed, "source", "")
-            src_tag   = "LIVE" if "NDX" in source else "YF"
+            src_tag   = "NQ"
             vix_now   = vix_cache.get(date.today(), 0.0)
             atr_now   = key_levels.get("atr", 0.0)
             _status_bar(price, confirmed, buf, vix_now, atr_now, src_tag, age, now)
