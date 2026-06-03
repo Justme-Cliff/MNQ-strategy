@@ -792,7 +792,23 @@ def run_hybrid_backtest(
 
     print(f"[HYB] Scanning {len(all_dates)} days ...")
 
+    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
+    _progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]{task.description}"),
+        BarColumn(bar_width=40),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("•"),
+        TextColumn("[green]{task.fields[trades]} trades"),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+    )
+    _task = _progress.add_task("Scanning...", total=len(all_dates), trades=0)
+    _progress.start()
+
     for today in all_dates:
+        _progress.update(_task, advance=1, trades=len(trades),
+                         description=f"{today}")
         dow = today.weekday()
         if dow >= 5:
             continue
@@ -1028,6 +1044,7 @@ def run_hybrid_backtest(
                             f"VA rule type={va_sig.setup_type} "
                             f"vah-val={abs(va_sig.va_target_edge - va_sig.va_entry_edge):.0f}pts")
 
+    _progress.stop()
     run_hybrid_backtest._hard_blocks = hard_block_counts
     return trades
 
