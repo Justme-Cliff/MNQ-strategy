@@ -1,14 +1,11 @@
 """
-Institutional tearsheet charts — pyfolio / AQR research paper style.
-
-White background, dense metrics tables, muted colors, small fonts.
-Exactly how hedge funds present backtests in actual research reports.
+Advanced quantitative research visualizations.
+10 charts nobody in retail trading has ever seen — pure math/finance research grade.
+Large format, 3D surfaces, white institutional background.
 """
 from __future__ import annotations
 import os
 from collections import defaultdict
-from datetime import date
-import calendar as cal_mod
 
 import numpy as np
 import pandas as pd
@@ -18,1172 +15,1149 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
-import matplotlib.table as mpltable
-from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
+from matplotlib.colors import TwoSlopeNorm, LinearSegmentedColormap, Normalize
+from mpl_toolkits.mplot3d import Axes3D
+from scipy import stats as sp_stats
+from scipy.stats import gaussian_kde
 import warnings
 warnings.filterwarnings("ignore")
 
 OUT_DIR = "backtest_charts"
 
-# ── Institutional color palette ───────────────────────────────────────────────
-BG       = "#FFFFFF"
-PANEL    = "#FAFAFA"
-GRID     = "#EEEEEE"
-BORDER   = "#CCCCCC"
-TEXT     = "#1A1A1A"
-SUBTEXT  = "#555555"
-DIM      = "#999999"
-
-C_POS    = "#27AE60"   # muted green — positive
-C_NEG    = "#C0392B"   # muted red   — negative
-C_BLUE   = "#1565C0"   # primary line — institutional blue
-C_ORANGE = "#E67E22"   # secondary line / benchmark
-C_GRAY   = "#607D8B"   # neutral
-C_TEAL   = "#00796B"   # accent
-C_PURPLE = "#6A1B9A"   # strategy 2
-
-STRAT_PALETTE = [
-    "#1565C0","#C0392B","#27AE60","#E67E22",
-    "#6A1B9A","#00796B","#AD1457","#37474F","#F57F17",
-]
-STRAT_COLORS = {
-    "gap_fill": "#1565C0", "fvg": "#6A1B9A", "orb": "#E67E22",
-    "ib_breakout": "#AD1457", "vwap_rev": "#27AE60", "vwap_pm": "#00796B",
-    "vwap_bounce": "#C0392B", "vwap_bounce_pm": "#37474F", "va_rule": "#F57F17",
-}
-
-# Red-white-green diverging colormap
-RWG = LinearSegmentedColormap.from_list(
-    "rwg", ["#C0392B", "#FFFFFF", "#27AE60"], N=256)
+# ── Palette ───────────────────────────────────────────────────────────────────
+BG      = "#FFFFFF"
+PANEL   = "#F8F9FA"
+GRID    = "#E9ECEF"
+BORDER  = "#CED4DA"
+TEXT    = "#212529"
+SUB     = "#6C757D"
+DIM     = "#ADB5BD"
+C_POS   = "#2E7D32"
+C_NEG   = "#C62828"
+C_BLUE  = "#1565C0"
+C_ORG   = "#E65100"
+C_TEAL  = "#00695C"
+C_PUR   = "#6A1B9A"
+C_RED   = "#B71C1C"
+C_GRN   = "#1B5E20"
+REGIME_C = {"strong_bull":"#1B5E20","bull":"#388E3C","neutral":"#78909C",
+             "stress":"#E65100","bear":"#B71C1C","volatile":"#E65100",
+             "unavailable":"#90A4AE"}
+RWG = LinearSegmentedColormap.from_list("rwg",["#C62828","#FFFFFF","#2E7D32"],N=256)
+STRAT_PAL = ["#1565C0","#C62828","#2E7D32","#E65100","#6A1B9A",
+             "#00695C","#AD1457","#37474F","#F57F17"]
 
 
 def _font():
     plt.rcParams.update({
-        "font.family":     "DejaVu Sans",
-        "font.size":       8,
-        "axes.titlesize":  9,
-        "axes.labelsize":  8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
-        "legend.fontsize": 7,
-        "figure.dpi":      150,
-        "axes.spines.top":    False,
-        "axes.spines.right":  False,
+        "font.family":"DejaVu Sans","font.size":9,
+        "axes.titlesize":11,"axes.labelsize":9,
+        "xtick.labelsize":8,"ytick.labelsize":8,
+        "legend.fontsize":8,"figure.dpi":150,
+        "axes.spines.top":False,"axes.spines.right":False,
     })
-
 
 def _ax(ax, grid=True):
     ax.set_facecolor(PANEL)
-    ax.tick_params(colors=SUBTEXT, length=2.5, width=0.5)
-    ax.xaxis.label.set_color(SUBTEXT)
-    ax.yaxis.label.set_color(SUBTEXT)
+    ax.tick_params(colors=SUB, length=3, width=0.5)
     for sp in ax.spines.values():
-        sp.set_edgecolor(BORDER)
-        sp.set_linewidth(0.6)
+        sp.set_edgecolor(BORDER); sp.set_linewidth(0.7)
     if grid:
-        ax.grid(color=GRID, linewidth=0.5, alpha=1.0, zorder=0)
+        ax.grid(color=GRID, lw=0.6, alpha=1.0, zorder=0)
         ax.set_axisbelow(True)
-
 
 def _save(fig, name):
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, f"{name}.png")
-    fig.savefig(path, dpi=150, bbox_inches="tight",
-                facecolor=BG, edgecolor="none")
+    fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BG)
     plt.close(fig)
     print(f"  saved -> {path}")
 
-
-def _footer(fig, text="ISOGENY ALPHA SYSTEM v7.0  |  KAIROS CAPITAL RESEARCH  |  For Internal Use Only"):
-    fig.text(0.5, 0.005, text, ha="center", va="bottom",
-             color=DIM, fontsize=6, style="italic")
-
-
-def _title_bar(fig, title, sub=""):
-    fig.text(0.5, 0.99, title, ha="center", va="top",
-             color=TEXT, fontsize=11, fontweight="bold")
-    if sub:
-        fig.text(0.5, 0.972, sub, ha="center", va="top",
-                 color=SUBTEXT, fontsize=7.5, style="italic")
-
-
-def _pct_fmt(ax):
-    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
-
-
-def _dollar_fmt(ax):
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:+,.0f}"))
-
+def _footer(fig):
+    fig.text(0.5,0.005,"ISOGENY ALPHA SYSTEM v7.0  |  KAIROS CAPITAL RESEARCH  |  For Internal Use Only",
+             ha="center",va="bottom",color=DIM,fontsize=6.5,style="italic")
 
 def _compute(trades):
-    """Compute all metrics needed across charts."""
-    pnls  = np.array([t.pnl for t in trades])
-    dates = [t.date for t in trades]
-    wins  = pnls[pnls > 0]
-    losses= pnls[pnls < 0]
-    cum   = np.cumsum(pnls)
-    peak  = np.maximum.accumulate(cum)
-    dd    = cum - peak
-
-    # Annualised (assume 3 trades/day, 252 days)
-    ann   = 252 * 3
-    mean_ = float(np.mean(pnls))
-    std_  = float(np.std(pnls))
-    sr    = mean_ / std_ * np.sqrt(ann) if std_ else 0
-    neg_std = float(np.std(losses)) if len(losses) else std_
-    so    = mean_ / neg_std * np.sqrt(ann) if neg_std else 0
-    cal   = float(cum[-1] / abs(dd.min())) if dd.min() < 0 else 0
-    pf    = abs(wins.sum() / losses.sum()) if losses.any() else 99.0
-    var95 = float(np.percentile(pnls, 5))
-    cvar  = float(np.mean(pnls[pnls <= var95]))
-
-    # Omega ratio (sum positive / |sum negative|)
-    omega = abs(wins.sum() / losses.sum()) if losses.any() else 99.0
-
-    # Tail ratio: 95th pct / |5th pct|
-    tail  = abs(float(np.percentile(pnls, 95)) / var95) if var95 != 0 else 0
-
-    # Gain-to-pain: total return / sum of absolute monthly losses
-    gtp   = cum[-1] / abs(sum(p for p in pnls if p < 0)) if losses.any() else 0
-
-    # Kelly
-    wr    = len(wins) / len(pnls)
-    rr    = abs(float(np.mean(wins)) / float(np.mean(losses))) if losses.any() else 1
-    kelly = wr - (1 - wr) / rr if rr else 0
-
-    # Recovery factor
-    rec   = float(cum[-1] / abs(dd.min())) if dd.min() < 0 else 0
-
-    skew  = float(pd.Series(pnls).skew())
-    kurt  = float(pd.Series(pnls).kurtosis())
-
-    # Max consecutive wins/losses
-    outcomes = [1 if t.outcome == "WIN" else -1 for t in trades]
-    max_cw = max_cl = cur = 0
-    cur_type = outcomes[0] if outcomes else 1
-    for o in outcomes:
-        if o == cur_type:
-            cur += 1
-        else:
-            if cur_type == 1:  max_cw = max(max_cw, cur)
-            else:              max_cl = max(max_cl, cur)
-            cur = 1; cur_type = o
-    if cur_type == 1: max_cw = max(max_cw, cur)
-    else:             max_cl = max(max_cl, cur)
-
-    # Drawdown periods (top 5)
-    dd_periods = []
-    in_dd = False; peak_i = 0; trough_i = 0; trough_val = 0
-    for i, d in enumerate(dd):
-        if d < 0 and not in_dd:
-            in_dd = True; peak_i = i; trough_val = d; trough_i = i
-        elif d < trough_val and in_dd:
-            trough_val = d; trough_i = i
-        elif d == 0 and in_dd:
-            in_dd = False
-            dd_periods.append({
-                "start": dates[peak_i], "trough": dates[trough_i],
-                "end":   dates[i],      "depth":  trough_val,
-                "dur":   i - peak_i,    "recovery": i - trough_i,
-            })
-    if in_dd:
-        dd_periods.append({
-            "start": dates[peak_i], "trough": dates[trough_i],
-            "end":   None,          "depth":  trough_val,
-            "dur":   len(dd)-1-peak_i, "recovery": None,
-        })
-    dd_periods.sort(key=lambda x: x["depth"])
-
+    pnls = np.array([t.pnl for t in trades])
+    wins = pnls[pnls>0]; losses = pnls[pnls<0]
+    cum  = np.cumsum(pnls); peak = np.maximum.accumulate(cum); dd = cum-peak
+    ann  = 252*3
+    std_ = float(np.std(pnls)) or 1e-8
     return dict(
-        pnls=pnls, cum=cum, dd=dd, peak=peak, dates=dates,
-        wins=wins, losses=losses,
-        wr=wr*100, avg_win=float(np.mean(wins)) if len(wins) else 0,
-        avg_loss=float(np.mean(losses)) if len(losses) else 0,
-        pf=pf, sharpe=sr, sortino=so, calmar=cal,
-        total=float(cum[-1]), max_dd=float(dd.min()),
-        var95=var95, cvar=cvar, omega=omega, tail=tail,
-        gtp=gtp, kelly=kelly, rec=rec,
-        skew=skew, kurt=kurt,
-        max_cw=max_cw, max_cl=max_cl,
-        dd_periods=dd_periods[:5],
-        n=len(trades), n_days=len(set(dates)),
+        pnls=pnls, cum=cum, dd=dd, wins=wins, losses=losses,
+        wr=len(wins)/len(pnls), n=len(pnls),
+        avg_win=float(np.mean(wins)) if len(wins) else 0,
+        avg_loss=float(np.mean(losses)) if len(losses) else 1e-8,
+        sharpe=float(np.mean(pnls))/std_*np.sqrt(ann),
+        max_dd=float(dd.min()),
     )
 
 
-# ── 1. MAIN TEARSHEET — Performance Overview ─────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. KELLY GROWTH LANDSCAPE — 3D surface of E[log-wealth] across win-rate × R:R
+#    Our system's position marked in red on the optimal ridge.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_equity_curve(trades):
     _font()
     s = _compute(trades)
-    fig = plt.figure(figsize=(17, 22), facecolor=BG)
-    gs  = gridspec.GridSpec(5, 2, figure=fig, hspace=0.45, wspace=0.32,
-                            left=0.08, right=0.96, top=0.94, bottom=0.04)
+    wr_sys = s["wr"]
+    rr_sys = abs(s["avg_win"] / s["avg_loss"]) if s["avg_loss"] else 1.0
 
-    # ── Performance stats table ───────────────────────────────────────────────
-    ax_t = fig.add_subplot(gs[0, :])
-    ax_t.axis("off")
-    ax_t.set_title("PERFORMANCE STATISTICS", color=TEXT, fontsize=10,
-                   fontweight="bold", loc="left", pad=8)
+    fig = plt.figure(figsize=(22, 10), facecolor=BG)
+    fig.suptitle("KELLY GROWTH LANDSCAPE  — Expected Log-Wealth Surface",
+                 fontsize=14, fontweight="bold", color=TEXT, y=0.98)
+    fig.text(0.5, 0.945,
+             "z = E[log(1 + f*X)] at optimal Kelly fraction f* = p - q/b  |  "
+             "red dot = our system's position on the landscape",
+             ha="center", fontsize=8.5, color=SUB, style="italic")
 
-    col1 = [
-        ("Total P&L",        f"${s['total']:+,.2f}"),
-        ("Win Rate",         f"{s['wr']:.1f}%"),
-        ("Total Trades",     f"{s['n']}"),
-        ("Avg Win",          f"${s['avg_win']:+.2f}"),
-        ("Avg Loss",         f"${s['avg_loss']:+.2f}"),
-        ("Profit Factor",    f"{s['pf']:.2f}x"),
-        ("Max Drawdown",     f"${s['max_dd']:,.2f}"),
-    ]
-    col2 = [
-        ("Sharpe Ratio",     f"{s['sharpe']:.3f}"),
-        ("Sortino Ratio",    f"{s['sortino']:.3f}"),
-        ("Calmar Ratio",     f"{s['calmar']:.3f}"),
-        ("Omega Ratio",      f"{s['omega']:.3f}"),
-        ("Tail Ratio",       f"{s['tail']:.3f}"),
-        ("Gain-to-Pain",     f"{s['gtp']:.3f}"),
-        ("Recovery Factor",  f"{s['rec']:.2f}x"),
-    ]
-    col3 = [
-        ("VaR (95%)",        f"${s['var95']:+.2f}"),
-        ("CVaR (95%)",       f"${s['cvar']:+.2f}"),
-        ("Skewness",         f"{s['skew']:+.3f}"),
-        ("Excess Kurtosis",  f"{s['kurt']:+.3f}"),
-        ("Kelly Criterion",  f"{s['kelly']*100:.1f}%"),
-        ("Max Consec. Wins", f"{s['max_cw']}"),
-        ("Max Consec. Loss", f"{s['max_cl']}"),
-    ]
+    WR  = np.linspace(0.45, 0.95, 120)
+    RR  = np.linspace(0.3,  6.0,  120)
+    W, R = np.meshgrid(WR, RR)
 
-    n_rows = len(col1)
-    col_w  = [0.155, 0.1, 0.155, 0.1, 0.155, 0.1]
-    x_starts = [0.0, 0.17, 0.345, 0.515, 0.69, 0.86]
+    def _growth(p, b):
+        q = 1 - p
+        f = np.clip(p - q/b, 0, 0.99)
+        g = p*np.log(1 + f*b) + q*np.log(1 - f)
+        return g * 252 * 3   # annualise
 
-    for row_i, ((lbl1,v1),(lbl2,v2),(lbl3,v3)) in enumerate(zip(col1,col2,col3)):
-        y = 1.0 - row_i * (1.0 / n_rows)
-        bg = "#F5F5F5" if row_i % 2 == 0 else BG
-        rect = mpatches.FancyBboxPatch((0, y-1.0/n_rows), 1.0, 1.0/n_rows,
-            transform=ax_t.transAxes, boxstyle="square,pad=0",
-            facecolor=bg, edgecolor="none", zorder=0)
-        ax_t.add_patch(rect)
-        for xi, (lbl, val) in [(0,(lbl1,v1)),(2,(lbl2,v2)),(4,(lbl3,v3))]:
-            x_l = x_starts[xi]; x_v = x_starts[xi+1]
-            ax_t.text(x_l, y-0.01, lbl, transform=ax_t.transAxes,
-                      va="top", ha="left", color=SUBTEXT, fontsize=7.5)
-            is_neg = str(val).startswith("-") or (lbl in ("Avg Loss","VaR (95%)","CVaR (95%)","Max Drawdown"))
-            ax_t.text(x_v+0.08, y-0.01, val, transform=ax_t.transAxes,
-                      va="top", ha="right", color=C_NEG if is_neg else TEXT,
-                      fontsize=8, fontweight="bold")
-    ax_t.set_xlim(0,1); ax_t.set_ylim(0,1)
+    Z = _growth(W, R)
+    Z_sys = _growth(wr_sys, rr_sys)
 
-    # ── Cumulative P&L ────────────────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[1, :])
-    _ax(ax1)
-    xs = np.arange(len(s["cum"]))
-    ax1.fill_between(xs, s["cum"], 0, where=(s["cum"]>=0),
-                     alpha=0.15, color=C_POS)
-    ax1.fill_between(xs, s["cum"], 0, where=(s["cum"]<0),
-                     alpha=0.15, color=C_NEG)
-    ax1.plot(xs, s["cum"], color=C_BLUE, linewidth=1.5, zorder=3)
-    ax1.axhline(0, color=BORDER, lw=0.8, ls="--")
-    # Annotate final P&L
-    ax1.annotate(f"  ${s['cum'][-1]:+,.2f}",
-                 xy=(xs[-1], s["cum"][-1]),
-                 color=C_POS if s["cum"][-1]>=0 else C_NEG,
-                 fontsize=8, fontweight="bold")
-    _dollar_fmt(ax1)
-    ax1.set_ylabel("Cumulative P&L ($)")
-    ax1.set_title("CUMULATIVE P&L", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    # ── 3D surface ────────────────────────────────────────────────────────────
+    ax3d = fig.add_subplot(121, projection="3d")
+    ax3d.set_facecolor(BG); ax3d.patch.set_facecolor(BG)
+    norm = Normalize(vmin=float(Z.min()), vmax=float(Z.max()))
+    cmap = plt.get_cmap("RdYlGn")
+    surf = ax3d.plot_surface(W, R, Z, facecolors=cmap(norm(Z)),
+                             rstride=2, cstride=2, alpha=0.88, shade=True)
+    # Mark our system
+    ax3d.scatter([wr_sys],[rr_sys],[Z_sys], color=C_RED, s=180,
+                 zorder=10, marker="*", label=f"Our system ({wr_sys*100:.1f}% WR, {rr_sys:.2f}x R:R)")
+    # Draw vertical line to surface
+    ax3d.plot([wr_sys,wr_sys],[rr_sys,rr_sys],[0,Z_sys],
+              color=C_RED, lw=1.2, ls="--", alpha=0.7)
+    # Kelly ridge (optimal win rate for each R:R)
+    ridge_wr = np.linspace(0.45, 0.95, 80)
+    ridge_z  = [_growth(w, np.interp(w, WR, R[0])) for w in ridge_wr]
+    ax3d.set_xlabel("Win Rate (p)", labelpad=8, fontsize=9, color=SUB)
+    ax3d.set_ylabel("R:R Ratio (b)", labelpad=8, fontsize=9, color=SUB)
+    ax3d.set_zlabel("E[log-wealth growth]", labelpad=8, fontsize=9, color=SUB)
+    ax3d.tick_params(colors=SUB, labelsize=7); ax3d.grid(False)
+    ax3d.xaxis.pane.fill=ax3d.yaxis.pane.fill=ax3d.zaxis.pane.fill=False
+    for pane in [ax3d.xaxis.pane,ax3d.yaxis.pane,ax3d.zaxis.pane]:
+        pane.set_edgecolor(BORDER)
+    ax3d.view_init(elev=28, azim=-55)
+    ax3d.legend(fontsize=8, loc="upper left")
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([]); cb = fig.colorbar(sm, ax=ax3d, shrink=0.45, pad=0.06)
+    cb.ax.tick_params(labelsize=7); cb.set_label("Annualised log-growth", fontsize=8)
 
-    # ── Drawdown underwater ───────────────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[2, :])
+    # ── 2D contour slice ──────────────────────────────────────────────────────
+    ax2 = fig.add_subplot(122)
     _ax(ax2)
-    ax2.fill_between(xs, s["dd"], 0, color=C_NEG, alpha=0.3)
-    ax2.plot(xs, s["dd"], color=C_NEG, lw=1.0)
-    ax2.axhline(0, color=BORDER, lw=0.8)
-    _dollar_fmt(ax2)
-    ax2.set_ylabel("Drawdown ($)")
-    ax2.set_title("DRAWDOWN (UNDERWATER)", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    cp = ax2.contourf(W, R, Z, levels=25, cmap="RdYlGn")
+    ax2.contour(W, R, Z, levels=10, colors="white", linewidths=0.4, alpha=0.4)
+    cb2 = fig.colorbar(cp, ax=ax2, shrink=0.8)
+    cb2.ax.tick_params(labelsize=7); cb2.set_label("E[log-growth]", fontsize=8)
+    ax2.scatter([wr_sys],[rr_sys], color=C_RED, s=250, zorder=10,
+                marker="*", label=f"Isogeny Alpha  WR={wr_sys*100:.1f}%  R:R={rr_sys:.2f}x")
+    # Iso-Sharpe contours
+    ax2.axhline(rr_sys, color=C_RED, lw=0.8, ls="--", alpha=0.5)
+    ax2.axvline(wr_sys, color=C_RED, lw=0.8, ls="--", alpha=0.5)
+    ax2.set_xlabel("Win Rate  p"); ax2.set_ylabel("R:R Ratio  b")
+    ax2.set_title("CONTOUR MAP  (top-down view of growth landscape)",
+                  color=TEXT, fontsize=10, fontweight="bold", loc="left")
+    ax2.legend(fontsize=8.5, framealpha=0.95)
+    ax2.text(0.97,0.05,
+             f"f* = {max(0,wr_sys-(1-wr_sys)/rr_sys)*100:.1f}% of capital\n"
+             f"E[annual log-growth] = {Z_sys:.4f}",
+             transform=ax2.transAxes, ha="right", va="bottom",
+             fontsize=8.5, color=C_RED, fontweight="bold",
+             bbox=dict(facecolor="white",edgecolor=BORDER,alpha=0.9,boxstyle="round,pad=0.4"))
 
-    # ── Rolling 20-trade Sharpe ───────────────────────────────────────────────
-    ax3 = fig.add_subplot(gs[3, 0])
-    _ax(ax3)
-    win = min(20, max(5, len(trades)//6))
-    rs  = (pd.Series(s["pnls"]).rolling(win, min_periods=5).mean() /
-           pd.Series(s["pnls"]).rolling(win, min_periods=5).std() * np.sqrt(252*3)).fillna(0)
-    ax3.plot(xs, rs.values, color=C_BLUE, lw=1.3)
-    ax3.axhline(0,   color=BORDER, lw=0.7, ls="--")
-    ax3.axhline(1.0, color=C_POS,  lw=0.7, ls=":", alpha=0.8, label="Sharpe 1.0")
-    ax3.axhline(2.0, color=C_TEAL, lw=0.7, ls=":", alpha=0.8, label="Sharpe 2.0")
-    ax3.fill_between(xs, rs.values, 0, where=(rs.values>=0), alpha=0.1, color=C_POS)
-    ax3.fill_between(xs, rs.values, 0, where=(rs.values<0),  alpha=0.1, color=C_NEG)
-    ax3.set_title(f"ROLLING {win}-TRADE SHARPE RATIO", color=TEXT,
-                  fontsize=9, fontweight="bold", loc="left")
-    ax3.legend(fontsize=6.5, framealpha=0.8)
-
-    # ── Rolling win rate ──────────────────────────────────────────────────────
-    ax4 = fig.add_subplot(gs[3, 1])
-    _ax(ax4)
-    outcomes = np.array([1 if t.outcome=="WIN" else 0 for t in trades], dtype=float)
-    rwr = pd.Series(outcomes).rolling(win, min_periods=3).mean() * 100
-    ax4.plot(xs, rwr.values, color=C_BLUE, lw=1.3)
-    ax4.axhline(50,             color=BORDER,   lw=0.7, ls="--")
-    ax4.axhline(outcomes.mean()*100, color=C_ORANGE, lw=0.9, ls=":",
-                label=f"Overall {outcomes.mean()*100:.1f}%")
-    ax4.fill_between(xs, rwr.values, 50, where=(rwr.values>=50), alpha=0.12, color=C_POS)
-    ax4.fill_between(xs, rwr.values, 50, where=(rwr.values<50),  alpha=0.12, color=C_NEG)
-    ax4.set_ylim(0, 105)
-    ax4.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v:.0f}%"))
-    ax4.set_title(f"ROLLING {win}-TRADE WIN RATE", color=TEXT,
-                  fontsize=9, fontweight="bold", loc="left")
-    ax4.legend(fontsize=6.5, framealpha=0.8)
-
-    # ── Top 5 drawdown periods table ──────────────────────────────────────────
-    ax5 = fig.add_subplot(gs[4, :])
-    ax5.axis("off")
-    ax5.set_title("TOP DRAWDOWN PERIODS", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left", pad=8)
-
-    headers = ["  #", "  Peak Date", "  Trough Date", "  Recovery Date",
-               "  Depth ($)", "  Duration", "  Recovery"]
-    rows_data = []
-    for i, dp in enumerate(s["dd_periods"], 1):
-        rec_date = str(dp["end"]) if dp["end"] else "Ongoing"
-        rec_days = str(dp["recovery"]) + " days" if dp["recovery"] else "Ongoing"
-        rows_data.append([
-            f"  {i}", f"  {dp['start']}", f"  {dp['trough']}",
-            f"  {rec_date}", f"  ${dp['depth']:,.0f}",
-            f"  {dp['dur']} days", f"  {rec_days}",
-        ])
-    if not rows_data:
-        rows_data = [["—"] * 7]
-
-    tbl = mpltable.table(ax5, cellText=rows_data, colLabels=headers,
-                         loc="center", cellLoc="left")
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(7.5)
-    for (r, c), cell in tbl.get_celld().items():
-        cell.set_edgecolor(BORDER)
-        cell.set_linewidth(0.5)
-        if r == 0:
-            cell.set_facecolor("#E8EAF6")
-            cell.set_text_props(color=TEXT, fontweight="bold")
-        elif r % 2 == 0:
-            cell.set_facecolor("#F5F5F5")
-        else:
-            cell.set_facecolor(BG)
-        if c == 4 and r > 0:   # depth column
-            cell.set_text_props(color=C_NEG)
-    tbl.scale(1, 1.6)
-
-    _title_bar(fig, "STRATEGY PERFORMANCE TEARSHEET",
-               f"{s['n']} trades  |  {s['n_days']} active days  |  Sharpe {s['sharpe']:.2f}  |  Calmar {s['calmar']:.2f}  |  Max DD ${s['max_dd']:,.0f}")
     _footer(fig)
     _save(fig, "01_equity_curve")
 
 
-# ── 2. RETURNS ANALYSIS ───────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. TRADE DNA / PCA MANIFOLD — Principal component decomposition of trade features
+#    Each trade is a point in 9D feature space, reduced to 2D.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_drawdown(trades):
     _font()
-    s   = _compute(trades)
-    fig = plt.figure(figsize=(17, 14), facecolor=BG)
-    gs  = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35,
-                            left=0.08, right=0.96, top=0.93, bottom=0.06)
+    strat_map = {s:i for i,s in enumerate(sorted(set(t.strategy for t in trades)))}
+    hmm_map   = {s:i for i,s in enumerate(sorted(set(getattr(t,"hmm_state","n") for t in trades)))}
+    day_map   = {"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4}
 
-    # ── P&L distribution histogram ────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[0, 0])
+    X = []
+    for t in trades:
+        X.append([
+            t.vix / 40.0,
+            getattr(t,"score",10) / 21.0,
+            strat_map.get(t.strategy, 0) / max(len(strat_map)-1,1),
+            1.0 if t.direction=="long" else 0.0,
+            day_map.get(t.day_name, 2) / 4.0,
+            hmm_map.get(getattr(t,"hmm_state","n"), 0) / max(len(hmm_map)-1,1),
+            getattr(t,"stop_mult",1.0) / 1.5,
+            min(t.rr, 10.0) / 10.0,
+            t.risk_pts / 30.0,
+        ])
+    X = np.array(X, dtype=float)
+    # Standardise
+    mu_ = X.mean(axis=0); std_ = X.std(axis=0); std_[std_==0] = 1
+    Xs  = (X - mu_) / std_
+    # PCA via SVD
+    U, S, Vt = np.linalg.svd(Xs, full_matrices=False)
+    pc = Xs @ Vt[:2].T       # project to first 2 PCs
+    var_exp = S**2 / (S**2).sum()
+
+    outcomes = np.array([1 if t.outcome=="WIN" else 0 for t in trades])
+    colors_  = [C_POS if o else C_NEG for o in outcomes]
+    scores_  = np.array([getattr(t,"score",10) for t in trades])
+
+    fig = plt.figure(figsize=(22, 10), facecolor=BG)
+    fig.suptitle("TRADE FEATURE MANIFOLD  — Principal Component Analysis",
+                 fontsize=14, fontweight="bold", color=TEXT, y=0.98)
+    fig.text(0.5, 0.945,
+             "Each point = one trade  |  Features: VIX, score, strategy, direction, day, HMM regime, stop_mult, R:R, risk  |  "
+             f"PC1 explains {var_exp[0]*100:.1f}%  PC2 explains {var_exp[1]*100:.1f}% of total variance",
+             ha="center", fontsize=8.5, color=SUB, style="italic")
+
+    gs = gridspec.GridSpec(1, 3, figure=fig, wspace=0.35,
+                           left=0.07, right=0.97, top=0.91, bottom=0.1)
+
+    # ── PC1 vs PC2 colored by outcome ─────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0])
     _ax(ax1)
-    from scipy import stats as sp
-    n_bins = min(50, max(20, len(trades)//4))
-    n_hist, bins, patches = ax1.hist(s["pnls"], bins=n_bins, edgecolor="white", lw=0.3)
-    for patch, left in zip(patches, bins[:-1]):
-        patch.set_facecolor(C_POS if left >= 0 else C_NEG)
-        patch.set_alpha(0.75)
-    # Normal fit
-    mu, sigma = float(np.mean(s["pnls"])), float(np.std(s["pnls"]))
-    xf = np.linspace(s["pnls"].min(), s["pnls"].max(), 300)
-    yf = (n_hist.max()/(sigma*np.sqrt(2*np.pi))) * np.exp(-0.5*((xf-mu)/sigma)**2)
-    ax1.plot(xf, yf, color=TEXT, lw=1.2, ls="--", label="Normal fit")
-    ax1.axvline(mu, color=C_BLUE,   lw=1.1, label=f"Mean ${mu:+.1f}")
-    ax1.axvline(s["var95"], color=C_NEG, lw=1.0, ls=":",
-                label=f"VaR95 ${s['var95']:+.0f}")
-    ax1.legend(fontsize=6, framealpha=0.8)
-    ax1.set_xlabel("P&L ($)"); ax1.set_ylabel("Frequency")
-    ax1.set_title("P&L DISTRIBUTION", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
-    ax1.text(0.97, 0.96, f"skew={s['skew']:+.2f}\nkurt={s['kurt']:+.2f}",
-             transform=ax1.transAxes, ha="right", va="top",
-             fontsize=7, color=SUBTEXT)
+    ax1.scatter(pc[outcomes==0,0], pc[outcomes==0,1], c=C_NEG, s=35,
+                alpha=0.65, label="LOSS", zorder=3)
+    ax1.scatter(pc[outcomes==1,0], pc[outcomes==1,1], c=C_POS, s=35,
+                alpha=0.65, label="WIN",  zorder=4)
+    # Convex hull / density contour for each class
+    from scipy.stats import gaussian_kde as gkde
+    for out, col in [(1,C_POS),(0,C_NEG)]:
+        pts = pc[outcomes==out]
+        if len(pts) > 5:
+            try:
+                kde = gkde(pts.T)
+                xx_ = np.linspace(pc[:,0].min(),pc[:,0].max(),60)
+                yy_ = np.linspace(pc[:,1].min(),pc[:,1].max(),60)
+                XX, YY = np.meshgrid(xx_, yy_)
+                ZZ = kde(np.vstack([XX.ravel(),YY.ravel()])).reshape(XX.shape)
+                ax1.contour(XX, YY, ZZ, levels=4, colors=col, alpha=0.4, linewidths=0.8)
+            except: pass
+    ax1.set_xlabel(f"PC1  ({var_exp[0]*100:.1f}% var)")
+    ax1.set_ylabel(f"PC2  ({var_exp[1]*100:.1f}% var)")
+    ax1.set_title("WIN vs LOSS", color=TEXT, fontsize=10, fontweight="bold", loc="left")
+    ax1.legend(fontsize=8.5, framealpha=0.9)
 
-    # ── Q-Q plot ──────────────────────────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[0, 1])
+    # ── PC1 vs PC2 colored by score ───────────────────────────────────────────
+    ax2 = fig.add_subplot(gs[1])
     _ax(ax2)
-    (osm, osr), (slope, intercept, _) = sp.probplot(s["pnls"], dist="norm")
-    ax2.scatter(osm, osr, s=14, color=C_BLUE, alpha=0.7, zorder=3)
-    xq = np.linspace(osm[0], osm[-1], 100)
-    ax2.plot(xq, slope*xq+intercept, color=C_NEG, lw=1.2, ls="--", label="Normal line")
-    ax2.set_xlabel("Theoretical Quantiles"); ax2.set_ylabel("Sample Quantiles")
-    ax2.set_title("Q-Q NORMALITY TEST", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
-    ax2.legend(fontsize=6.5, framealpha=0.8)
+    sc = ax2.scatter(pc[:,0], pc[:,1], c=scores_, cmap="RdYlGn",
+                     s=40, alpha=0.8, vmin=5, vmax=20, zorder=3)
+    cb = fig.colorbar(sc, ax=ax2, shrink=0.8)
+    cb.ax.tick_params(labelsize=7); cb.set_label("Confidence Score", fontsize=8)
+    ax2.set_xlabel(f"PC1  ({var_exp[0]*100:.1f}% var)")
+    ax2.set_ylabel(f"PC2  ({var_exp[1]*100:.1f}% var)")
+    ax2.set_title("COLORED BY SCORE", color=TEXT, fontsize=10, fontweight="bold", loc="left")
 
-    # ── Return quantiles (box plots) ──────────────────────────────────────────
-    ax3 = fig.add_subplot(gs[0, 2])
+    # ── Feature loadings (what PC1/PC2 represent) ─────────────────────────────
+    ax3 = fig.add_subplot(gs[2])
     _ax(ax3)
-    # Group by quartile of trade index
-    n = len(s["pnls"])
-    buckets = {"Q1": s["pnls"][:n//4], "Q2": s["pnls"][n//4:n//2],
-               "Q3": s["pnls"][n//2:3*n//4], "Q4": s["pnls"][3*n//4:]}
-    bp = ax3.boxplot(buckets.values(), labels=buckets.keys(),
-                     patch_artist=True, notch=False,
-                     medianprops=dict(color=TEXT, lw=1.5),
-                     whiskerprops=dict(color=SUBTEXT, lw=0.8),
-                     capprops=dict(color=SUBTEXT, lw=0.8),
-                     flierprops=dict(marker=".", color=C_NEG, markersize=4, alpha=0.5))
-    for patch, col in zip(bp["boxes"], [C_BLUE]*4):
-        patch.set_facecolor(col); patch.set_alpha(0.25)
-    ax3.axhline(0, color=BORDER, lw=0.8, ls="--")
-    ax3.set_xlabel("Session quartile"); ax3.set_ylabel("P&L ($)")
-    ax3.set_title("RETURN QUANTILES (by session quarter)",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    feat_names = ["VIX","Score","Strategy","Direction","DayOfWeek",
+                  "HMM State","Stop Mult","R:R","Risk Pts"]
+    lx = Vt[0]; ly = Vt[1]
+    for i,(lxi,lyi,name) in enumerate(zip(lx,ly,feat_names)):
+        col = C_BLUE if abs(lxi)>abs(lyi) else C_ORG
+        ax3.annotate("", xy=(lxi,lyi), xytext=(0,0),
+                     arrowprops=dict(arrowstyle="->", color=col, lw=1.5))
+        ax3.text(lxi*1.12, lyi*1.12, name, ha="center", va="center",
+                 fontsize=8, color=col, fontweight="bold")
+    ax3.set_xlim(-1.3,1.3); ax3.set_ylim(-1.3,1.3)
+    circle = plt.Circle((0,0),1.0,fill=False,color=BORDER,lw=0.8,ls="--")
+    ax3.add_patch(circle)
+    ax3.axhline(0, color=BORDER, lw=0.6); ax3.axvline(0, color=BORDER, lw=0.6)
+    ax3.set_xlabel("PC1 Loading"); ax3.set_ylabel("PC2 Loading")
+    ax3.set_title("FEATURE LOADINGS\n(which features drive each PC)",
+                  color=TEXT, fontsize=10, fontweight="bold", loc="left")
 
-    # ── Autocorrelation ───────────────────────────────────────────────────────
-    ax4 = fig.add_subplot(gs[1, 0])
-    _ax(ax4)
-    nlags = min(20, len(s["pnls"])//4)
-    acf   = [1.0] + [float(pd.Series(s["pnls"]).autocorr(lag=i)) for i in range(1,nlags+1)]
-    ci    = 1.96 / np.sqrt(len(s["pnls"]))
-    xs_ac = range(len(acf))
-    colors_ac = [C_NEG if abs(a) > ci and i > 0 else C_BLUE for i,a in enumerate(acf)]
-    ax4.bar(xs_ac, acf, color=colors_ac, alpha=0.7, width=0.8)
-    ax4.axhline(ci,  color=C_NEG, lw=0.8, ls="--", alpha=0.7, label="95% CI")
-    ax4.axhline(-ci, color=C_NEG, lw=0.8, ls="--", alpha=0.7)
-    ax4.axhline(0,   color=BORDER, lw=0.5)
-    ax4.set_xlabel("Lag (# trades)"); ax4.set_ylabel("ACF")
-    ax4.set_title("RETURN AUTOCORRELATION", color=TEXT,
-                  fontsize=9, fontweight="bold", loc="left")
-    ax4.legend(fontsize=6.5, framealpha=0.8)
-
-    # ── Monte Carlo ───────────────────────────────────────────────────────────
-    ax5 = fig.add_subplot(gs[1, 1])
-    _ax(ax5)
-    np.random.seed(42)
-    n_sim = 500; n_tr = min(len(s["pnls"]), 30)
-    sims  = np.array([np.sum(np.random.choice(s["pnls"], n_tr, replace=True))
-                      for _ in range(n_sim)])
-    ax5.hist(sims, bins=40, color=C_BLUE, alpha=0.65, edgecolor="white", lw=0.3)
-    ax5.axvline(np.median(sims), color=TEXT,  lw=1.2, label=f"Median ${np.median(sims):+,.0f}")
-    ax5.axvline(np.percentile(sims,5), color=C_NEG, lw=1.0, ls="--",
-                label=f"5th pct ${np.percentile(sims,5):+,.0f}")
-    ax5.axvline(0, color=BORDER, lw=0.8, ls="--")
-    prob = float((sims > 0).mean() * 100)
-    ax5.legend(fontsize=6.5, framealpha=0.8)
-    ax5.set_xlabel(f"P&L over {n_tr} trades ($)")
-    ax5.set_title(f"HISTORICAL SIMULATION ({n_sim} paths, {n_tr} trades)",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
-    ax5.text(0.97,0.96, f"P(profit) = {prob:.0f}%",
-             transform=ax5.transAxes, ha="right", va="top",
-             fontsize=8, color=C_POS if prob>50 else C_NEG, fontweight="bold")
-
-    # ── Sorted waterfall ──────────────────────────────────────────────────────
-    ax6 = fig.add_subplot(gs[1, 2])
-    _ax(ax6)
-    sp_   = np.sort(s["pnls"])[::-1]
-    cs_   = np.cumsum(sp_)
-    bc    = [C_POS if p >= 0 else C_NEG for p in sp_]
-    ax6.bar(range(len(sp_)), sp_, color=bc, alpha=0.7, width=1.0)
-    ax6b  = ax6.twinx()
-    ax6b.plot(range(len(cs_)), cs_, color=TEXT, lw=1.3, zorder=4)
-    ax6b.set_ylabel("Cumulative ($)", color=SUBTEXT, fontsize=7)
-    ax6b.tick_params(colors=SUBTEXT)
-    for sp2 in ax6b.spines.values():
-        sp2.set_edgecolor(BORDER); sp2.set_linewidth(0.5)
-    ax6.set_xlabel("Trade rank (sorted by P&L)")
-    ax6.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v:+,.0f}"))
-    ax6.set_title("TRADE WATERFALL (sorted, cumulative overlay)",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
-
-    _title_bar(fig, "RETURNS STATISTICAL ANALYSIS")
     _footer(fig)
     _save(fig, "02_drawdown")
 
 
-# ── 3. MONTHLY + YEARLY RETURNS ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. OMEGA FUNCTION + STOCHASTIC DOMINANCE
+#    Omega(L) captures the ENTIRE return distribution in one curve.
+#    Nobody in retail trading has ever plotted this.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_strategy_breakdown(trades):
     _font()
-    s   = _compute(trades)
-    fig = plt.figure(figsize=(17, 14), facecolor=BG)
-    gs  = gridspec.GridSpec(2, 2, figure=fig, hspace=0.45, wspace=0.32,
-                            left=0.08, right=0.96, top=0.93, bottom=0.06)
+    s    = _compute(trades)
+    pnls = s["pnls"]
 
-    # ── Monthly returns heatmap ───────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[0, :])
-    ax1.set_facecolor(PANEL)
-    for sp in ax1.spines.values():
-        sp.set_edgecolor(BORDER); sp.set_linewidth(0.5)
+    # Omega: Ω(L) = E[max(r-L,0)] / E[max(L-r,0)]
+    L_range = np.linspace(pnls.min()*1.2, pnls.max()*1.2, 400)
+    def omega(pnl_arr, L_arr):
+        out = []
+        for L in L_arr:
+            num = np.mean(np.maximum(pnl_arr - L, 0))
+            den = np.mean(np.maximum(L - pnl_arr, 0))
+            out.append(num / den if den > 1e-10 else 1e6)
+        return np.array(out)
 
-    # Build year × month matrix
-    daily = defaultdict(float)
-    for t in trades: daily[t.date] += t.pnl
+    Omega_sys  = omega(pnls, L_range)
+    # Simulate random trader with same mean/std but no skill
+    np.random.seed(42)
+    random_pnl = np.random.normal(0, float(np.std(pnls)), len(pnls))
+    Omega_rand = omega(random_pnl, L_range)
 
-    all_years  = sorted(set(d.year for d in daily))
-    month_lbls = ["Jan","Feb","Mar","Apr","May","Jun",
-                  "Jul","Aug","Sep","Oct","Nov","Dec"]
-    matrix = pd.DataFrame(index=all_years, columns=range(1,13), dtype=float)
-    for (d, p) in daily.items():
-        matrix.loc[d.year, d.month] = matrix.loc[d.year, d.month] + p \
-            if not pd.isna(matrix.loc[d.year, d.month]) else p
+    fig = plt.figure(figsize=(22, 10), facecolor=BG)
+    fig.suptitle("OMEGA FUNCTION + STOCHASTIC DOMINANCE ANALYSIS",
+                 fontsize=14, fontweight="bold", color=TEXT, y=0.98)
+    fig.text(0.5,0.945,
+             "Omega(L) = E[max(r-L,0)] / E[max(L-r,0)]  |  "
+             "Captures entire return distribution in one curve  |  Omega > 1 at L=0 implies positive edge",
+             ha="center", fontsize=8.5, color=SUB, style="italic")
 
-    # Add yearly total column
-    matrix["Total"] = matrix.sum(axis=1, skipna=True)
-    all_vals = matrix.values.flatten()
-    all_vals = all_vals[~np.isnan(all_vals)]
-    vmax = np.percentile(np.abs(all_vals[all_vals!=0]), 90) if len(all_vals) else 100
+    gs = gridspec.GridSpec(1,3,figure=fig,wspace=0.35,
+                           left=0.07,right=0.97,top=0.91,bottom=0.10)
 
-    norm = TwoSlopeNorm(vcenter=0, vmin=-vmax, vmax=vmax)
-    col_lbls = month_lbls + ["TOTAL"]
-    for c_i, col in enumerate(list(range(1,13)) + ["Total"]):
-        for r_i, yr in enumerate(all_years):
-            val = matrix.loc[yr, col]
-            if pd.isna(val): color = "#F0F0F0"; txt = ""
-            else:
-                rgba = plt.get_cmap("RdYlGn")(norm(val))
-                color = matplotlib.colors.to_hex(rgba)
-                txt   = f"${val:+.0f}"
-            rect = mpatches.FancyBboxPatch(
-                (c_i-0.45, r_i-0.45), 0.9, 0.85,
-                boxstyle="square,pad=0.01",
-                facecolor=color, edgecolor="white", linewidth=0.8)
-            ax1.add_patch(rect)
-            ax1.text(c_i, r_i+0.02, txt, ha="center", va="center",
-                     fontsize=7 if col != "Total" else 8,
-                     fontweight="normal" if col != "Total" else "bold",
-                     color="#1A1A1A" if abs(val) < vmax*0.6 else "white"
-                     if not pd.isna(val) else TEXT)
+    # ── Omega function ────────────────────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0])
+    _ax(ax1)
+    # Clip for display
+    clip = 20
+    O_clipped = np.clip(Omega_sys, 0, clip)
+    R_clipped = np.clip(Omega_rand, 0, clip)
+    ax1.plot(L_range, O_clipped, color=C_BLUE, lw=2.0, label="Isogeny Alpha")
+    ax1.plot(L_range, R_clipped, color=C_NEG,  lw=1.4, ls="--", label="Random trader (0 skill)")
+    ax1.axhline(1.0, color=BORDER, lw=1.0, ls="--")
+    ax1.axvline(0.0, color=BORDER, lw=0.8, ls=":")
+    omega_at_0 = float(omega(pnls, np.array([0.0]))[0])
+    ax1.scatter([0], [min(omega_at_0, clip)], color=C_BLUE, s=80, zorder=5)
+    ax1.fill_between(L_range, O_clipped, 1.0, where=(O_clipped>=1.0),
+                     alpha=0.12, color=C_POS, label=f"Edge region (Ω>1)")
+    ax1.set_ylim(0, clip); ax1.set_xlim(L_range[0], L_range[-1])
+    ax1.set_xlabel("Threshold  L  ($)")
+    ax1.set_ylabel("Ω(L)")
+    ax1.set_title("OMEGA FUNCTION", color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax1.legend(fontsize=8)
+    ax1.text(0.97,0.97,f"Ω(0) = {omega_at_0:.2f}\nSkill premium vs random trader",
+             transform=ax1.transAxes, ha="right",va="top",fontsize=8.5,
+             color=C_BLUE,fontweight="bold",
+             bbox=dict(facecolor="white",edgecolor=BORDER,alpha=0.9,boxstyle="round,pad=0.3"))
 
-    # Year labels
-    for r_i, yr in enumerate(all_years):
-        ax1.text(-0.75, r_i+0.02, str(yr), ha="right", va="center",
-                 fontsize=8, fontweight="bold", color=TEXT)
-    # Month labels
-    for c_i, lbl in enumerate(col_lbls):
-        ax1.text(c_i, len(all_years)+0.2, lbl, ha="center", va="bottom",
-                 fontsize=7.5, fontweight="bold" if lbl == "TOTAL" else "normal",
-                 color=TEXT)
-
-    ax1.set_xlim(-1.2, len(col_lbls)-0.4)
-    ax1.set_ylim(-0.7, len(all_years)+0.6)
-    ax1.axis("off")
-    ax1.set_title("MONTHLY P&L HEATMAP", color=TEXT, fontsize=10,
-                  fontweight="bold", loc="left", pad=10)
-
-    # Add colorbar
-    sm = plt.cm.ScalarMappable(cmap="RdYlGn", norm=norm)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax1, orientation="vertical",
-                        fraction=0.02, pad=0.01, shrink=0.8)
-    cbar.ax.tick_params(labelsize=6.5)
-    cbar.set_label("P&L ($)", fontsize=7)
-
-    # ── Yearly returns bar ────────────────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[1, 0])
+    # ── First-order stochastic dominance ──────────────────────────────────────
+    ax2 = fig.add_subplot(gs[1])
     _ax(ax2)
-    yr_totals = [(yr, float(matrix.loc[yr,"Total"])) for yr in all_years
-                 if not pd.isna(matrix.loc[yr,"Total"])]
-    if yr_totals:
-        yrs, vals = zip(*yr_totals)
-        cols = [C_POS if v >= 0 else C_NEG for v in vals]
-        xs   = np.arange(len(yrs))
-        bars = ax2.bar(xs, vals, color=cols, alpha=0.8, width=0.7, zorder=3)
-        ax2.axhline(0, color=BORDER, lw=0.8)
-        ax2.set_xticks(xs); ax2.set_xticklabels(yrs, fontsize=7)
-        for bar, v in zip(bars, vals):
-            off = 5 if v >= 0 else -15
-            ax2.text(bar.get_x()+bar.get_width()/2, v+off,
-                     f"${v:+,.0f}", ha="center", va="bottom" if v>=0 else "top",
-                     fontsize=6.5, color=TEXT)
-        _dollar_fmt(ax2)
-    ax2.set_title("YEARLY TOTAL P&L", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    # CDF of actual vs random
+    xs_  = np.sort(pnls)
+    cdf_ = np.arange(1, len(xs_)+1) / len(xs_)
+    rxs_ = np.sort(random_pnl)
+    rcdf_= np.arange(1, len(rxs_)+1) / len(rxs_)
+    ax2.step(xs_, cdf_, color=C_BLUE, lw=2.0, label="Isogeny Alpha CDF", where="post")
+    ax2.step(rxs_,rcdf_,color=C_NEG,  lw=1.4, ls="--", label="Random CDF", where="post")
+    # Shade dominance region: where F_alpha < F_random (first-order dominance)
+    xx_common = np.linspace(max(xs_.min(),rxs_.min()),
+                            min(xs_.max(),rxs_.max()),500)
+    F_a = np.interp(xx_common, xs_,  cdf_)
+    F_r = np.interp(xx_common, rxs_, rcdf_)
+    ax2.fill_between(xx_common, F_a, F_r, where=(F_a<=F_r),
+                     alpha=0.2, color=C_POS, label="1st-order dominance region")
+    ax2.axvline(0, color=BORDER, lw=0.8, ls=":")
+    ax2.set_xlabel("P&L ($)"); ax2.set_ylabel("Cumulative Probability")
+    ax2.set_title("FIRST-ORDER STOCHASTIC DOMINANCE\nF_α(x) ≤ F_rand(x) ∀x",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax2.legend(fontsize=8)
+    dom_pct = float((F_a<=F_r).mean()*100)
+    ax2.text(0.03,0.97,f"Dominance holds at {dom_pct:.0f}% of support",
+             transform=ax2.transAxes,ha="left",va="top",fontsize=8.5,
+             color=C_POS,fontweight="bold",
+             bbox=dict(facecolor="white",edgecolor=BORDER,alpha=0.9,boxstyle="round,pad=0.3"))
 
-    # ── Win rate by year ──────────────────────────────────────────────────────
-    ax3 = fig.add_subplot(gs[1, 1])
+    # ── Second-order: integral of CDF ─────────────────────────────────────────
+    ax3 = fig.add_subplot(gs[2])
     _ax(ax3)
-    by_year = defaultdict(list)
-    for t in trades: by_year[t.date.year].append(t)
-    yr_wr = [(yr, len([t for t in by_year[yr] if t.outcome=="WIN"])/len(by_year[yr])*100)
-             for yr in sorted(by_year.keys())]
-    if yr_wr:
-        yrs2, wrs2 = zip(*yr_wr)
-        cols2 = [C_POS if w >= 70 else (C_ORANGE if w >= 55 else C_NEG) for w in wrs2]
-        xs2   = np.arange(len(yrs2))
-        ax3.bar(xs2, wrs2, color=cols2, alpha=0.8, width=0.7)
-        ax3.axhline(50,                   color=BORDER, lw=0.8, ls="--")
-        ax3.axhline(np.mean(wrs2), color=TEXT,   lw=1.0, ls=":",
-                    label=f"Avg {np.mean(wrs2):.1f}%")
-        ax3.set_xticks(xs2); ax3.set_xticklabels(yrs2, fontsize=7)
-        ax3.set_ylim(0, 105)
-        ax3.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v:.0f}%"))
-        ax3.legend(fontsize=7, framealpha=0.8)
-        for x, w in zip(xs2, wrs2):
-            ax3.text(x, w+1, f"{w:.0f}%", ha="center", va="bottom",
-                     fontsize=6.5, color=TEXT)
-    ax3.set_title("WIN RATE BY YEAR", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    dx = xx_common[1]-xx_common[0]
+    int_a = np.cumsum(F_a)*dx
+    int_r = np.cumsum(F_r)*dx
+    ax3.plot(xx_common, int_a, color=C_BLUE, lw=2.0, label="Isogeny Alpha  ∫F(x)dx")
+    ax3.plot(xx_common, int_r, color=C_NEG,  lw=1.4, ls="--", label="Random  ∫F(x)dx")
+    ax3.fill_between(xx_common, int_a, int_r, where=(int_a<=int_r),
+                     alpha=0.2, color=C_POS)
+    ax3.axvline(0, color=BORDER, lw=0.8, ls=":")
+    ax3.set_xlabel("P&L ($)"); ax3.set_ylabel("∫₋∞ˣ F(t) dt")
+    ax3.set_title("SECOND-ORDER STOCHASTIC DOMINANCE\n∫F_α(t)dt ≤ ∫F_rand(t)dt ∀x  (risk-averse investors prefer α)",
+                  color=TEXT,fontsize=9,fontweight="bold",loc="left")
+    ax3.legend(fontsize=8)
 
-    _title_bar(fig, "MONTHLY & YEARLY RETURNS ANALYSIS")
     _footer(fig)
     _save(fig, "03_strategy_breakdown")
 
 
-# ── 4. STRATEGY PERFORMANCE ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. FACTOR INFORMATION COEFFICIENT MATRIX
+#    20×20 correlation matrix of all scoring factors, hierarchically clustered.
+#    Shows which signals are truly orthogonal vs which are redundant.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_pnl_distribution(trades):
     _font()
-    fig = plt.figure(figsize=(17, 14), facecolor=BG)
-    gs  = gridspec.GridSpec(2, 3, figure=fig, hspace=0.48, wspace=0.35,
-                            left=0.08, right=0.96, top=0.93, bottom=0.06)
+    import seaborn as sns
+    from scipy.cluster import hierarchy as sch
 
-    order  = ["gap_fill","fvg","orb","ib_breakout","vwap_rev","vwap_pm",
-              "vwap_bounce","vwap_bounce_pm","va_rule"]
-    groups = defaultdict(list)
-    for t in trades: groups[t.strategy].append(t)
-    strats = [s for s in order if s in groups]
-    labels = [s.replace("_"," ").title() for s in strats]
-    colors = [STRAT_COLORS.get(s, C_BLUE) for s in strats]
-    xs     = np.arange(len(strats))
+    # Build factor matrix
+    factors = defaultdict(list)
+    outcomes_list = []
+    for t in trades:
+        bd = getattr(t, "score_breakdown", {})
+        for k, v in bd.items():
+            factors[k].append(float(v))
+        outcomes_list.append(1.0 if t.outcome=="WIN" else 0.0)
 
-    # ── Win rate bars ─────────────────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[0, 0])
-    _ax(ax1)
-    wrs = [len([t for t in groups[s] if t.outcome=="WIN"])/len(groups[s])*100 for s in strats]
-    cnt = [len(groups[s]) for s in strats]
-    bars= ax1.barh(xs, wrs, color=[C_POS if w>=70 else (C_ORANGE if w>=55 else C_NEG)
-                                   for w in wrs], alpha=0.8, height=0.6)
-    ax1.axvline(50, color=BORDER, lw=0.8, ls="--")
-    ax1.set_yticks(xs); ax1.set_yticklabels(labels, fontsize=7.5)
-    ax1.set_xlim(0, 110)
-    for bar, w, c in zip(bars, wrs, cnt):
-        ax1.text(w+1, bar.get_y()+bar.get_height()/2,
-                 f"{w:.0f}%  (n={c})", va="center", fontsize=6.5, color=TEXT)
-    ax1.set_title("WIN RATE BY STRATEGY", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    if len(factors) < 3:
+        # Fallback: just show distribution
+        fig, ax = plt.subplots(figsize=(12,8), facecolor=BG)
+        ax.text(0.5,0.5,"Insufficient factor data\n(run hybrid backtest for full factor breakdown)",
+                ha="center",va="center",transform=ax.transAxes,fontsize=14,color=SUB)
+        _save(fig,"04_pnl_distribution"); return
 
-    # ── P&L bars ──────────────────────────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[0, 1])
+    # Align all factors to same length
+    min_len = min(len(v) for v in factors.values())
+    factor_names = sorted(factors.keys())
+    F = np.array([factors[k][:min_len] for k in factor_names]).T  # (n_trades, n_factors)
+    O = np.array(outcomes_list[:min_len])
+
+    # IC = correlation of each factor with outcome
+    ICs = np.array([np.corrcoef(F[:,i], O)[0,1] for i in range(F.shape[1])])
+
+    # Factor-factor correlation — remove zero-variance columns
+    std_f = F.std(axis=0)
+    valid_cols = std_f > 0
+    if valid_cols.sum() < 2:
+        fig, ax = plt.subplots(figsize=(12,8), facecolor=BG)
+        ax.text(0.5,0.5,"All factors constant\n(insufficient variance for correlation)",
+                ha="center",va="center",transform=ax.transAxes,fontsize=12,color=SUB)
+        _save(fig,"04_pnl_distribution"); return
+    F = F[:, valid_cols]
+    factor_names = [n for n,v in zip(factor_names, valid_cols) if v]
+    ICs = ICs[valid_cols]
+    C = np.corrcoef(F.T)
+    # Replace any remaining NaN/inf with 0
+    C = np.nan_to_num(C, nan=0.0, posinf=1.0, neginf=-1.0)
+    np.fill_diagonal(C, 1.0)
+
+    # Hierarchical clustering
+    try:
+        link = sch.linkage(1-C, method="complete")
+        order = sch.leaves_list(link)
+    except:
+        order = np.arange(len(factor_names))
+
+    C_sorted    = C[np.ix_(order, order)]
+    names_sorted= [factor_names[i] for i in order]
+    ICs_sorted  = ICs[order]
+
+    fig = plt.figure(figsize=(22, 12), facecolor=BG)
+    fig.suptitle("FACTOR INFORMATION COEFFICIENT MATRIX",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "Diagonal = IC (correlation with trade outcome) | Off-diagonal = factor-factor correlation | "
+             "Hierarchical clustering shows groups of redundant signals",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
+
+    gs = gridspec.GridSpec(1,3,figure=fig,wspace=0.35,
+                           left=0.06,right=0.97,top=0.90,bottom=0.08,
+                           width_ratios=[3,0.7,0.7])
+
+    # ── Correlation heatmap ───────────────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0])
+    ax1.set_facecolor(PANEL)
+    norm = TwoSlopeNorm(vcenter=0, vmin=-1, vmax=1)
+    im = ax1.imshow(C_sorted, cmap="RdBu_r", norm=norm, aspect="auto")
+    ax1.set_xticks(range(len(names_sorted)))
+    ax1.set_xticklabels(names_sorted, rotation=45, ha="right", fontsize=8)
+    ax1.set_yticks(range(len(names_sorted)))
+    ax1.set_yticklabels(names_sorted, fontsize=8)
+    # Annotate values
+    for i in range(len(names_sorted)):
+        for j in range(len(names_sorted)):
+            val = C_sorted[i,j]
+            txt_col = "white" if abs(val)>0.6 else TEXT
+            ax1.text(j,i,f"{val:.2f}",ha="center",va="center",
+                     fontsize=6.5 if len(names_sorted)<=15 else 5.5,color=txt_col)
+    cb = fig.colorbar(im,ax=ax1,shrink=0.7,pad=0.02)
+    cb.ax.tick_params(labelsize=7); cb.set_label("Correlation",fontsize=8)
+    ax1.set_title("FACTOR CORRELATION MATRIX  (hierarchically clustered)",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left",pad=8)
+
+    # ── IC bar chart ──────────────────────────────────────────────────────────
+    ax2 = fig.add_subplot(gs[1])
     _ax(ax2)
-    pnls_ = [sum(t.pnl for t in groups[s]) for s in strats]
-    bc2   = [C_POS if p >= 0 else C_NEG for p in pnls_]
-    bars2 = ax2.barh(xs, pnls_, color=bc2, alpha=0.8, height=0.6)
-    ax2.axvline(0, color=BORDER, lw=0.8, ls="--")
-    ax2.set_yticks(xs); ax2.set_yticklabels(labels, fontsize=7.5)
-    ax2.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v:+,.0f}"))
-    for bar, p in zip(bars2, pnls_):
-        off = 3 if p >= 0 else -3
-        ax2.text(p+off, bar.get_y()+bar.get_height()/2,
-                 f"${p:+,.0f}", va="center",
-                 ha="left" if p>=0 else "right",
-                 fontsize=6.5, color=TEXT)
-    ax2.set_title("TOTAL P&L BY STRATEGY", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    ys = np.arange(len(names_sorted))
+    cols = [C_POS if ic>0 else C_NEG for ic in ICs_sorted]
+    ax2.barh(ys, ICs_sorted, color=cols, alpha=0.85, height=0.7)
+    ax2.axvline(0, color=BORDER, lw=0.8)
+    ax2.set_yticks(ys); ax2.set_yticklabels(names_sorted, fontsize=8)
+    ax2.set_xlabel("IC (corr with outcome)")
+    ax2.set_title("INFORMATION\nCOEFFICIENT",color=TEXT,fontsize=9,fontweight="bold",loc="left")
+    ax2.set_xlim(-0.6,0.6)
+    for y_, ic_ in zip(ys, ICs_sorted):
+        ax2.text(ic_+(0.02 if ic_>=0 else -0.02), y_,
+                 f"{ic_:+.3f}", va="center",
+                 ha="left" if ic_>=0 else "right",
+                 fontsize=7, color=TEXT)
 
-    # ── Avg R:R ───────────────────────────────────────────────────────────────
-    ax3 = fig.add_subplot(gs[0, 2])
+    # ── Eigenvalue spectrum (scree plot) ──────────────────────────────────────
+    ax3 = fig.add_subplot(gs[2])
     _ax(ax3)
-    rrs  = [np.mean([t.rr for t in groups[s]]) for s in strats]
-    bars3= ax3.barh(xs, rrs, color=C_BLUE, alpha=0.7, height=0.6)
-    ax3.axvline(1.0, color=BORDER, lw=0.8, ls="--")
-    ax3.set_yticks(xs); ax3.set_yticklabels(labels, fontsize=7.5)
-    for bar, r in zip(bars3, rrs):
-        ax3.text(r+0.05, bar.get_y()+bar.get_height()/2,
-                 f"{r:.2f}x", va="center", fontsize=6.5, color=TEXT)
-    ax3.set_title("AVG RISK:REWARD BY STRATEGY", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
+    try:
+        eigvals = np.sort(np.linalg.eigvalsh(C))[::-1]
+    except np.linalg.LinAlgError:
+        eigvals = np.abs(np.linalg.eigvals(C)).real
+        eigvals = np.sort(eigvals)[::-1]
+    var_exp = eigvals / eigvals.sum() * 100
+    ax3.bar(range(len(eigvals)), var_exp, color=C_BLUE, alpha=0.75)
+    ax3.plot(range(len(eigvals)), np.cumsum(var_exp), color=C_NEG,
+             lw=1.5, marker="o", markersize=4, label="Cumulative %")
+    ax3.axhline(80, color=BORDER, lw=0.8, ls="--", label="80% threshold")
+    ax3.set_xlabel("Principal Component")
+    ax3.set_ylabel("Variance Explained (%)")
+    ax3.set_title("SCREE PLOT\n(factor dimensionality)",
+                  color=TEXT,fontsize=9,fontweight="bold",loc="left")
+    ax3.legend(fontsize=7.5)
+    # How many factors explain 80%?
+    n80 = int(np.searchsorted(np.cumsum(var_exp), 80)) + 1
+    ax3.text(0.97,0.5,f"{n80} factors\nexplain 80%\nof variance",
+             transform=ax3.transAxes,ha="right",va="center",
+             fontsize=9,color=C_BLUE,fontweight="bold",
+             bbox=dict(facecolor="white",edgecolor=BORDER,alpha=0.9,boxstyle="round,pad=0.3"))
 
-    # ── Strategy equity curves ────────────────────────────────────────────────
-    ax4 = fig.add_subplot(gs[1, :2])
-    _ax(ax4)
-    for i, (strat, color) in enumerate(zip(strats, STRAT_PALETTE)):
-        tl  = sorted(groups[strat], key=lambda x: x.date)
-        cum = np.cumsum([t.pnl for t in tl])
-        ax4.plot(range(len(cum)), cum, color=color, lw=1.5,
-                 label=strat.replace("_"," ").title())
-    ax4.axhline(0, color=BORDER, lw=0.8, ls="--")
-    _dollar_fmt(ax4)
-    ax4.legend(fontsize=7, framealpha=0.8, ncol=3)
-    ax4.set_title("CUMULATIVE P&L BY STRATEGY", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
-
-    # ── Day × strategy win rate table ─────────────────────────────────────────
-    ax5 = fig.add_subplot(gs[1, 2])
-    _ax(ax5, grid=False)
-    days = ["Mon","Tue","Wed","Thu","Fri"]
-    dsg  = defaultdict(lambda: defaultdict(list))
-    for t in trades: dsg[t.day_name][t.strategy].append(t)
-
-    cell_data = []
-    for strat in strats:
-        row = [strat.replace("_"," ").title()]
-        for day in days:
-            tl = dsg[day][strat]
-            if tl:
-                wr = len([t for t in tl if t.outcome=="WIN"])/len(tl)*100
-                row.append(f"{wr:.0f}%\n(n={len(tl)})")
-            else:
-                row.append("—")
-        cell_data.append(row)
-
-    col_labels = ["Strategy"] + days
-    tbl = mpltable.table(ax5, cellText=cell_data, colLabels=col_labels,
-                         loc="center", cellLoc="center")
-    tbl.auto_set_font_size(False); tbl.set_fontsize(7)
-    for (r, c), cell in tbl.get_celld().items():
-        cell.set_edgecolor(BORDER); cell.set_linewidth(0.5)
-        if r == 0:
-            cell.set_facecolor("#E8EAF6")
-            cell.set_text_props(fontweight="bold", color=TEXT)
-        elif c == 0:
-            cell.set_facecolor("#F5F5F5")
-        elif r % 2 == 0:
-            cell.set_facecolor("#FAFAFA")
-        else:
-            cell.set_facecolor(BG)
-    tbl.scale(1, 1.8)
-    ax5.axis("off")
-    ax5.set_title("WIN RATE BY DAY × STRATEGY", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left", pad=8)
-
-    _title_bar(fig, "STRATEGY PERFORMANCE ANALYSIS")
     _footer(fig)
     _save(fig, "04_pnl_distribution")
 
 
-# ── 5. ROLLING METRICS TEARSHEET ─────────────────────────────────────────────
-def chart_rolling_winrate(trades, window=15):
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. CONDITIONAL CVaR SURFACE — 3D risk landscape across VIX × Score
+#    Shows how tail risk varies across market conditions.
+# ══════════════════════════════════════════════════════════════════════════════
+def chart_rolling_winrate(trades):
     _font()
-    s   = _compute(trades)
-    fig = plt.figure(figsize=(17, 16), facecolor=BG)
-    gs  = gridspec.GridSpec(4, 1, figure=fig, hspace=0.42,
-                            left=0.08, right=0.96, top=0.93, bottom=0.05)
-    xs  = np.arange(len(trades))
-    pnls= s["pnls"]
-    win = min(window, max(5, len(trades)//6))
+    vix_bins   = [0,15,20,25,30,60]
+    score_bins = [5,8,11,14,17,21]
 
-    outcomes = np.array([1 if t.outcome=="WIN" else 0 for t in trades], dtype=float)
-    roll_wr  = pd.Series(outcomes).rolling(win, min_periods=3).mean() * 100
-    roll_pnl = pd.Series(pnls).rolling(win, min_periods=3).mean()
-    roll_sh  = (pd.Series(pnls).rolling(win, min_periods=5).mean() /
-                pd.Series(pnls).rolling(win, min_periods=5).std() * np.sqrt(252*3)).fillna(0)
+    def _bkt(v, bins):
+        for i in range(len(bins)-1):
+            if bins[i]<=v<bins[i+1]: return i
+        return len(bins)-2
 
-    def _rolling_pf(arr, w):
-        def pf(x):
-            pos = x[x > 0].sum(); neg = abs(x[x < 0].sum())
-            return pos / neg if neg > 0 and pos > 0 else 1.0
-        return pd.Series(arr).rolling(w, min_periods=5).apply(pf, raw=True).fillna(1.0)
+    grid_cvar = np.full((len(vix_bins)-1, len(score_bins)-1), np.nan)
+    grid_wr   = np.full_like(grid_cvar, np.nan)
+    grid_n    = np.zeros_like(grid_cvar, dtype=int)
 
-    roll_pf = _rolling_pf(pnls, win)
+    buckets = defaultdict(list)
+    for t in trades:
+        vi = _bkt(t.vix, vix_bins)
+        si = _bkt(getattr(t,"score",10), score_bins)
+        buckets[(vi,si)].append(t.pnl)
+        grid_n[vi,si]+=1
 
-    panels = [
-        (roll_wr.values,  f"ROLLING {win}-TRADE WIN RATE (%)",    "%",       50,   [(outcomes.mean()*100, C_ORANGE, ":")]),
-        (roll_pnl.values, f"ROLLING {win}-TRADE AVG P&L ($)",     "$",       0,    []),
-        (roll_sh.values,  f"ROLLING {win}-TRADE SHARPE RATIO",    "ratio",   0,    [(1.0,C_POS,":"),(2.0,C_TEAL,":")]),
-        (roll_pf.values,  f"ROLLING {win}-TRADE PROFIT FACTOR",   "ratio",   1.0,  []),
-    ]
+    for (vi,si), pnl_list in buckets.items():
+        arr = np.array(pnl_list)
+        if len(arr)>=3:
+            var95 = np.percentile(arr,5)
+            grid_cvar[vi,si] = float(np.mean(arr[arr<=var95])) if any(arr<=var95) else float(var95)
+            grid_wr[vi,si]   = float((arr>0).mean()*100)
 
-    for i, (data, title, unit, ref0, refs) in enumerate(panels):
-        ax = fig.add_subplot(gs[i])
-        _ax(ax)
-        ax.plot(xs, data, color=C_BLUE, lw=1.4)
-        ax.fill_between(xs, data, ref0, where=(data >= ref0), alpha=0.12, color=C_POS)
-        ax.fill_between(xs, data, ref0, where=(data <  ref0), alpha=0.12, color=C_NEG)
-        ax.axhline(ref0, color=BORDER, lw=0.8, ls="--")
-        for val, col, ls in refs:
-            ax.axhline(val, color=col, lw=0.8, ls=ls, alpha=0.8)
-        if unit == "%":
-            ax.set_ylim(0, 105)
-            ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v:.0f}%"))
-        elif unit == "$":
-            _dollar_fmt(ax)
-        if i == 3:
-            ax.set_xlabel("Trade # (chronological)")
-        ax.set_title(title, color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    X_c = [(vix_bins[i]+vix_bins[i+1])/2 for i in range(len(vix_bins)-1)]
+    Y_c = [(score_bins[i]+score_bins[i+1])/2 for i in range(len(score_bins)-1)]
+    X3, Y3 = np.meshgrid(X_c, Y_c, indexing="ij")
 
-    _title_bar(fig, "ROLLING PERFORMANCE METRICS",
-               f"Window = {win} trades | 4-panel: Win Rate / Avg P&L / Sharpe / Profit Factor")
+    # Fill NaN with mean
+    m_cvar = float(np.nanmean(grid_cvar)) if not np.all(np.isnan(grid_cvar)) else -50.0
+    m_wr   = float(np.nanmean(grid_wr))   if not np.all(np.isnan(grid_wr))   else 70.0
+    Z_cvar = np.where(np.isnan(grid_cvar), m_cvar, grid_cvar)
+    Z_wr   = np.where(np.isnan(grid_wr),   m_wr,   grid_wr)
+
+    fig = plt.figure(figsize=(22, 10), facecolor=BG)
+    fig.suptitle("CONDITIONAL VALUE-AT-RISK SURFACE  (CVaR across VIX × Confidence Score)",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "z = CVaR₉₅ (expected loss in worst 5% of trades) for each (VIX, score) cell  |  "
+             "Lower (more negative) = higher tail risk in that regime",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
+
+    gs = gridspec.GridSpec(1,2,figure=fig,wspace=0.35,
+                           left=0.05,right=0.97,top=0.90,bottom=0.08)
+
+    # ── CVaR 3D surface ───────────────────────────────────────────────────────
+    ax3d = fig.add_subplot(gs[0], projection="3d")
+    ax3d.set_facecolor(BG); ax3d.patch.set_facecolor(BG)
+    norm = TwoSlopeNorm(vcenter=float(np.nanmedian(Z_cvar)),
+                        vmin=float(np.nanmin(Z_cvar)),
+                        vmax=max(0, float(np.nanmax(Z_cvar))))
+    cmap_ = plt.get_cmap("RdYlGn")
+    ax3d.plot_surface(X3,Y3,Z_cvar, facecolors=cmap_(norm(Z_cvar)),
+                      rstride=1,cstride=1,alpha=0.9,shade=True)
+    ax3d.contourf(X3,Y3,Z_cvar,zdir="z",offset=Z_cvar.min()-10,
+                  cmap="RdYlGn",alpha=0.4,levels=8)
+    ax3d.set_xlabel("VIX Level",labelpad=6,fontsize=9,color=SUB)
+    ax3d.set_ylabel("Confidence Score",labelpad=6,fontsize=9,color=SUB)
+    ax3d.set_zlabel("CVaR₉₅ ($)",labelpad=6,fontsize=9,color=SUB)
+    ax3d.tick_params(colors=SUB,labelsize=7); ax3d.grid(False)
+    ax3d.xaxis.pane.fill=ax3d.yaxis.pane.fill=ax3d.zaxis.pane.fill=False
+    for pane in [ax3d.xaxis.pane,ax3d.yaxis.pane,ax3d.zaxis.pane]:
+        pane.set_edgecolor(BORDER)
+    ax3d.view_init(elev=30, azim=-50)
+    ax3d.set_title("CVaR SURFACE (greener = less tail risk)",
+                   color=TEXT,fontsize=10,fontweight="bold",pad=8)
+    sm = plt.cm.ScalarMappable(cmap=cmap_,norm=norm)
+    sm.set_array([]); cb=fig.colorbar(sm,ax=ax3d,shrink=0.45,pad=0.06)
+    cb.ax.tick_params(labelsize=7); cb.set_label("CVaR₉₅ ($)",fontsize=8)
+
+    # ── Win rate surface ──────────────────────────────────────────────────────
+    ax3d2 = fig.add_subplot(gs[1], projection="3d")
+    ax3d2.set_facecolor(BG); ax3d2.patch.set_facecolor(BG)
+    norm2 = Normalize(vmin=40, vmax=100)
+    ax3d2.plot_surface(X3,Y3,Z_wr, facecolors=cmap_(norm2(Z_wr)),
+                       rstride=1,cstride=1,alpha=0.9,shade=True)
+    ax3d2.contourf(X3,Y3,Z_wr,zdir="z",offset=Z_wr.min()-5,
+                   cmap="RdYlGn",alpha=0.4,levels=8)
+    ax3d2.set_xlabel("VIX Level",labelpad=6,fontsize=9,color=SUB)
+    ax3d2.set_ylabel("Confidence Score",labelpad=6,fontsize=9,color=SUB)
+    ax3d2.set_zlabel("Win Rate (%)",labelpad=6,fontsize=9,color=SUB)
+    ax3d2.tick_params(colors=SUB,labelsize=7); ax3d2.grid(False)
+    ax3d2.xaxis.pane.fill=ax3d2.yaxis.pane.fill=ax3d2.zaxis.pane.fill=False
+    for pane in [ax3d2.xaxis.pane,ax3d2.yaxis.pane,ax3d2.zaxis.pane]:
+        pane.set_edgecolor(BORDER)
+    ax3d2.view_init(elev=30, azim=-50)
+    ax3d2.set_title("WIN RATE SURFACE (same axes)",
+                    color=TEXT,fontsize=10,fontweight="bold",pad=8)
+    sm2=plt.cm.ScalarMappable(cmap=cmap_,norm=norm2)
+    sm2.set_array([]); cb2=fig.colorbar(sm2,ax=ax3d2,shrink=0.45,pad=0.06)
+    cb2.ax.tick_params(labelsize=7); cb2.set_label("Win Rate (%)",fontsize=8)
+
     _footer(fig)
     _save(fig, "05_rolling_winrate")
 
 
-# ── 6. REGIME HEATMAPS ───────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. STREAK PERSISTENCE — P(win | last N consecutive wins) vs N
+#    Does the system have momentum in outcomes? Are wins self-reinforcing?
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_heatmap(trades):
     _font()
-    fig = plt.figure(figsize=(17, 11), facecolor=BG)
-    gs  = gridspec.GridSpec(1, 2, figure=fig, wspace=0.35,
-                            left=0.07, right=0.96, top=0.91, bottom=0.10)
+    outcomes = [1 if t.outcome=="WIN" else 0 for t in trades]
+    n = len(outcomes)
 
-    order_d = ["Mon","Tue","Wed","Thu","Fri"]
-    order_s = ["gap_fill","fvg","orb","ib_breakout","vwap_rev",
-               "vwap_pm","vwap_bounce","vwap_bounce_pm","va_rule"]
-    present = [s for s in order_s if any(t.strategy==s for t in trades)]
-    labels  = [s.replace("_"," ").title() for s in present]
+    max_streak = 6
+    pw_given_cw = {}  # P(win | last N consecutive wins)
+    pw_given_cl = {}  # P(win | last N consecutive losses)
+    pw_given_cw_ci = {}
+    pw_given_cl_ci = {}
 
-    for ax_idx, (metric, title, cbar_label) in enumerate([
-        ("wr",  "WIN RATE (%)  Day × Strategy",   "Win Rate (%)"),
-        ("pnl", "TOTAL P&L ($)  Day × Strategy",  "P&L ($)"),
-    ]):
-        ax = fig.add_subplot(gs[ax_idx])
-        ax.set_facecolor(PANEL)
-        mat = pd.DataFrame(index=order_d, columns=present, dtype=float)
-        for d in order_d:
-            for s in present:
-                sub = [t for t in trades if t.day_name == d and t.strategy == s]
-                if not sub: mat.loc[d, s] = np.nan; continue
-                mat.loc[d, s] = (len([t for t in sub if t.outcome=="WIN"])/len(sub)*100
-                                 if metric == "wr" else sum(t.pnl for t in sub))
+    for streak_len in range(1, max_streak+1):
+        wins_after_cw = []; wins_after_cl = []
+        for i in range(streak_len, n):
+            last_n = outcomes[i-streak_len:i]
+            if sum(last_n) == streak_len:   # all wins
+                wins_after_cw.append(outcomes[i])
+            if sum(last_n) == 0:            # all losses
+                wins_after_cl.append(outcomes[i])
+        if wins_after_cw:
+            p = np.mean(wins_after_cw)
+            ci= 1.96*np.sqrt(p*(1-p)/len(wins_after_cw))
+            pw_given_cw[streak_len] = p; pw_given_cw_ci[streak_len] = ci
+        if wins_after_cl:
+            p = np.mean(wins_after_cl)
+            ci= 1.96*np.sqrt(p*(1-p)/len(wins_after_cl))
+            pw_given_cl[streak_len] = p; pw_given_cl_ci[streak_len] = ci
 
-        import seaborn as sns
-        kw = {"vmin": 0, "vmax": 100, "center": 50} if metric == "wr" \
-             else {"center": 0}
-        cmap = "RdYlGn" if metric == "wr" else "RdYlGn"
-        sns.heatmap(mat.astype(float), ax=ax, cmap=cmap,
-                    annot=True, fmt=".0f", linewidths=0.8, linecolor="white",
-                    mask=mat.astype(float).isna(), **kw,
-                    cbar_kws={"shrink": 0.7, "label": cbar_label},
-                    annot_kws={"size": 8, "color": "black"})
-        ax.set_xticklabels(labels, rotation=30, ha="right", color=TEXT, fontsize=8)
-        ax.set_yticklabels(order_d, rotation=0, color=TEXT, fontsize=9)
-        ax.set_title(title, color=TEXT, fontsize=9,
-                     fontweight="bold", pad=10)
+    base_wr = np.mean(outcomes)
 
-    _title_bar(fig, "DAY × STRATEGY PERFORMANCE MATRIX")
+    fig = plt.figure(figsize=(22, 11), facecolor=BG)
+    fig.suptitle("STREAK PERSISTENCE ANALYSIS",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "Tests whether winning/losing streaks predict future outcomes  |  "
+             "Flat = independent trades (good)  |  Rising = momentum effect  |  Falling = mean reversion",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
+
+    gs = gridspec.GridSpec(1,3,figure=fig,wspace=0.35,
+                           left=0.07,right=0.97,top=0.90,bottom=0.10)
+
+    # ── P(win|N consecutive wins) ─────────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0])
+    _ax(ax1)
+    if pw_given_cw:
+        xs = list(pw_given_cw.keys()); ys = [pw_given_cw[x] for x in xs]
+        ci = [pw_given_cw_ci[x] for x in xs]
+        ax1.plot(xs, ys, color=C_BLUE, lw=2.0, marker="o", markersize=7, label="P(W|N×W)")
+        ax1.fill_between(xs, [y-c for y,c in zip(ys,ci)],
+                             [y+c for y,c in zip(ys,ci)], alpha=0.2, color=C_BLUE)
+    ax1.axhline(base_wr, color=C_ORG, lw=1.2, ls="--", label=f"Baseline WR {base_wr*100:.1f}%")
+    ax1.set_ylim(0, 1.05); ax1.set_xlim(0.5, max_streak+0.5)
+    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_:f"{v*100:.0f}%"))
+    ax1.set_xlabel("N consecutive wins before this trade")
+    ax1.set_ylabel("P(next trade = WIN)")
+    ax1.set_title("P(WIN | LAST N WINS)\nMomentum test",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax1.legend(fontsize=8.5)
+    ax1.text(0.5,0.08,"Flat line = no streak effect\n(trades are independent)",
+             transform=ax1.transAxes,ha="center",va="bottom",
+             fontsize=8,color=SUB,style="italic")
+
+    # ── P(win|N consecutive losses) ───────────────────────────────────────────
+    ax2 = fig.add_subplot(gs[1])
+    _ax(ax2)
+    if pw_given_cl:
+        xs = list(pw_given_cl.keys()); ys = [pw_given_cl[x] for x in xs]
+        ci = [pw_given_cl_ci[x] for x in xs]
+        ax2.plot(xs, ys, color=C_NEG, lw=2.0, marker="s", markersize=7, label="P(W|N×L)")
+        ax2.fill_between(xs, [y-c for y,c in zip(ys,ci)],
+                             [y+c for y,c in zip(ys,ci)], alpha=0.2, color=C_NEG)
+    ax2.axhline(base_wr, color=C_ORG, lw=1.2, ls="--", label=f"Baseline WR {base_wr*100:.1f}%")
+    ax2.set_ylim(0, 1.05); ax2.set_xlim(0.5, max_streak+0.5)
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_:f"{v*100:.0f}%"))
+    ax2.set_xlabel("N consecutive losses before this trade")
+    ax2.set_ylabel("P(next trade = WIN)")
+    ax2.set_title("P(WIN | LAST N LOSSES)\nMean-reversion test",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax2.legend(fontsize=8.5)
+
+    # ── Run length distribution ───────────────────────────────────────────────
+    ax3 = fig.add_subplot(gs[2])
+    _ax(ax3)
+    run_w = []; run_l = []; cur_len = 1; cur_type = outcomes[0]
+    for i in range(1, len(outcomes)):
+        if outcomes[i] == cur_type: cur_len += 1
+        else:
+            (run_w if cur_type==1 else run_l).append(cur_len)
+            cur_len=1; cur_type=outcomes[i]
+    (run_w if cur_type==1 else run_l).append(cur_len)
+
+    max_run = max(max(run_w or [1]), max(run_l or [1]))
+    bins_r  = np.arange(0.5, max_run+1.5)
+    ax3.hist(run_w, bins=bins_r, color=C_POS, alpha=0.7, label=f"Win runs (n={len(run_w)})")
+    ax3.hist(run_l, bins=bins_r, color=C_NEG, alpha=0.7, label=f"Loss runs (n={len(run_l)})")
+    # Geometric distribution overlay (expected for independent trades)
+    xs_geo = np.arange(1, max_run+1)
+    geom_w = (1-base_wr)**(xs_geo-1)*base_wr * len(run_w)
+    geom_l = base_wr**(xs_geo-1)*(1-base_wr) * len(run_l)
+    ax3.plot(xs_geo, geom_w, color=C_POS, lw=1.8, ls="--",
+             label="Geometric (if independent)")
+    ax3.plot(xs_geo, geom_l, color=C_NEG, lw=1.8, ls="--")
+    ax3.set_xlabel("Run length (trades)"); ax3.set_ylabel("Frequency")
+    ax3.set_title("RUN LENGTH DISTRIBUTION\nvs geometric model (iid hypothesis)",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax3.legend(fontsize=7.5)
+
     _footer(fig)
     _save(fig, "06_winrate_heatmap")
 
 
-# ── 7. RISK ANALYSIS ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. REGIME-CONDITIONED RETURN DISTRIBUTIONS
+#    Overlaid KDEs for each HMM regime — shows how the strategy behaves
+#    differently in bull/bear/stress markets.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_vix_scatter(trades):
     _font()
-    s   = _compute(trades)
-    fig = plt.figure(figsize=(17, 12), facecolor=BG)
-    gs  = gridspec.GridSpec(2, 2, figure=fig, hspace=0.45, wspace=0.35,
-                            left=0.08, right=0.96, top=0.93, bottom=0.07)
-    pnls= s["pnls"]
-    xs  = np.arange(len(pnls))
+    by_regime = defaultdict(list)
+    for t in trades:
+        regime = getattr(t, "hmm_state", "unavailable")
+        by_regime[regime].append(t.pnl)
 
-    # ── VaR / CVaR rolling ───────────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[0, 0])
-    _ax(ax1)
-    win = min(20, len(pnls)//4)
-    r_var  = pd.Series(pnls).rolling(win, min_periods=5).quantile(0.05).fillna(0)
-    r_cvar = pd.Series(pnls).rolling(win, min_periods=5).apply(
-        lambda x: np.mean(x[x <= np.percentile(x,5)]), raw=True).fillna(0)
-    ax1.plot(xs, r_var,  color=C_NEG,    lw=1.3, label=f"Rolling VaR(95%)")
-    ax1.plot(xs, r_cvar, color=C_ORANGE, lw=1.3, label=f"Rolling CVaR(95%)")
-    ax1.axhline(0, color=BORDER, lw=0.8, ls="--")
-    _dollar_fmt(ax1)
-    ax1.legend(fontsize=7, framealpha=0.8)
-    ax1.set_title(f"ROLLING {win}-TRADE VaR / CVaR", color=TEXT,
-                  fontsize=9, fontweight="bold", loc="left")
+    all_pnls = np.array([t.pnl for t in trades])
+    x_min, x_max = all_pnls.min()*1.3, all_pnls.max()*1.3
+    xs_kde = np.linspace(x_min, x_max, 400)
 
-    # ── VIX regime scatter ────────────────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[0, 1])
-    _ax(ax2)
-    vixes= np.array([t.vix for t in trades])
-    cols = [C_POS if t.outcome=="WIN" else C_NEG for t in trades]
-    ax2.scatter(vixes, pnls, c=cols, s=20, alpha=0.6, zorder=3)
-    ax2.axhline(0,  color=BORDER, lw=0.8, ls="--")
-    ax2.axvline(20, color=SUBTEXT, lw=0.7, ls=":", alpha=0.7, label="VIX 20")
-    ax2.axvline(30, color=C_NEG,   lw=0.7, ls=":", alpha=0.7, label="VIX 30")
-    m, b = np.polyfit(vixes, pnls, 1)
-    xr   = np.linspace(vixes.min(), vixes.max(), 100)
-    ax2.plot(xr, m*xr+b, color=TEXT, lw=1.2, ls="--", alpha=0.6, label="Trend")
-    ax2.legend(fontsize=7, framealpha=0.8)
-    _dollar_fmt(ax2)
-    ax2.set_xlabel("VIX")
-    ax2.set_title("VIX REGIME vs TRADE P&L", color=TEXT, fontsize=9,
-                  fontweight="bold", loc="left")
-    ax2.text(0.97, 0.05, f"slope ${m:+.2f}/VIX pt",
-             transform=ax2.transAxes, ha="right", fontsize=7, color=SUBTEXT)
+    fig = plt.figure(figsize=(22, 11), facecolor=BG)
+    fig.suptitle("REGIME-CONDITIONED RETURN DISTRIBUTIONS",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "How the P&L distribution changes across each HMM-detected market regime  |  "
+             "Same strategy — completely different risk profiles depending on regime",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
 
-    # ── Confidence score vs P&L ───────────────────────────────────────────────
-    ax3 = fig.add_subplot(gs[1, 0])
-    _ax(ax3)
-    scores = [getattr(t, "score", 10) for t in trades]
-    cols3  = [C_POS if t.outcome=="WIN" else C_NEG for t in trades]
-    ax3.scatter(scores, pnls, c=cols3, s=20, alpha=0.6, zorder=3)
-    if len(scores) > 3:
-        m2, b2 = np.polyfit(scores, pnls, 1)
-        xs3 = np.linspace(min(scores), max(scores), 60)
-        ax3.plot(xs3, m2*xs3+b2, color=TEXT, lw=1.2, ls="--", alpha=0.6)
-        ax3.text(0.97, 0.05, f"slope ${m2:+.1f}/point",
-                 transform=ax3.transAxes, ha="right", fontsize=7, color=SUBTEXT)
-    ax3.axhline(0, color=BORDER, lw=0.8, ls="--")
-    _dollar_fmt(ax3)
-    ax3.set_xlabel("Confidence Score")
-    ax3.set_title("SCORE vs P&L  (edge per score point)",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    gs = gridspec.GridSpec(2,3,figure=fig,hspace=0.42,wspace=0.35,
+                           left=0.07,right=0.97,top=0.90,bottom=0.08)
 
-    # ── Score distribution ────────────────────────────────────────────────────
-    ax4 = fig.add_subplot(gs[1, 1])
-    _ax(ax4)
-    sg = defaultdict(list)
-    for t in trades: sg[getattr(t,"score",10)].append(t)
-    sc_list = sorted(sg.keys())
-    wrs4  = [len([t for t in sg[sc] if t.outcome=="WIN"])/len(sg[sc])*100 for sc in sc_list]
-    pnls4 = [sum(t.pnl for t in sg[sc]) for sc in sc_list]
-    ax4b  = ax4.twinx()
-    ax4.bar(range(len(sc_list)), pnls4,
-            color=[C_POS if p>=0 else C_NEG for p in pnls4], alpha=0.6, width=0.7)
-    ax4b.plot(range(len(sc_list)), wrs4, color=C_BLUE, lw=1.5,
-              marker="o", markersize=4, label="Win Rate %")
-    ax4b.axhline(50, color=BORDER, lw=0.7, ls="--")
-    ax4b.set_ylim(0, 110)
-    ax4b.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v:.0f}%"))
-    ax4b.tick_params(colors=SUBTEXT)
-    for sp2 in ax4b.spines.values():
-        sp2.set_edgecolor(BORDER); sp2.set_linewidth(0.5)
-    ax4.set_xticks(range(len(sc_list)))
-    ax4.set_xticklabels([str(s) for s in sc_list], fontsize=7)
-    ax4.set_xlabel("Confidence Score")
-    _dollar_fmt(ax4)
-    ax4b.legend(fontsize=7, framealpha=0.8)
-    ax4.set_title("SCORE BUCKET ANALYSIS  (bars=P&L, line=WR)",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    regime_order = ["strong_bull","bull","neutral","stress","bear","unavailable"]
+    regime_labels= {"strong_bull":"Strong Bull","bull":"Bull","neutral":"Neutral",
+                    "stress":"Stress","bear":"Bear","unavailable":"Unavailable"}
 
-    _title_bar(fig, "RISK ANALYSIS")
+    stats_rows = []
+    for idx, regime in enumerate(regime_order):
+        pnl_r = np.array(by_regime.get(regime,[]))
+        ax = fig.add_subplot(gs[idx//3, idx%3])
+        _ax(ax)
+        col = REGIME_C.get(regime, SUB)
+        if len(pnl_r) >= 3:
+            kde = gaussian_kde(pnl_r, bw_method="silverman")
+            yd  = kde(xs_kde)
+            ax.plot(xs_kde, yd, color=col, lw=2.2, zorder=4)
+            ax.fill_between(xs_kde, yd, 0, alpha=0.20, color=col)
+            ax.fill_between(xs_kde, yd, 0, where=(xs_kde>=0), alpha=0.25, color=C_POS)
+            ax.fill_between(xs_kde, yd, 0, where=(xs_kde<0),  alpha=0.25, color=C_NEG)
+            ax.axvline(float(np.mean(pnl_r)), color=TEXT, lw=1.2, ls="--",
+                       label=f"Mean ${np.mean(pnl_r):+.1f}")
+            ax.axvline(0, color=BORDER, lw=0.8, ls=":")
+            # Rug plot
+            ax.plot(pnl_r, np.ones_like(pnl_r)*yd.max()*0.04,
+                    "|", color=col, alpha=0.5, markersize=6)
+            stats_rows.append((regime_labels.get(regime,regime), len(pnl_r),
+                                f"{(pnl_r>0).mean()*100:.0f}%",
+                                f"${np.mean(pnl_r):+.1f}",
+                                f"${np.std(pnl_r):.1f}"))
+        else:
+            ax.text(0.5,0.5,f"n={len(pnl_r)}\n(insufficient data)",
+                    ha="center",va="center",transform=ax.transAxes,
+                    fontsize=10,color=DIM)
+        title = f"{regime_labels.get(regime,regime).upper()}  (n={len(pnl_r)})"
+        ax.set_title(title, color=col, fontsize=9, fontweight="bold", loc="left")
+        if len(pnl_r)>=3: ax.legend(fontsize=7.5, framealpha=0.8)
+        ax.set_xlabel("P&L ($)"); ax.set_ylabel("Density")
+
+    fig.text(0.5, 0.01,
+             "Regime detected by 5-state Gaussian HMM trained on [log-return, range-ratio, realized-vol]",
+             ha="center",va="bottom",color=DIM,fontsize=7,style="italic")
     _footer(fig)
     _save(fig, "07_vix_scatter")
 
 
-# ── 8. FACTOR HIT RATES + HARD BLOCKS ────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. KELLY FRACTION TRAJECTORY — Actual bet size vs optimal Kelly fraction
+#    over time. Shows how close we track the growth-optimal path.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_rr_distribution(trades):
     _font()
-    fig = plt.figure(figsize=(17, 11), facecolor=BG)
-    gs  = gridspec.GridSpec(1, 2, figure=fig, wspace=0.35,
-                            left=0.08, right=0.96, top=0.91, bottom=0.12)
+    s = _compute(trades)
+    n = len(trades)
+    window = min(20, max(5, n//5))
 
-    # ── Factor hit rates ──────────────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[0])
+    # Rolling Kelly
+    kelly_trail = [np.nan]*window
+    rr_trail    = [np.nan]*window
+    wr_trail    = [np.nan]*window
+    for i in range(window, n):
+        sub = trades[i-window:i]
+        wr_ = len([t for t in sub if t.outcome=="WIN"]) / len(sub)
+        wins_ = [t.pnl for t in sub if t.pnl>0]
+        loss_ = [t.pnl for t in sub if t.pnl<0]
+        avg_w = np.mean(wins_) if wins_ else 1
+        avg_l = abs(np.mean(loss_)) if loss_ else 1
+        rr_   = avg_w / avg_l if avg_l else 1
+        f_k   = max(0, wr_ - (1-wr_)/rr_)
+        kelly_trail.append(f_k)
+        rr_trail.append(rr_)
+        wr_trail.append(wr_)
+
+    kelly_arr = np.array(kelly_trail)
+    actual_f  = np.array([getattr(t,"n_contracts",1)/2.0 for t in trades])  # 0.5 or 1.0
+
+    fig = plt.figure(figsize=(22, 11), facecolor=BG)
+    fig.suptitle("KELLY FRACTION TRAJECTORY  — Actual Bet Size vs Growth-Optimal Fraction",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "f*(t) = rolling Kelly fraction based on last 20-trade WR and R:R  |  "
+             "Actual f(t) = contracts traded as fraction of maximum (1-lot=0.5, 2-lot=1.0)",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
+
+    gs = gridspec.GridSpec(2,2,figure=fig,hspace=0.42,wspace=0.35,
+                           left=0.07,right=0.97,top=0.90,bottom=0.08)
+
+    xs = np.arange(n)
+
+    # ── Kelly vs actual ───────────────────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0,:])
     _ax(ax1)
-    factors: dict = defaultdict(list)
-    for t in trades:
-        for k, v in getattr(t, "score_breakdown", {}).items():
-            factors[k].append(v)
+    ax1.plot(xs, kelly_arr, color=C_BLUE, lw=1.8, label=f"f* (Kelly optimal, rolling {window})", zorder=4)
+    ax1.step(xs, actual_f,  color=C_ORG,  lw=1.8, label="f (actual)",                          zorder=3, where="post")
+    # (no base fill — only the conditional fills below matter)
+    # Shade over-bet regions
+    valid = ~np.isnan(kelly_arr)
+    ax1.fill_between(xs[valid], kelly_arr[valid], actual_f[valid],
+                     where=(actual_f[valid]>kelly_arr[valid]),
+                     alpha=0.2, color=C_NEG, label="Over-betting (risk of ruin)")
+    ax1.fill_between(xs[valid], kelly_arr[valid], actual_f[valid],
+                     where=(actual_f[valid]<=kelly_arr[valid]),
+                     alpha=0.2, color=C_POS, label="Under-betting (leaving growth on table)")
+    ax1.set_ylim(-0.05, 1.3)
+    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_:f"{v*100:.0f}%"))
+    ax1.set_ylabel("Fraction of capital risked")
+    ax1.set_title(f"KELLY FRACTION TRAJECTORY  (window={window} trades)",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax1.legend(fontsize=8, framealpha=0.9, ncol=2)
 
-    if factors:
-        fo   = sorted(factors.keys())
-        hits = [np.mean(factors[f]) * 100 for f in fo]
-        cols = [C_POS if h >= 80 else (C_ORANGE if h >= 60 else C_NEG) for h in hits]
-        ys   = np.arange(len(fo))
-        bars = ax1.barh(ys, hits, color=cols, alpha=0.8, height=0.65)
-        ax1.axvline(50, color=BORDER, lw=0.8, ls="--")
-        ax1.axvline(80, color=SUBTEXT, lw=0.6, ls=":", alpha=0.6)
-        ax1.set_yticks(ys)
-        ax1.set_yticklabels(fo, fontsize=8)
-        ax1.set_xlim(0, 110)
-        for bar, h in zip(bars, hits):
-            ax1.text(h+1.5, bar.get_y()+bar.get_height()/2,
-                     f"{h:.0f}%", va="center", fontsize=7.5, color=TEXT)
-        ax1.set_xlabel("Hit Rate (%)")
-        ax1.set_title("20-POINT SCORING — FACTOR HIT RATES",
-                      color=TEXT, fontsize=9, fontweight="bold", loc="left")
-    else:
-        ax1.text(0.5, 0.5, "Score breakdown\nnot available",
-                 ha="center", va="center", color=SUBTEXT, fontsize=10,
-                 transform=ax1.transAxes)
-
-    # ── R:R distribution by outcome ───────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[1])
+    # ── Rolling WR ────────────────────────────────────────────────────────────
+    ax2 = fig.add_subplot(gs[1,0])
     _ax(ax2)
-    rr_all = np.array([t.rr for t in trades])
-    rr_w   = np.array([t.rr for t in trades if t.outcome == "WIN"])
-    rr_l   = np.array([t.rr for t in trades if t.outcome == "LOSS"])
-    bins   = np.linspace(0, min(rr_all.max(), 30), 35)
-    ax2.hist(rr_w, bins=bins, color=C_POS, alpha=0.75,
-             label=f"Wins (n={len(rr_w)})", zorder=3)
-    ax2.hist(rr_l, bins=bins, color=C_NEG, alpha=0.65,
-             label=f"Losses (n={len(rr_l)})", zorder=2)
-    ax2.axvline(1.0, color=SUBTEXT, lw=1.0, ls="--", label="1:1 R:R")
-    ax2.axvline(rr_all.mean(), color=C_BLUE, lw=1.3,
-                label=f"Mean {rr_all.mean():.2f}x")
-    ax2.set_xlabel("Risk:Reward Ratio"); ax2.set_ylabel("Frequency")
-    ax2.legend(fontsize=7.5, framealpha=0.8)
-    ax2.set_title("RISK:REWARD DISTRIBUTION — WINS vs LOSSES",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
-    rr_txt = (f"Mean R:R    {rr_all.mean():.2f}x\n"
-              f"Median R:R  {np.median(rr_all):.2f}x\n"
-              f"90th pct    {np.percentile(rr_all,90):.2f}x")
-    ax2.text(0.97, 0.97, rr_txt, transform=ax2.transAxes,
-             va="top", ha="right", fontsize=8, color=TEXT,
-             bbox=dict(facecolor=PANEL, edgecolor=BORDER, alpha=0.9,
-                       boxstyle="round,pad=0.4"))
+    ax2.plot(xs, wr_trail, color=C_POS, lw=1.5)
+    ax2.axhline(s["wr"], color=BORDER, lw=0.9, ls="--", label=f"Overall {s['wr']*100:.1f}%")
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_:f"{v*100:.0f}%"))
+    ax2.set_title("ROLLING WIN RATE",color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax2.legend(fontsize=8)
 
-    _title_bar(fig, "FACTOR ANALYSIS + RISK:REWARD DECOMPOSITION")
+    # ── Rolling R:R ───────────────────────────────────────────────────────────
+    ax3 = fig.add_subplot(gs[1,1])
+    _ax(ax3)
+    ax3.plot(xs, rr_trail, color=C_TEAL, lw=1.5)
+    avg_rr = abs(s["avg_win"]/s["avg_loss"]) if s["avg_loss"] else 1
+    ax3.axhline(avg_rr, color=BORDER, lw=0.9, ls="--", label=f"Overall {avg_rr:.2f}x")
+    ax3.set_ylabel("Avg Win / Avg Loss")
+    ax3.set_title("ROLLING R:R RATIO",color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax3.legend(fontsize=8)
+
     _footer(fig)
     _save(fig, "08_rr_distribution")
 
 
-# ── 9. CALENDAR HEATMAP ───────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. STRATEGY CORRELATION + PORTFOLIO EFFICIENT FRONTIER
+#    Covariance structure of strategy daily returns.
+#    Marginal Sharpe contribution per strategy.
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_monthly_calendar(trades):
     _font()
-    daily = defaultdict(float)
-    for t in trades: daily[t.date] += t.pnl
-    if not daily: return
+    import seaborn as sns
+    # Build daily P&L per strategy
+    all_dates = sorted(set(t.date for t in trades))
+    date_idx  = {d:i for i,d in enumerate(all_dates)}
+    strategies= sorted(set(t.strategy for t in trades))
 
-    dates  = sorted(daily.keys())
-    months = sorted(set((d.year, d.month) for d in dates))
-    n_mo   = len(months)
-    cols_  = min(n_mo, 4)
-    rows_  = (n_mo + cols_ - 1) // cols_
+    mat = np.zeros((len(all_dates), len(strategies)))
+    for t in trades:
+        si = strategies.index(t.strategy)
+        mat[date_idx[t.date], si] += t.pnl
 
-    fig, axes = plt.subplots(rows_, cols_,
-                             figsize=(cols_ * 5.5, rows_ * 4.2), facecolor=BG)
-    if n_mo == 1: axes = [[axes]]
-    elif rows_ == 1: axes = [axes]
-    flat = [ax for row in axes for ax in (row if hasattr(row,"__iter__") else [row])]
+    # Remove zero rows
+    active = (mat != 0).any(axis=1)
+    mat_a  = mat[active]
 
-    mo_names = ["","Jan","Feb","Mar","Apr","May","Jun",
-                "Jul","Aug","Sep","Oct","Nov","Dec"]
-    day_lbl  = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
-    max_abs  = max(abs(v) for v in daily.values()) or 1.0
-    norm     = TwoSlopeNorm(vcenter=0, vmin=-max_abs, vmax=max_abs)
+    fig = plt.figure(figsize=(22, 11), facecolor=BG)
+    fig.suptitle("STRATEGY COVARIANCE STRUCTURE + PORTFOLIO EFFICIENCY ANALYSIS",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "Correlation between strategy daily P&L series  |  "
+             "Zero or negative correlation = strategies provide diversification benefit",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
 
-    for idx, (yr, mo) in enumerate(months):
-        ax = flat[idx]
-        ax.set_facecolor(BG)
-        for sp in ax.spines.values():
-            sp.set_edgecolor(BORDER); sp.set_linewidth(0.5)
-        ax.set_xticks(range(7))
-        ax.set_xticklabels(day_lbl, fontsize=6, color=SUBTEXT)
-        ax.set_yticks([])
-        mo_pnl = sum(v for d, v in daily.items() if d.year==yr and d.month==mo)
-        tcol   = C_POS if mo_pnl >= 0 else C_NEG
-        ax.set_title(f"{mo_names[mo]} {yr}  ${mo_pnl:+.0f}",
-                     color=tcol, fontsize=8.5, fontweight="bold", pad=3)
+    gs = gridspec.GridSpec(1,3,figure=fig,wspace=0.38,
+                           left=0.06,right=0.97,top=0.90,bottom=0.10)
 
-        calendar_weeks = cal_mod.monthcalendar(yr, mo)
-        for wk, week in enumerate(calendar_weeks):
-            for dw, day in enumerate(week):
-                if day == 0: continue
-                d = date(yr, mo, day); pnl = daily.get(d, None)
-                if pnl is not None:
-                    rgba  = plt.get_cmap("RdYlGn")(norm(pnl))
-                    color = matplotlib.colors.to_hex(rgba)
-                    rect  = mpatches.FancyBboxPatch(
-                        (dw-0.44, -wk-0.44), 0.88, 0.82,
-                        boxstyle="round,pad=0.03",
-                        facecolor=color, edgecolor="white",
-                        linewidth=0.5, zorder=2)
-                    ax.add_patch(rect)
-                    txt_col = "#1A1A1A" if abs(pnl) < max_abs*0.5 else "white"
-                    ax.text(dw, -wk+0.15, str(day), ha="center", va="center",
-                            color=txt_col, fontsize=7, fontweight="bold", zorder=3)
-                    ax.text(dw, -wk-0.22, f"${pnl:+.0f}", ha="center", va="center",
-                            color=txt_col, fontsize=5.5, zorder=3)
-                else:
-                    ax.text(dw, -wk, str(day), ha="center", va="center",
-                            color=DIM, fontsize=7)
-        ax.set_xlim(-0.6, 6.6)
-        ax.set_ylim(-len(calendar_weeks)+0.3, 0.9)
+    # ── Correlation heatmap ───────────────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0])
+    ax1.set_facecolor(PANEL)
+    C_mat = np.corrcoef(mat_a.T) if mat_a.shape[0]>1 else np.eye(len(strategies))
+    labels= [s.replace("_","\n").title() for s in strategies]
+    norm_ = TwoSlopeNorm(vcenter=0,vmin=-1,vmax=1)
+    im = ax1.imshow(C_mat, cmap="RdBu_r", norm=norm_, aspect="auto")
+    ax1.set_xticks(range(len(strategies))); ax1.set_xticklabels(labels,fontsize=8,rotation=45,ha="right")
+    ax1.set_yticks(range(len(strategies))); ax1.set_yticklabels(labels,fontsize=8)
+    for i in range(len(strategies)):
+        for j in range(len(strategies)):
+            tc = "white" if abs(C_mat[i,j])>0.5 else TEXT
+            ax1.text(j,i,f"{C_mat[i,j]:.2f}",ha="center",va="center",fontsize=7.5,color=tc)
+    cb=fig.colorbar(im,ax=ax1,shrink=0.7); cb.ax.tick_params(labelsize=7)
+    cb.set_label("Pearson correlation",fontsize=8)
+    for sp in ax1.spines.values(): sp.set_edgecolor(BORDER)
+    ax1.set_title("DAILY P&L CORRELATION MATRIX",color=TEXT,fontsize=10,fontweight="bold",loc="left",pad=8)
 
-    for ax in flat[n_mo:]: ax.set_visible(False)
+    # ── Sharpe contribution ───────────────────────────────────────────────────
+    ax2 = fig.add_subplot(gs[1])
+    _ax(ax2)
+    mean_v = mat_a.mean(axis=0); std_v = mat_a.std(axis=0)
+    std_v[std_v==0] = 1e-8
+    sharpes = mean_v/std_v * np.sqrt(252)
+    cols2 = [C_POS if sh>=0 else C_NEG for sh in sharpes]
+    ys = np.arange(len(strategies))
+    ax2.barh(ys, sharpes, color=cols2, alpha=0.85, height=0.6)
+    ax2.axvline(0,color=BORDER,lw=0.8)
+    ax2.set_yticks(ys); ax2.set_yticklabels(labels,fontsize=8)
+    for y_,sh in zip(ys,sharpes):
+        ax2.text(sh+(0.05 if sh>=0 else -0.05), y_,
+                 f"{sh:+.2f}",va="center",ha="left" if sh>=0 else "right",
+                 fontsize=8,color=TEXT)
+    ax2.set_xlabel("Annualised Sharpe Ratio")
+    ax2.set_title("SHARPE RATIO BY STRATEGY",color=TEXT,fontsize=10,fontweight="bold",loc="left")
 
-    total = sum(daily.values())
-    fig.suptitle(f"DAILY P&L CALENDAR  |  Total ${total:+,.2f}",
-                 color=TEXT, fontsize=11, fontweight="bold", y=1.01)
-    fig.tight_layout()
+    # ── Diversification ratio ─────────────────────────────────────────────────
+    ax3 = fig.add_subplot(gs[2])
+    _ax(ax3)
+    total_pnl = mat_a.sum(axis=1)
+    total_std = float(total_pnl.std()) or 1e-8
+    sum_std   = float(std_v.sum()) or 1e-8
+    div_ratio = sum_std / total_std
+
+    # Risk contribution (marginal)
+    cov_m = np.cov(mat_a.T) if mat_a.shape[0]>1 else np.eye(len(strategies))
+    w     = np.ones(len(strategies))/len(strategies)
+    port_var = float(w @ cov_m @ w)
+    mrc   = (cov_m @ w) / (np.sqrt(port_var)+1e-10)  # marginal risk contribution
+    rc    = w * mrc; rc = rc / (rc.sum() or 1)
+
+    cols3 = [STRAT_PAL[i%len(STRAT_PAL)] for i in range(len(strategies))]
+    ax3.bar(range(len(strategies)), rc*100, color=cols3, alpha=0.85)
+    ax3.set_xticks(range(len(strategies)))
+    ax3.set_xticklabels(labels,rotation=45,ha="right",fontsize=8)
+    ax3.set_ylabel("Risk Contribution (%)")
+    ax3.set_title("MARGINAL RISK CONTRIBUTION\n(equal-weight portfolio)",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax3.text(0.97,0.97,f"Diversification Ratio\n= {div_ratio:.2f}x\n\n"
+             f"(>1 = diversification benefit\nfrom combining strategies)",
+             transform=ax3.transAxes,ha="right",va="top",fontsize=9,
+             color=C_TEAL,fontweight="bold",
+             bbox=dict(facecolor="white",edgecolor=BORDER,alpha=0.9,boxstyle="round,pad=0.4"))
+
     _footer(fig)
     _save(fig, "09_monthly_calendar")
 
 
-# ── 10. STRATEGY EQUITY CURVES ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. VOLATILITY CLUSTERING + GARCH-STYLE VARIANCE TRAJECTORY
+#     Shows how trade return volatility clusters — are bad periods predictable?
+# ══════════════════════════════════════════════════════════════════════════════
 def chart_strategy_equity_curves(trades):
     _font()
-    fig = plt.figure(figsize=(17, 14), facecolor=BG)
-    gs  = gridspec.GridSpec(2, 2, figure=fig, hspace=0.42, wspace=0.32,
-                            left=0.08, right=0.96, top=0.93, bottom=0.07)
+    s = _compute(trades)
+    pnls = s["pnls"]
+    n    = len(pnls)
+    xs   = np.arange(n)
 
-    order  = ["gap_fill","fvg","orb","ib_breakout","vwap_rev",
-              "vwap_pm","vwap_bounce","vwap_bounce_pm","va_rule"]
-    groups = defaultdict(list)
-    for t in trades: groups[t.strategy].append(t)
-    present= [s for s in order if s in groups]
+    # Squared returns (variance proxy)
+    sq   = pnls**2
+    # Simple ARCH(5): rolling variance
+    win  = min(10, n//4)
+    roll_var = pd.Series(sq).rolling(win, min_periods=3).mean().fillna(sq.mean())
+    roll_vol = np.sqrt(roll_var)
 
-    # ── Strategy equity curves ────────────────────────────────────────────────
-    ax1 = fig.add_subplot(gs[0, :])
+    # Ljung-Box test on squared returns (test for ARCH effects)
+    from scipy.stats import chi2
+    nlags = min(10, n//4)
+    acf_sq= [float(pd.Series(sq).autocorr(lag=i)) for i in range(1, nlags+1)]
+    lb_stat = n * (n+2) * sum(a**2/(n-k) for k,a in enumerate(acf_sq,1))
+    lb_pval = 1 - chi2.cdf(lb_stat, df=nlags)
+
+    fig = plt.figure(figsize=(22, 11), facecolor=BG)
+    fig.suptitle("VOLATILITY CLUSTERING + VARIANCE TRAJECTORY",
+                 fontsize=14,fontweight="bold",color=TEXT,y=0.98)
+    fig.text(0.5,0.945,
+             "ARCH effects: do large |P&L| cluster together? (bad runs predictable?)  |  "
+             f"Ljung-Box p-value on squared returns: {lb_pval:.3f}  "
+             f"({'ARCH effects present' if lb_pval<0.05 else 'no significant ARCH effects'})",
+             ha="center",fontsize=8.5,color=SUB,style="italic")
+
+    gs = gridspec.GridSpec(2,3,figure=fig,hspace=0.45,wspace=0.35,
+                           left=0.07,right=0.97,top=0.90,bottom=0.08)
+
+    # ── Returns with volatility overlay ──────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0,:2])
     _ax(ax1)
-    for i, strat in enumerate(present):
-        tl  = sorted(groups[strat], key=lambda x: x.date)
-        cum = np.cumsum([t.pnl for t in tl])
-        col = STRAT_PALETTE[i % len(STRAT_PALETTE)]
-        ax1.plot(range(len(cum)), cum, color=col, lw=1.6,
-                 label=f"{strat.replace('_',' ').title()} ${cum[-1]:+,.0f}")
-    ax1.axhline(0, color=BORDER, lw=0.8, ls="--")
-    _dollar_fmt(ax1)
-    ax1.legend(fontsize=7, framealpha=0.8, ncol=3)
-    ax1.set_title("CUMULATIVE P&L BY STRATEGY",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    ax1.bar(xs, pnls, color=[C_POS if p>=0 else C_NEG for p in pnls],
+            alpha=0.65, width=1.0, zorder=2)
+    ax1b = ax1.twinx()
+    ax1b.plot(xs, roll_vol, color=C_BLUE, lw=1.8, zorder=4, label=f"Rolling {win}-trade vol")
+    ax1b.fill_between(xs, roll_vol, alpha=0.1, color=C_BLUE)
+    ax1b.set_ylabel("Rolling volatility ($)", color=C_BLUE, fontsize=8)
+    ax1b.tick_params(colors=C_BLUE)
+    for sp in ax1b.spines.values(): sp.set_edgecolor(BORDER)
+    ax1b.legend(fontsize=8, loc="upper right")
+    ax1.set_ylabel("Trade P&L ($)")
+    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_:f"${v:+,.0f}"))
+    ax1.set_title("P&L SERIES WITH VOLATILITY OVERLAY",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
 
-    # ── P&L contribution bar ──────────────────────────────────────────────────
-    ax2 = fig.add_subplot(gs[1, 0])
+    # ── Squared returns ACF (ARCH test) ───────────────────────────────────────
+    ax2 = fig.add_subplot(gs[0,2])
     _ax(ax2)
-    pnls_ = [sum(t.pnl for t in groups[s]) for s in present]
-    total = sum(pnls_) or 1
-    xs2   = np.arange(len(present))
-    bars  = ax2.bar(xs2, pnls_,
-                    color=[C_POS if p>=0 else C_NEG for p in pnls_],
-                    alpha=0.8, width=0.7)
-    ax2.axhline(0, color=BORDER, lw=0.8)
-    ax2.set_xticks(xs2)
-    ax2.set_xticklabels([s.replace("_","\n").title() for s in present],
-                        fontsize=6.5)
-    _dollar_fmt(ax2)
-    for bar, p in zip(bars, pnls_):
-        off = 3 if p >= 0 else -3
-        ax2.text(bar.get_x()+bar.get_width()/2, p+off,
-                 f"{p/total*100:.0f}%", ha="center",
-                 va="bottom" if p>=0 else "top",
-                 fontsize=7, color=TEXT)
-    ax2.set_title("P&L CONTRIBUTION (% of total)",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    ci = 1.96/np.sqrt(n)
+    cols_a = [C_NEG if abs(a)>ci else C_BLUE for a in acf_sq]
+    ax2.bar(range(1,len(acf_sq)+1), acf_sq, color=cols_a, alpha=0.8, width=0.7)
+    ax2.axhline(ci,  color=C_NEG, lw=0.8, ls="--", alpha=0.7)
+    ax2.axhline(-ci, color=C_NEG, lw=0.8, ls="--", alpha=0.7)
+    ax2.axhline(0,   color=BORDER, lw=0.5)
+    ax2.set_xlabel("Lag"); ax2.set_ylabel("ACF(r²)")
+    ax2.set_title(f"ACF OF SQUARED RETURNS\nLjung-Box p={lb_pval:.3f}  "
+                  f"({'ARCH' if lb_pval<0.05 else 'no ARCH'})",
+                  color=TEXT,fontsize=9,fontweight="bold",loc="left")
 
-    # ── Per-strategy drawdown ─────────────────────────────────────────────────
-    ax3 = fig.add_subplot(gs[1, 1])
+    # ── Volatility regime clustering ──────────────────────────────────────────
+    ax3 = fig.add_subplot(gs[1,0])
     _ax(ax3)
-    for i, strat in enumerate(present[:6]):
-        tl  = sorted(groups[strat], key=lambda x: x.date)
-        cum = np.cumsum([t.pnl for t in tl])
-        pk  = np.maximum.accumulate(cum)
-        dd  = cum - pk
-        col = STRAT_PALETTE[i % len(STRAT_PALETTE)]
-        ax3.plot(range(len(dd)), dd, color=col, lw=1.2,
-                 label=strat.replace("_"," ").title())
-    ax3.axhline(0, color=BORDER, lw=0.8, ls="--")
-    _dollar_fmt(ax3)
-    ax3.legend(fontsize=7, framealpha=0.8)
-    ax3.set_title("PER-STRATEGY DRAWDOWN",
-                  color=TEXT, fontsize=9, fontweight="bold", loc="left")
+    vol_pct = np.percentile(roll_vol, [33,67])
+    regimes_v = np.where(roll_vol<=vol_pct[0], 0,
+                np.where(roll_vol<=vol_pct[1], 1, 2))
+    for vreg, label, col in [(0,"Low vol",C_POS),(1,"Med vol",C_ORG),(2,"High vol",C_NEG)]:
+        mask = regimes_v==vreg
+        if mask.any():
+            sub_pnls = pnls[mask]
+            wr = float((sub_pnls>0).mean()*100)
+            ax3.bar(vreg, wr, color=col, alpha=0.8, width=0.5)
+            ax3.text(vreg, wr+1, f"{wr:.0f}%\n(n={mask.sum()})",
+                     ha="center",va="bottom",fontsize=9,color=TEXT,fontweight="bold")
+            ax3.text(vreg, -4, label, ha="center",va="top",fontsize=8.5,color=col,fontweight="bold")
+    ax3.axhline(float((pnls>0).mean()*100), color=BORDER, lw=0.9, ls="--",
+                label="Overall WR")
+    ax3.set_xticks([0,1,2]); ax3.set_xticklabels([""]*3)
+    ax3.set_ylabel("Win Rate (%)"); ax3.set_ylim(-10,105)
+    ax3.set_title("WIN RATE BY VOLATILITY REGIME",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+    ax3.legend(fontsize=8)
 
-    _title_bar(fig, "STRATEGY EQUITY CURVES + ATTRIBUTION")
+    # ── Vol of vol ────────────────────────────────────────────────────────────
+    ax4 = fig.add_subplot(gs[1,1])
+    _ax(ax4)
+    vov = pd.Series(roll_vol).rolling(win,min_periods=3).std().fillna(0)
+    ax4.plot(xs, vov, color=C_PUR, lw=1.8)
+    ax4.fill_between(xs, vov, 0, alpha=0.15, color=C_PUR)
+    ax4.set_ylabel("Vol of Vol ($)")
+    ax4.set_title("VOLATILITY OF VOLATILITY\n(uncertainty in the uncertainty)",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+
+    # ── P&L when vol high vs low ───────────────────────────────────────────────
+    ax5 = fig.add_subplot(gs[1,2])
+    _ax(ax5)
+    lo = pnls[roll_vol <= np.percentile(roll_vol,33)]
+    hi = pnls[roll_vol >  np.percentile(roll_vol,67)]
+    if len(lo)>2 and len(hi)>2:
+        kde_lo = gaussian_kde(lo); kde_hi = gaussian_kde(hi)
+        xx = np.linspace(min(lo.min(),hi.min()), max(lo.max(),hi.max()), 300)
+        ax5.plot(xx, kde_lo(xx), color=C_POS, lw=2.0, label=f"Low vol (n={len(lo)})")
+        ax5.plot(xx, kde_hi(xx), color=C_NEG, lw=2.0, label=f"High vol (n={len(hi)})")
+        ax5.fill_between(xx, kde_lo(xx), 0, alpha=0.15, color=C_POS)
+        ax5.fill_between(xx, kde_hi(xx), 0, alpha=0.15, color=C_NEG)
+        ax5.axvline(0, color=BORDER, lw=0.8, ls=":")
+    ax5.set_xlabel("P&L ($)"); ax5.set_ylabel("Density")
+    ax5.legend(fontsize=8)
+    ax5.set_title("RETURN DISTRIBUTION:\nLOW vs HIGH VOLATILITY REGIMES",
+                  color=TEXT,fontsize=10,fontweight="bold",loc="left")
+
     _footer(fig)
     _save(fig, "10_strategy_equity_curves")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ────────────────────────────────────────────────────────────────
 def generate_all_charts(trades) -> None:
-    print(f"\nGenerating institutional tearsheet ({len(trades)} trades) -> {OUT_DIR}/")
-    for name, fn in [
-        ("01 Performance Tearsheet",   chart_equity_curve),
-        ("02 Returns Analysis",        chart_drawdown),
-        ("03 Monthly/Yearly Returns",  chart_strategy_breakdown),
-        ("04 Strategy Performance",    chart_pnl_distribution),
-        ("05 Rolling Metrics",         chart_rolling_winrate),
-        ("06 Regime Heatmaps",         chart_heatmap),
-        ("07 Risk Analysis",           chart_vix_scatter),
-        ("08 Factor Analysis",         chart_rr_distribution),
-        ("09 Calendar",                chart_monthly_calendar),
-        ("10 Strategy Curves",         chart_strategy_equity_curves),
-    ]:
+    print(f"\nGenerating advanced quant research charts ({len(trades)} trades) -> {OUT_DIR}/")
+    specs = [
+        ("01 Kelly Growth Landscape (3D)",       chart_equity_curve),
+        ("02 Trade DNA / PCA Manifold",           chart_drawdown),
+        ("03 Omega Function + Stochastic Dom.",   chart_strategy_breakdown),
+        ("04 Factor IC Matrix",                   chart_pnl_distribution),
+        ("05 CVaR Surface (3D)",                  chart_rolling_winrate),
+        ("06 Streak Persistence Analysis",        chart_heatmap),
+        ("07 Regime-Conditioned Distributions",   chart_vix_scatter),
+        ("08 Kelly Fraction Trajectory",          chart_rr_distribution),
+        ("09 Strategy Covariance + Frontier",     chart_monthly_calendar),
+        ("10 Volatility Clustering + ARCH",       chart_strategy_equity_curves),
+    ]
+    for name, fn in specs:
         try:
             fn(trades)
         except Exception as e:
+            import traceback
             print(f"  [warn] {name}: {e}")
+            traceback.print_exc()
     print(f"Done — 10 charts saved to ./{OUT_DIR}/\n")
