@@ -40,11 +40,21 @@ def _load_series(ticker: str, period: str = "30d") -> pd.Series:
 
 
 def _try_addn(period: str = "30d") -> pd.Series:
-    """Attempt to fetch $ADDN from yfinance — often unavailable."""
-    for ticker in ["^ADDN", "^ADD"]:
-        s = _load_series(ticker, period)
-        if not s.empty:
-            return s
+    """Attempt to fetch $ADDN from yfinance — often unavailable. Silently skip if missing."""
+    import logging, warnings
+    # Suppress yfinance 404 noise — these symbols are not available on the free tier
+    yf_logger = logging.getLogger("yfinance")
+    prev_level = yf_logger.level
+    yf_logger.setLevel(logging.CRITICAL)
+    try:
+        for ticker in ["^ADDN", "^ADD"]:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                s = _load_series(ticker, period)
+            if not s.empty:
+                return s
+    finally:
+        yf_logger.setLevel(prev_level)
     return pd.Series(dtype=float)
 
 

@@ -250,31 +250,100 @@ def print_comparison(base_s: dict, inst_s: dict, hyb_s: dict) -> None:
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+#
+#  Usage:
+#    python3 hybrid_run.py          → default 60-day backtest
+#    python3 hybrid_run.py /60d     → 60-day (yfinance, free)
+#    python3 hybrid_run.py /6mo     → 6-month (yfinance, free)
+#    python3 hybrid_run.py /1y      → 1-year (yfinance, free)
+#    python3 hybrid_run.py /10y     → 10-year (Databento ~$12 first run, cached)
+#    python3 hybrid_run.py /10y --refresh  → force re-download from Databento
 
 if __name__ == "__main__":
+    import sys
+
+    arg       = next((a for a in sys.argv[1:] if a.startswith("/")), "/60d")
+    period    = arg.lstrip("/")              # "60d", "6mo", "1y", "10y"
+    refresh   = "--refresh" in sys.argv
+    use_db    = period in ("10y", "5y", "3y")
+
     print("=" * 72)
-    print("  NQ QUANT SYSTEM  |  Three-way comparison  |  60d / 5m")
-    print("  Base · Institutional · Hybrid (12-pt scoring, HAR stops, CVD, macro)")
+    print(f"  ISOGENY ALPHA SYSTEM v7.0  |  {period.upper()} BACKTEST")
+    if use_db:
+        print(f"  Source: Databento GLBX.MDP3  |  NQ.c.0 continuous")
+    else:
+        print(f"  Source: yfinance NQ=F  |  5-min bars")
     print("=" * 72)
 
-    print("\n[1/3] Running BASE system ...")
-    base_trades = run_quant_backtest(interval="5m", period="60d")
-    base_s = _stats(base_trades)
-    print_base(base_trades, base_s)
+    if use_db:
+        # ── Databento long-period backtest (hybrid only — most meaningful) ────
+        from backtest.databento_loader import load_nq_databento
+        years = int(period.replace("y", ""))
+        df_db = load_nq_databento(years=years, force_refresh=refresh)
 
-    print(f"\n[2/3] Running INSTITUTIONAL system ...")
-    inst_trades = run_inst_backtest(interval="5m", period="60d")
-    inst_s = _stats(inst_trades)
-    print_inst(inst_trades, inst_s, run_inst_backtest._rejections)
+        print(f"\nRunning HYBRID system on {years}-year dataset ...")
+        hyb_trades = run_hybrid_backtest(df=df_db)
+        hyb_s      = _stats(hyb_trades)
+        print_hybrid(hyb_trades, hyb_s, run_hybrid_backtest._hard_blocks)
 
-    print(f"\n[3/3] Running HYBRID system ...")
-    hyb_trades = run_hybrid_backtest(interval="5m", period="60d")
-    hyb_s = _stats(hyb_trades)
-    print_hybrid(hyb_trades, hyb_s, run_hybrid_backtest._hard_blocks)
+        # Yearly breakdown
+        from collections import defaultdict as _dd
+        from backtest.run_10yr import _stats as _ys
+        by_year = _dd(list)
+        for t in hyb_trades:
+            by_year[t.date.year].append(t)
+        regime_notes = {
+            2016:"election vol", 2017:"ultra-low VIX bull", 2018:"Dec crash",
+            2019:"bull recovery", 2020:"COVID crash+recovery", 2021:"meme bull",
+            2022:"rate hike bear", 2023:"AI bull begins", 2024:"AI momentum",
+            2025:"tariff shock", 2026:"current year",
+        }
+        print(f"\n  YEARLY BREAKDOWN")
+        print(f"  {'Year':<6} {'Trades':>7} {'WR':>7} {'P&L':>10} {'MaxDD':>8}  Notes")
+        print(f"  {'─'*65}")
+        all_pnl = []
+        for yr in sorted(by_year):
+            yt = by_year[yr]; ys = _ys(yt)
+            all_pnl.append(ys["pnl"])
+            note = regime_notes.get(yr, "")
+            print(f"  {yr:<6} {ys['total']:>7}  {ys['wr']:>5.1f}%  "
+                  f"${ys['pnl']:>+9,.0f}  ${ys['max_dd']:>7,.0f}  {note}")
+        if all_pnl:
+            pos = sum(1 for p in all_pnl if p > 0)
+            print(f"\n  Positive years: {pos}/{len(all_pnl)} "
+                  f"({pos/len(all_pnl)*100:.0f}%)  "
+                  f"Avg/year: ${sum(all_pnl)/len(all_pnl):+,.0f}")
 
-    print_comparison(base_s, inst_s, hyb_s)
+        # Generate charts
+        from backtest.quant_charts import generate_all_charts
+        print("\nGenerating charts ...")
+        generate_all_charts(hyb_trades)
 
-    print(f"\nDone.")
-    print(f"  Base: {len(base_trades)} trades  |  "
-          f"Institutional: {len(inst_trades)} trades  |  "
-          f"Hybrid: {len(hyb_trades)} trades")
+    else:
+        # ── Standard yfinance three-way comparison ────────────────────────────
+        print(f"\n[1/3] Running BASE system ...")
+        base_trades = run_quant_backtest(interval="5m", period=period)
+        base_s = _stats(base_trades)
+        print_base(base_trades, base_s)
+
+        print(f"\n[2/3] Running INSTITUTIONAL system ...")
+        inst_trades = run_inst_backtest(interval="5m", period=period)
+        inst_s = _stats(inst_trades)
+        print_inst(inst_trades, inst_s, run_inst_backtest._rejections)
+
+        print(f"\n[3/3] Running HYBRID system ...")
+        hyb_trades = run_hybrid_backtest(interval="5m", period=period)
+        hyb_s = _stats(hyb_trades)
+        print_hybrid(hyb_trades, hyb_s, run_hybrid_backtest._hard_blocks)
+
+        print_comparison(base_s, inst_s, hyb_s)
+
+        # Generate charts
+        from backtest.quant_charts import generate_all_charts
+        print("\nGenerating charts ...")
+        generate_all_charts(hyb_trades)
+
+        print(f"\nDone.")
+        print(f"  Base: {len(base_trades)} trades  |  "
+              f"Institutional: {len(inst_trades)} trades  |  "
+              f"Hybrid: {len(hyb_trades)} trades")
