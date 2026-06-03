@@ -744,11 +744,20 @@ def _is_hard_blocked(
 
 # ── Main hybrid backtest ──────────────────────────────────────────────────────
 
-def run_hybrid_backtest(interval: str = "5m", period: str = "60d") -> list[HybridTrade]:
-    print(f"[HYB] Loading NQ data ({period}/{interval}) ...")
-    df = load_nq(interval=interval, period=period)
-    df = label_sessions(df, interval=interval)
-    print(f"[HYB] {len(df)} bars | {df.index[0].date()} -> {df.index[-1].date()}")
+def run_hybrid_backtest(
+    interval: str = "5m",
+    period:   str = "60d",
+    df:       pd.DataFrame | None = None,   # pass pre-loaded data (e.g. from Databento)
+) -> list[HybridTrade]:
+    if df is not None:
+        df = label_sessions(df, interval=interval)
+        print(f"[HYB] Using pre-loaded data: {len(df)} bars | "
+              f"{df.index[0].date()} -> {df.index[-1].date()}")
+    else:
+        print(f"[HYB] Loading NQ data ({period}/{interval}) ...")
+        df = load_nq(interval=interval, period=period)
+        df = label_sessions(df, interval=interval)
+        print(f"[HYB] {len(df)} bars | {df.index[0].date()} -> {df.index[-1].date()}")
 
     print("[HYB] Loading ES data ...")
     es_df = load_es(interval=interval, period=period)
