@@ -81,6 +81,13 @@ C_NEUTRAL = "white"
 
 # ── TUI Helpers ───────────────────────────────────────────────────────────────
 
+MNQ_TICK = 0.25   # MNQ minimum tick increment ($0.50 per tick)
+
+def _tick(price: float) -> float:
+    """Round to nearest valid MNQ tick (0.25 pts). Prevents 'Number format is invalid' on Tradovate."""
+    return round(round(price / MNQ_TICK) * MNQ_TICK, 2)
+
+
 def _banner():
     """Startup banner."""
     console.print()
@@ -123,11 +130,16 @@ def _status_bar(price: float, confirmed: int, buf: float, vix: float, atr: float
 def _signal_panel(strategy: str, direction: str, entry: float, stop: float,
                   target: float, score: int = 0, n_contracts: int = 1) -> None:
     """Big bordered signal panel — impossible to miss."""
+    # Round ALL prices to nearest 0.25 tick — Tradovate rejects non-tick prices
+    entry  = _tick(entry)
+    stop   = _tick(stop)
+    target = _tick(target)
+
     side_txt  = "LONG  ▲" if direction == "long" else "SHORT  ▼"
     side_col  = C_LONG if direction == "long" else C_SHORT
     risk_pts  = abs(entry - stop)
     risk_usd  = risk_pts * 2.0 * n_contracts
-    t1_level  = (entry + risk_pts) if direction == "long" else (entry - risk_pts)
+    t1_level  = _tick((entry + risk_pts) if direction == "long" else (entry - risk_pts))
     t1_usd    = risk_pts * 2.0 * max(1, n_contracts // 2)
     lots_txt  = f"{n_contracts} contract{'s' if n_contracts > 1 else ''}  ({'★ FULL SIZE' if n_contracts == 2 else 'standard'})"
     score_bar = "█" * score + "░" * (21 - score)
@@ -169,6 +181,9 @@ def _confirm_prompt() -> None:
 def _level_alert(name: str, lvl: float, direction: str, entry: float,
                  sl: float, tp: float, crossing: bool = False) -> None:
     """Formatted level approaching / crossing alert."""
+    entry    = _tick(entry)
+    sl       = _tick(sl)
+    tp       = _tick(tp)
     side_col  = C_LONG if direction == "long" else C_SHORT
     side_txt  = "LONG ▲" if direction == "long" else "SHORT ▼"
     risk_pts  = abs(entry - sl)
@@ -193,6 +208,7 @@ def _level_alert(name: str, lvl: float, direction: str, entry: float,
 
 
 def _be_alert(strategy: str, direction: str, entry: float) -> None:
+    entry = _tick(entry)
     side = "LONG" if direction == "long" else "SHORT"
     console.print(Panel(
         f"  [{C_WARN}]Move your stop loss to  [{C_ENTRY}]{entry:,.2f}[/{C_ENTRY}]  (your entry price)[/{C_WARN}]\n"
@@ -725,7 +741,7 @@ def run_monitor():
                     else:
                         sl = (lv - a * 0.04) if d == "long" else (lv + a * 0.04)
                         tp = (lv + a * 0.08) if d == "long" else (lv - a * 0.08)
-                    return sl, tp
+                    return _tick(sl), _tick(tp)
 
                 app_key = f"APPROACH_{name}_{lvl:.0f}"
                 if approaching and app_key not in level_alerts:
@@ -864,10 +880,12 @@ def run_monitor():
                                       score=score_val, n_contracts=n_lots)
 
                         # Breakeven watcher
-                        risk_pts = abs(t.entry - t.stop)
-                        be_mult  = 2.0 if t.strategy == "orb" else 1.0
-                        be_trigger = (t.entry + risk_pts * be_mult) if t.direction == "long" \
-                                     else (t.entry - risk_pts * be_mult)
+                        risk_pts   = abs(_tick(t.entry) - _tick(t.stop))
+                        be_mult    = 2.0 if t.strategy == "orb" else 1.0
+                        be_trigger = _tick(
+                            (_tick(t.entry) + risk_pts * be_mult) if t.direction == "long"
+                            else (_tick(t.entry) - risk_pts * be_mult)
+                        )
                         be_watches.append({
                             "strategy":   t.strategy,
                             "direction":  t.direction,
