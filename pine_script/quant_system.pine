@@ -271,16 +271,30 @@ cvd_max10       = ta.highest(session_cvd,10)
 cvd_div_bear    = cvd_near_high and session_cvd<cvd_max10*0.80
 
 // Session volume profile (approximate — tracks vol at price buckets)
-var float vp_vol1=0.0; var float vp_vol2=0.0; var float vp_vol3=0.0
-var float vp_vol4=0.0; var float vp_vol5=0.0; var float vp_vol6=0.0
-var float vp_p1=na;    var float vp_p2=na;    var float vp_p3=na
-var float vp_p4=na;    var float vp_p5=na;    var float vp_p6=na
-var float sess_hi=na;  var float sess_lo=na
+var float vp_vol1 = 0.0
+var float vp_vol2 = 0.0
+var float vp_vol3 = 0.0
+var float vp_vol4 = 0.0
+var float vp_vol5 = 0.0
+var float vp_vol6 = 0.0
+var float vp_p1 = na
+var float vp_p2 = na
+var float vp_p3 = na
+var float vp_p4 = na
+var float vp_p5 = na
+var float vp_p6 = na
+var float sess_hi = na
+var float sess_lo = na
 
 if new_day
-    vp_vol1:=0.0; vp_vol2:=0.0; vp_vol3:=0.0
-    vp_vol4:=0.0; vp_vol5:=0.0; vp_vol6:=0.0
-    sess_hi:=high; sess_lo:=low
+    vp_vol1 := 0.0
+    vp_vol2 := 0.0
+    vp_vol3 := 0.0
+    vp_vol4 := 0.0
+    vp_vol5 := 0.0
+    vp_vol6 := 0.0
+    sess_hi := high
+    sess_lo := low
 
 if in_rth
     sess_hi := math.max(nz(sess_hi,high), high)
@@ -290,9 +304,12 @@ if in_rth
         bk_sz = rng6/6.0
         bk    = math.floor((close-sess_lo)/bk_sz)
         bk_c  = math.min(math.max(bk,0),5)
-        vp_p1 := sess_lo+0.5*bk_sz;  vp_p2 := sess_lo+1.5*bk_sz
-        vp_p3 := sess_lo+2.5*bk_sz;  vp_p4 := sess_lo+3.5*bk_sz
-        vp_p5 := sess_lo+4.5*bk_sz;  vp_p6 := sess_lo+5.5*bk_sz
+        vp_p1 := sess_lo+0.5*bk_sz
+        vp_p2 := sess_lo+1.5*bk_sz
+        vp_p3 := sess_lo+2.5*bk_sz
+        vp_p4 := sess_lo+3.5*bk_sz
+        vp_p5 := sess_lo+4.5*bk_sz
+        vp_p6 := sess_lo+5.5*bk_sz
         if bk_c==0: vp_vol1+=volume
         if bk_c==1: vp_vol2+=volume
         if bk_c==2: vp_vol3+=volume
@@ -359,7 +376,8 @@ orb_long_sig  = (not orb_done and in_rth and not is_in_ib and not na(orb_hi) and
                  orb_ok_size and orb_long_ok and close>orb_hi and close>vwap_val and no_mon_tue)
 orb_short_sig = (not orb_done and in_rth and not is_in_ib and not na(orb_lo) and
                  orb_ok_size and orb_short_ok and close<orb_lo and close<vwap_val)
-if orb_long_sig or orb_short_sig: orb_done := true
+if orb_long_sig or orb_short_sig
+    orb_done := true
 
 
 // ─── IB BREAKOUT ──────────────────────────────────────────────────────────────
@@ -374,7 +392,11 @@ var box    ib_box     = na
 var string ib_bias    = ""
 
 if new_day
-    ib_hi:=na; ib_lo:=na; ib_done:=false; ib_drawn:=false; ib_bias:=""
+    ib_hi := na
+    ib_lo := na
+    ib_done := false
+    ib_drawn := false
+    ib_bias := ""
     if show_ib and not na(ib_box): box.delete(ib_box); ib_box:=na
 
 if is_in_ib
@@ -399,14 +421,19 @@ ib_long_sig  = (not ib_done and is_c_period and not na(ib_hi) and ib_ok_size and
 ib_short_sig = (not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and ib_ok and
                 ib_bias=="bearish" and close<ib_lo and (ib_lo-close)<=30.0 and
                 (trend_any_bear or trend_neutral))
-if ib_long_sig or ib_short_sig: ib_done:=true
+if ib_long_sig or ib_short_sig
+    ib_done := true
 
 
 // ─── VWAP REVERSION ───────────────────────────────────────────────────────────
 
 var bool vwap_l_done=false; var bool vwap_s_done=false
 var bool vwap_pm_l=false;   var bool vwap_pm_s=false
-if new_day: vwap_l_done:=false; vwap_s_done:=false; vwap_pm_l:=false; vwap_pm_s:=false
+if new_day
+    vwap_l_done := false
+    vwap_s_done := false
+    vwap_pm_l := false
+    vwap_pm_s := false
 
 vwap_min_dev = math.max(15.0,atr_adapt*0.05)
 vwap_max_dev = math.min(30.0, atr_adapt*0.12)
@@ -417,29 +444,37 @@ vwap_long_sig  = (not vwap_l_done and am_window and vwap_rev_ok and not no_data_
                   (trend_neutral or trend_any_bull) and close<vwap_l15 and dev_ok)
 vwap_short_sig = (not vwap_s_done and am_window and vwap_rev_ok and not no_data_w and
                   (trend_neutral or trend_any_bear) and close>vwap_u15 and dev_ok)
-if vwap_long_sig:  vwap_l_done:=true
-if vwap_short_sig: vwap_s_done:=true
+if vwap_long_sig
+    vwap_l_done := true
+if vwap_short_sig
+    vwap_s_done := true
 
 vwap_pm_long_sig  = (not vwap_pm_l and pm_window and vwap_rev_ok and trend_strong_bull and close<vwap_l15 and dev_ok)
 vwap_pm_short_sig = (not vwap_pm_s and pm_window and vwap_rev_ok and trend_strong_bear and close>vwap_u15 and dev_ok)
-if vwap_pm_long_sig:  vwap_pm_l:=true
-if vwap_pm_short_sig: vwap_pm_s:=true
+if vwap_pm_long_sig
+    vwap_pm_l := true
+if vwap_pm_short_sig
+    vwap_pm_s := true
 
 
 // ─── VWAP BOUNCE ──────────────────────────────────────────────────────────────
 
 var bool bnc_am_done=false; var bool bnc_pm_done=false
-if new_day: bnc_am_done:=false; bnc_pm_done:=false
+if new_day
+    bnc_am_done := false
+    bnc_pm_done := false
 
 at_vwap = close>=vwap_l05 and close<=vwap_u05
 
 bnc_am_long_sig  = not bnc_am_done and bounce_am_w and vwap_bnc_ok and trend_any_bull and at_vwap
 bnc_am_short_sig = not bnc_am_done and bounce_am_w and vwap_bnc_ok and trend_any_bear and at_vwap
-if bnc_am_long_sig or bnc_am_short_sig: bnc_am_done:=true
+if bnc_am_long_sig or bnc_am_short_sig
+    bnc_am_done := true
 
 bnc_pm_long_sig  = not bnc_pm_done and pm_window and vwap_bnc_ok and trend_any_bull and at_vwap
 bnc_pm_short_sig = not bnc_pm_done and pm_window and vwap_bnc_ok and trend_any_bear and at_vwap
-if bnc_pm_long_sig or bnc_pm_short_sig: bnc_pm_done:=true
+if bnc_pm_long_sig or bnc_pm_short_sig
+    bnc_pm_done := true
 
 
 // ─── FVG ──────────────────────────────────────────────────────────────────────
@@ -471,7 +506,9 @@ var bool   va_above   = false
 var bool   va_below   = false
 
 if new_day
-    va_done   := false; va_inside:=0; va_dir:="none"
+    va_done    := false
+    va_inside  := 0
+    va_dir     := "none"
     va_above  := nz(d_open)>nz(d_prev_vah)
     va_below  := nz(d_open)<nz(d_prev_val)
 
