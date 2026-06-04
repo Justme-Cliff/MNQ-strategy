@@ -786,43 +786,57 @@ vix_col_v   = vix_now<15 ? C_POS_TXT : vix_now<25 ? C_DIM_TXT : vix_now<35 ? C_W
 occ_col_v   = occ_dir=="long" ? C_POS_TXT : occ_dir=="short" ? C_NEG_TXT : C_DIM_TXT
 
 if show_dash and barstate.islast
-    _hdr(c, t) => table.cell(dash,c,0,t,text_color=C_HDR_TXT,bgcolor=C_HDR_BG,text_size=size.small,text_halign=text.align_center)
-    _hdr(0,"ISOGENY  v7.0")
-    _hdr(1,"MNQ  9:30-12:00 ET")
+    // Header row
+    table.cell(dash,0,0,"ISOGENY  v7.0",     text_color=C_HDR_TXT,bgcolor=C_HDR_BG,text_size=size.small,text_halign=text.align_center)
+    table.cell(dash,1,0,"MNQ  9:30-12:00 ET",text_color=C_HDR_TXT,bgcolor=C_HDR_BG,text_size=size.small,text_halign=text.align_center)
 
-    _row(r,k,v,vc) =>
-        bg = r%2==0 ? C_CELL_BG : C_CELL_BG2
-        table.cell(dash,0,r,k,text_color=C_DIM_TXT,bgcolor=bg,text_size=size.tiny,text_halign=text.align_right)
-        table.cell(dash,1,r,v,text_color=vc,bgcolor=bg,text_size=size.tiny,text_halign=text.align_left)
-
-    _row(1, "Trend",  trend_dir + "  (" + str.tostring(ema_spread,"#.1") + "%)", trend_col_v)
-    _row(2, "VIX",    str.tostring(vix_now,"#.1") + "  [" + vix_regime + "]", vix_col_v)
-    _row(3, "ATR",    str.tostring(atr_adapt,"#.0") + " pts  (5d/20d max)", C_DIM_TXT)
-    _row(4, "OCC",    occ_dir=="long" ? "BULLISH  " + str.tostring(occ_ret*100,"#.2") + "%" :
-                      occ_dir=="short"? "BEARISH  " + str.tostring(occ_ret*100,"#.2") + "%" : "neutral", occ_col_v)
-    _row(5, "IB Bias",ib_bias=="" ? "building..." : ib_bias=="bullish" ? "BULLISH -> long" : "BEARISH -> short",
-         ib_bias=="bullish" ? C_POS_TXT : ib_bias=="bearish" ? C_NEG_TXT : C_DIM_TXT)
-
-    // Strategy status row
-    gap_s  = vix_ok ? "ON" : "off"
-    orb_s  = orb_long_ok ? "LONG" : orb_short_ok ? "SHORT" : "off"
-    ib_s   = ib_ok ? "ON" : "off"
-    vwr_s  = vwap_rev_ok ? "ON" : "off"
-    vwb_s  = vwap_bnc_ok ? "ON" : "off"
-    va_s   = va_rule_ok ? "ON" : "off"
-
-    _row(6, "Gap/ORB", gap_s + "  /  " + orb_s, vix_ok ? C_POS_TXT : C_DIM_TXT)
-    _row(7, "IB/FVG",  ib_s + "  /  " + (fvg_ok ? "ON" : "off"), vix_ok ? C_POS_TXT : C_DIM_TXT)
-    _row(8, "VWAP-R/B",vwr_s + "  /  " + vwb_s, vix_ok ? C_POS_TXT : C_DIM_TXT)
-    _row(9, "VA Rule",  va_s + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"), C_DIM_TXT)
-    _row(10,"Scoring",  "skip<=5  1-lot:6-15  2-lot>=16", C_DIM_TXT)
-    _row(11,"Session",  "MAX 3 trades  noon ET hard stop", C_DIM_TXT)
-
-    // Sub-header for VA
-    bg12 = C_CELL_BG2
-    table.cell(dash,0,12,"POC",text_color=C_POC,bgcolor=bg12,text_size=size.tiny,text_halign=text.align_right)
-    table.cell(dash,1,12,str.tostring(d_prev_vwap,"#.0") + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"),
-               text_color=C_POC,bgcolor=bg12,text_size=size.tiny,text_halign=text.align_left)
+    // Row 1: Trend
+    table.cell(dash,0,1,"Trend",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,1,trend_dir + "  (" + str.tostring(ema_spread,"#.1") + "%)",text_color=trend_col_v,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 2: VIX
+    table.cell(dash,0,2,"VIX",  text_color=C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,2,str.tostring(vix_now,"#.1") + "  [" + vix_regime + "]",text_color=vix_col_v,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 3: ATR
+    table.cell(dash,0,3,"ATR",  text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,3,str.tostring(atr_adapt,"#.0") + " pts  (5d/20d max)",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 4: OCC
+    occ_txt4 = occ_dir=="long" ? "BULLISH  " + str.tostring(occ_ret*100,"#.2") + "%" :
+               occ_dir=="short"? "BEARISH  " + str.tostring(occ_ret*100,"#.2") + "%" : "neutral"
+    table.cell(dash,0,4,"OCC",  text_color=C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,4,occ_txt4,text_color=occ_col_v,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 5: IB Bias
+    ib_txt5  = ib_bias=="" ? "building..." : ib_bias=="bullish" ? "BULLISH -> long" : "BEARISH -> short"
+    ib_col5  = ib_bias=="bullish" ? C_POS_TXT : ib_bias=="bearish" ? C_NEG_TXT : C_DIM_TXT
+    table.cell(dash,0,5,"IB Bias",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,5,ib_txt5,text_color=ib_col5,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 6: Gap/ORB
+    gap_s = vix_ok ? "ON" : "off"
+    orb_s = orb_long_ok ? "LONG" : orb_short_ok ? "SHORT" : "off"
+    table.cell(dash,0,6,"Gap/ORB",text_color=C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,6,gap_s + "  /  " + orb_s,text_color=vix_ok?C_POS_TXT:C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 7: IB/FVG
+    ib_s  = ib_ok ? "ON" : "off"
+    fvg_s = fvg_ok ? "ON" : "off"
+    table.cell(dash,0,7,"IB/FVG",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,7,ib_s + "  /  " + fvg_s,text_color=vix_ok?C_POS_TXT:C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 8: VWAP
+    vwr_s = vwap_rev_ok ? "ON" : "off"
+    vwb_s = vwap_bnc_ok ? "ON" : "off"
+    table.cell(dash,0,8,"VWAP-R/B",text_color=C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,8,vwr_s + "  /  " + vwb_s,text_color=vix_ok?C_POS_TXT:C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 9: VA Rule
+    va_s = va_rule_ok ? "ON" : "off"
+    table.cell(dash,0,9,"VA Rule",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,9,va_s + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"),text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 10: Scoring
+    table.cell(dash,0,10,"Scoring",text_color=C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,10,"skip<=5  1-lot:6-15  2-lot>=16",text_color=C_DIM_TXT,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 11: Session
+    table.cell(dash,0,11,"Session",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,11,"MAX 3 trades  noon ET hard stop",text_color=C_DIM_TXT,bgcolor=C_CELL_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 12: POC levels
+    table.cell(dash,0,12,"POC",text_color=C_POC,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,12,str.tostring(d_prev_vwap,"#.0") + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"),text_color=C_POC,bgcolor=C_CELL_BG2,text_size=size.tiny,text_halign=text.align_left)
 
 // ─── ORDER FLOW PANEL (Bloomberg-style, bottom-right) ─────────────────────────
 
@@ -831,108 +845,92 @@ var table of_tbl = table.new(position.bottom_right, 2, 18,
      frame_width=1,  frame_color=color.new(#B0BEC5,50))
 
 if show_of and barstate.islast
-
-    // Helper
-    _of_row(r,k,v,vc) =>
-        bg = r%2==0 ? C_OF_BG : C_OF_BG2
-        table.cell(of_tbl,0,r,k,text_color=C_DIM_TXT,bgcolor=bg,text_size=size.tiny,text_halign=text.align_right)
-        table.cell(of_tbl,1,r,v,text_color=vc,         bgcolor=bg,text_size=size.tiny,text_halign=text.align_left)
-
     // Header
     table.cell(of_tbl,0,0,"ORDER FLOW",text_color=C_HDR_TXT,bgcolor=C_OF_HDR,text_size=size.small,text_halign=text.align_center)
     table.cell(of_tbl,1,0,"LIVE  NQ",  text_color=C_HDR_TXT,bgcolor=C_OF_HDR,text_size=size.small,text_halign=text.align_center)
 
-    // CVD
+    // Row 1: CVD
     cvd_col = session_cvd>=0 ? C_OF_BUY : C_OF_SELL
-    cvd_str = (session_cvd>=0 ? "+" : "") + str.tostring(session_cvd,"#,###")
-    _of_row(1,"CVD", cvd_str + "  " + (session_cvd>0 ? "BUY BIAS" : session_cvd<0 ? "SELL BIAS" : "FLAT"), cvd_col)
-
-    // Bar delta
-    d_col = bar_delta>=0 ? C_OF_BUY : C_OF_SELL
-    d_str = (bar_delta>=0 ? "+" : "") + str.tostring(bar_delta,"#,###")
-    _of_row(2,"Bar Delta", d_str + (bar_delta>200 ? "  LG BUY" : bar_delta<-200 ? "  LG SELL" : ""), d_col)
-
-    // RVOL
+    cvd_val = (session_cvd>=0 ? "+" : "") + str.tostring(session_cvd,"#,###") + "  " + (session_cvd>0 ? "BUY BIAS" : session_cvd<0 ? "SELL BIAS" : "FLAT")
+    table.cell(of_tbl,0,1,"CVD",       text_color=C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,1,cvd_val,     text_color=cvd_col,  bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 2: Bar Delta
+    d_col  = bar_delta>=0 ? C_OF_BUY : C_OF_SELL
+    d_val  = (bar_delta>=0 ? "+" : "") + str.tostring(bar_delta,"#,###") + (bar_delta>200 ? "  LG BUY" : bar_delta<-200 ? "  LG SELL" : "")
+    table.cell(of_tbl,0,2,"Bar Delta", text_color=C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,2,d_val,       text_color=d_col,    bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 3: RVOL
     rvol_col = rvol>=1.5 ? C_OF_BUY : rvol<0.8 ? C_OF_SELL : C_OF_NEUT
     rvol_reg = rvol>=3.0 ? "CLIMAX" : rvol>=1.5 ? "HIGH" : rvol>=0.8 ? "NORMAL" : "THIN"
-    _of_row(3,"RVOL", str.tostring(rvol,"#.2") + "x  " + rvol_reg, rvol_col)
-
-    // OFI Z-score
+    table.cell(of_tbl,0,3,"RVOL",      text_color=C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,3,str.tostring(rvol,"#.2") + "x  " + rvol_reg,text_color=rvol_col,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 4: OFI Z
     ofi_col = ofi_z>=1.5 ? C_OF_BUY : ofi_z<=-1.5 ? C_OF_SELL : C_OF_NEUT
-    ofi_str = (ofi_z>=0 ? "+" : "") + str.tostring(ofi_z,"#.2") + "  " +
-              (math.abs(ofi_z)>=2.0 ? "STRONG" : math.abs(ofi_z)>=1.0 ? "MODERATE" : "NEUTRAL")
-    _of_row(4,"OFI Z", ofi_str, ofi_col)
-
-    // Kyle Lambda
+    ofi_lbl = math.abs(ofi_z)>=2.0 ? "STRONG" : math.abs(ofi_z)>=1.0 ? "MODERATE" : "NEUTRAL"
+    ofi_val = (ofi_z>=0 ? "+" : "") + str.tostring(ofi_z,"#.2") + "  " + ofi_lbl
+    table.cell(of_tbl,0,4,"OFI Z",     text_color=C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,4,ofi_val,     text_color=ofi_col,  bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 5: Kyle Lambda
     k_col = kyle_regime=="INFORMED" ? C_OF_BUY : C_OF_NEUT
-    _of_row(5,"Kyle Lambda", str.tostring(kyle_z,"#.2") + "  " + kyle_regime, k_col)
-
-    // Absorption
+    table.cell(of_tbl,0,5,"Kyle Lam",  text_color=C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,5,str.tostring(kyle_z,"#.2") + "  " + kyle_regime,text_color=k_col,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 6: Absorption
     ab_col = is_absorb ? C_ABSORB : C_OF_NEUT
-    ab_str = is_absorb ? "DETECTED  " + str.upper(absorb_dir) + " SIDE" : "none"
-    _of_row(6,"Absorption", ab_str, ab_col)
-
-    // CVD divergence
+    ab_val = is_absorb ? "DETECTED  " + str.upper(absorb_dir) + " SIDE" : "none"
+    table.cell(of_tbl,0,6,"Absorb",    text_color=C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,6,ab_val,      text_color=ab_col,   bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
+    // Row 7: CVD Div
     cdiv_col = cvd_div_bear ? C_OF_SELL : C_OF_NEUT
-    _of_row(7,"CVD Div", cvd_div_bear ? "BEARISH  distribution" : "none", cdiv_col)
-
-    // Divider
-    table.cell(of_tbl,0,8,"VOLUME",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
+    table.cell(of_tbl,0,7,"CVD Div",   text_color=C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,7,cvd_div_bear ? "BEARISH  distribution" : "none",text_color=cdiv_col,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    // Row 8: Volume profile header
+    table.cell(of_tbl,0,8,"VOLUME",    text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
     table.cell(of_tbl,1,8,"PROFILE  (session)",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
 
-    // Mini volume profile ladder (6 price buckets with ASCII bar)
-    _bar(v,mx) =>
-        blen = mx>0 ? math.round(v/mx*8) : 0
-        blen = math.max(0, math.min(blen,8))
-        bars_str = ""
-        if blen>=8
-            bars_str := "████████"
-        else if blen>=7
-            bars_str := "███████ "
-        else if blen>=6
-            bars_str := "██████  "
-        else if blen>=5
-            bars_str := "█████   "
-        else if blen>=4
-            bars_str := "████    "
-        else if blen>=3
-            bars_str := "███     "
-        else if blen>=2
-            bars_str := "██      "
-        else if blen>=1
-            bars_str := "█       "
-        else
-            bars_str := "        "
-        bars_str
+    // Volume profile rows (inline bar chart — no local function)
+    vp_max   = math.max(vp_vol1,math.max(vp_vol2,math.max(vp_vol3,math.max(vp_vol4,math.max(vp_vol5,vp_vol6)))))
+    is_poc1  = vp_vol1==vp_max
+    is_poc2  = vp_vol2==vp_max
+    is_poc3  = vp_vol3==vp_max
+    is_poc4  = vp_vol4==vp_max
+    is_poc5  = vp_vol5==vp_max
+    is_poc6  = vp_vol6==vp_max
 
-    vp_max = math.max(vp_vol1,math.max(vp_vol2,math.max(vp_vol3,math.max(vp_vol4,math.max(vp_vol5,vp_vol6)))))
-    is_poc1 = vp_vol1==vp_max
-    is_poc2 = vp_vol2==vp_max
-    is_poc3 = vp_vol3==vp_max
-    is_poc4 = vp_vol4==vp_max
-    is_poc5 = vp_vol5==vp_max
-    is_poc6 = vp_vol6==vp_max
+    // Bar lengths (0-8 blocks) computed inline
+    b6 = vp_max>0 ? math.min(math.round(vp_vol6/vp_max*8),8) : 0
+    b5 = vp_max>0 ? math.min(math.round(vp_vol5/vp_max*8),8) : 0
+    b4 = vp_max>0 ? math.min(math.round(vp_vol4/vp_max*8),8) : 0
+    b3 = vp_max>0 ? math.min(math.round(vp_vol3/vp_max*8),8) : 0
+    b2 = vp_max>0 ? math.min(math.round(vp_vol2/vp_max*8),8) : 0
+    b1 = vp_max>0 ? math.min(math.round(vp_vol1/vp_max*8),8) : 0
 
-    _vp_row(r, px, v, is_poc) =>
-        bg = r%2==0 ? C_OF_BG : C_OF_BG2
-        poc_marker = is_poc ? " POC" : ""
-        table.cell(of_tbl,0,r,str.tostring(px,"#,###.0") + poc_marker,
-                   text_color=is_poc ? C_POC : C_DIM_TXT, bgcolor=bg, text_size=size.tiny,text_halign=text.align_right)
-        table.cell(of_tbl,1,r,_bar(v,vp_max) + "  " + str.tostring(v/1000,"#.0") + "K",
-                   text_color=is_poc ? C_POC : C_CELL_TXT, bgcolor=bg, text_size=size.tiny,text_halign=text.align_left)
+    s6 = b6>=8?"████████":b6>=7?"███████ ":b6>=6?"██████  ":b6>=5?"█████   ":b6>=4?"████    ":b6>=3?"███     ":b6>=2?"██      ":b6>=1?"█       ":"        "
+    s5 = b5>=8?"████████":b5>=7?"███████ ":b5>=6?"██████  ":b5>=5?"█████   ":b5>=4?"████    ":b5>=3?"███     ":b5>=2?"██      ":b5>=1?"█       ":"        "
+    s4 = b4>=8?"████████":b4>=7?"███████ ":b4>=6?"██████  ":b4>=5?"█████   ":b4>=4?"████    ":b4>=3?"███     ":b4>=2?"██      ":b4>=1?"█       ":"        "
+    s3 = b3>=8?"████████":b3>=7?"███████ ":b3>=6?"██████  ":b3>=5?"█████   ":b3>=4?"████    ":b3>=3?"███     ":b3>=2?"██      ":b3>=1?"█       ":"        "
+    s2 = b2>=8?"████████":b2>=7?"███████ ":b2>=6?"██████  ":b2>=5?"█████   ":b2>=4?"████    ":b2>=3?"███     ":b2>=2?"██      ":b2>=1?"█       ":"        "
+    s1 = b1>=8?"████████":b1>=7?"███████ ":b1>=6?"██████  ":b1>=5?"█████   ":b1>=4?"████    ":b1>=3?"███     ":b1>=2?"██      ":b1>=1?"█       ":"        "
 
-    _vp_row(9,  nz(vp_p6,0.0), vp_vol6, is_poc6)
-    _vp_row(10, nz(vp_p5,0.0), vp_vol5, is_poc5)
-    _vp_row(11, nz(vp_p4,0.0), vp_vol4, is_poc4)
-    _vp_row(12, nz(vp_p3,0.0), vp_vol3, is_poc3)
-    _vp_row(13, nz(vp_p2,0.0), vp_vol2, is_poc2)
-    _vp_row(14, nz(vp_p1,0.0), vp_vol1, is_poc1)
+    table.cell(of_tbl,0,9, str.tostring(nz(vp_p6,0.0),"#,###.0") + (is_poc6?" POC":""),text_color=is_poc6?C_POC:C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,9, s6+"  "+str.tostring(vp_vol6/1000,"#.0")+"K",             text_color=is_poc6?C_POC:C_CELL_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    table.cell(of_tbl,0,10,str.tostring(nz(vp_p5,0.0),"#,###.0") + (is_poc5?" POC":""),text_color=is_poc5?C_POC:C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,10,s5+"  "+str.tostring(vp_vol5/1000,"#.0")+"K",             text_color=is_poc5?C_POC:C_CELL_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
+    table.cell(of_tbl,0,11,str.tostring(nz(vp_p4,0.0),"#,###.0") + (is_poc4?" POC":""),text_color=is_poc4?C_POC:C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,11,s4+"  "+str.tostring(vp_vol4/1000,"#.0")+"K",             text_color=is_poc4?C_POC:C_CELL_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    table.cell(of_tbl,0,12,str.tostring(nz(vp_p3,0.0),"#,###.0") + (is_poc3?" POC":""),text_color=is_poc3?C_POC:C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,12,s3+"  "+str.tostring(vp_vol3/1000,"#.0")+"K",             text_color=is_poc3?C_POC:C_CELL_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
+    table.cell(of_tbl,0,13,str.tostring(nz(vp_p2,0.0),"#,###.0") + (is_poc2?" POC":""),text_color=is_poc2?C_POC:C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,13,s2+"  "+str.tostring(vp_vol2/1000,"#.0")+"K",             text_color=is_poc2?C_POC:C_CELL_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    table.cell(of_tbl,0,14,str.tostring(nz(vp_p1,0.0),"#,###.0") + (is_poc1?" POC":""),text_color=is_poc1?C_POC:C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,14,s1+"  "+str.tostring(vp_vol1/1000,"#.0")+"K",             text_color=is_poc1?C_POC:C_CELL_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
 
-    // Divider
-    table.cell(of_tbl,0,15,"SCORE GATES",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
+    // Footer rows
+    table.cell(of_tbl,0,15,"SCORE GATES",   text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
     table.cell(of_tbl,1,15,"TWO-TARGET EXIT",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
-    _of_row(16,"skip / 1-lot / 2-lot","<=5  /  6-15  /  >=16", C_DIM_TXT)
-    _of_row(17,"T1 @ 1R (50% exit)","T2 @ Chandelier / extended", C_DIM_TXT)
+    table.cell(of_tbl,0,16,"skip/1-lot/2-lot",text_color=C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,16,"<=5  /  6-15  /  >=16",text_color=C_DIM_TXT,bgcolor=C_OF_BG, text_size=size.tiny,text_halign=text.align_left)
+    table.cell(of_tbl,0,17,"T1 @ 1R (50%)", text_color=C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(of_tbl,1,17,"T2 @ Chandelier / extended",text_color=C_DIM_TXT,bgcolor=C_OF_BG2,text_size=size.tiny,text_halign=text.align_left)
 
 // ─── ALERTS ───────────────────────────────────────────────────────────────────
 
