@@ -63,3 +63,4 @@ IMPROVEMENTS.md
 
 # Backtest charts — tracked for README display
 # backtest_charts/
+.cache/

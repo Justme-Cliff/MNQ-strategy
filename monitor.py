@@ -725,7 +725,12 @@ def run_monitor():
                         f"[dim]price within {abs(price-lvl):.1f}pts — watch for engine signal[/dim]"
                     )
 
-        # ── Live price ticker ─────────────────────────────────────────────
+        # ── Live price ticker — suppressed while waiting for user input ──────
+        if _pending_confirm or _pending_outcome:
+            # Ticker paused — wait for user response, then resume
+            time.sleep(0.5)
+            continue
+
         if 9 <= h < 12 and price:
             confirmed = get_confirmed_trades_today()
             age       = feed.age_seconds

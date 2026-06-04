@@ -53,63 +53,110 @@ Databento GLBX.MDP3 · NQ.c.0 continuous · 1-min bars resampled to 5-min · ~$1
 
 ## Charts
 
-### Master Dashboard — Equity Curve + Drawdown + System Metrics
+15 institutional-grade research charts generated from the 2-year Databento backtest. All 3D, all quant. Run `python3 hybrid_run.py /2y` to regenerate.
 
-![Master Dashboard](backtest_charts/01_equity_curve.png)
+### 01 — Kelly Growth Landscape (3D)
+E[log-wealth] surface across Win Rate × R:R · ruin boundary · system position marked
 
----
-
-### Alpha Generation Surface — Win Rate Across VIX × Confidence Score
-
-![Alpha Generation Surface](backtest_charts/02_drawdown.png)
+![Kelly Growth](backtest_charts/01_kelly_surface.png)
 
 ---
 
-### Strategy Performance Matrix
+### 02 — PCA Manifold + LDA Hyperplane (3D)
+9-feature trade space → PC1×PC2×PC3 · transparent decision plane · feature loading arrows
 
-![Strategy Breakdown](backtest_charts/03_strategy_breakdown.png)
-
----
-
-### Returns Statistical Analysis
-
-![Returns Distribution](backtest_charts/04_pnl_distribution.png)
+![PCA Manifold](backtest_charts/02_pca_manifold.png)
 
 ---
 
-### Rolling Performance Metrics — Win Rate / Avg P&L / Sharpe
+### 03 — Omega Function 3D Surface
+Ω(VIX, Score) = E[max(r,0)] / E[max(−r,0)] per regime cell · break-even plane at Ω=1
 
-![Rolling Metrics](backtest_charts/05_rolling_winrate.png)
-
----
-
-### Win Rate Heatmap — Day × Strategy
-
-![Heatmap](backtest_charts/06_winrate_heatmap.png)
+![Omega Surface](backtest_charts/03_omega_surface.png)
 
 ---
 
-### Monte Carlo Simulation (500 paths) + VIX Sensitivity
+### 04 — Rolling IC Surface (3D)
+IC(factor, t) = ρ(signal, outcome) · temporal stability of each scoring signal
 
-![Monte Carlo](backtest_charts/07_vix_scatter.png)
-
----
-
-### Factor Analysis — 20-Point Scoring Hit Rates
-
-![Factor Analysis](backtest_charts/08_rr_distribution.png)
+![Rolling IC](backtest_charts/04_rolling_ic_surface.png)
 
 ---
 
-### Daily P&L Calendar
+### 05 — Dual CVaR + Sharpe Surface (3D)
+CVaR₉₅ and Sharpe as two intersecting 3D surfaces over VIX × Score grid
 
-![Calendar](backtest_charts/09_monthly_calendar.png)
+![Dual Risk](backtest_charts/05_dual_risk_surface.png)
 
 ---
 
-### Strategy Equity Curves + Win/Loss Sequence
+### 06 — Hawkes Process Intensity (3D)
+Self-exciting trade arrival model · λ(α, t) surface · branching ratio sensitivity
 
-![Strategy Curves](backtest_charts/10_strategy_equity_curves.png)
+![Hawkes](backtest_charts/06_hawkes_intensity.png)
+
+---
+
+### 07 — Joint Density P&L × VIX (3D KDE)
+Gaussian KDE joint density surface · projections on all three walls
+
+![Joint Density](backtest_charts/07_joint_density.png)
+
+---
+
+### 08 — Rolling Kelly Surface (3D)
+f*(window, t) surface · optimal sizing across all lookback windows simultaneously
+
+![Rolling Kelly](backtest_charts/08_rolling_kelly_surface.png)
+
+---
+
+### 09 — Efficient Frontier (3D Monte Carlo)
+4,000 random portfolios in μ × σ × Sharpe space · max-Sharpe and min-vol marked
+
+![Efficient Frontier](backtest_charts/09_efficient_frontier.png)
+
+---
+
+### 10 — ARCH Variance Surface (3D)
+ACF(r², lag, t) · volatility clustering test · hot zones = bad runs are predictable
+
+![ARCH Surface](backtest_charts/10_arch_surface.png)
+
+---
+
+### 11 — Permutation Entropy Surface (3D)
+H(m, w) Bandt-Pompe ordinal entropy · H<1 = temporal structure in P&L sequence
+
+![Permutation Entropy](backtest_charts/11_permutation_entropy.png)
+
+---
+
+### 12 — Stochastic Dominance Surface (3D)
+ΔF(x, VIX) = F_system − F_random · blue everywhere = first-order dominance holds
+
+![Stochastic Dominance](backtest_charts/12_stochastic_dominance.png)
+
+---
+
+### 13 — GPD Tail Index Surface (3D)
+ξ(VIX, Score) via POT method · ξ>0 = Pareto heavy tail · ξ≈0 = exponential
+
+![GPD Tail](backtest_charts/13_gpd_tail_surface.png)
+
+---
+
+### 14 — Equity Path in 3D Performance Space
+Full life of the system traced in cumPnL × rolling Sharpe × rolling Vol · color = time
+
+![Equity Path](backtest_charts/14_equity_path_3d.png)
+
+---
+
+### 15 — Regime Density Ribbons (3D KDE Stack)
+P&L density ribbon per HMM state · full 3D probability landscape by market regime
+
+![Regime Density](backtest_charts/15_regime_density_3d.png)
 
 ---
 
@@ -238,11 +285,20 @@ pip3 install -r requirements.txt
 # Run backtest (three-way: base / institutional / hybrid)
 python3 hybrid_run.py
 
+# Run standalone quant strategy backtest
+python3 quant_run.py
+
+# 10-year backtest on Databento NQ futures data (~$12 one-time data cost)
+python3 -m backtest.run_10yr
+
 # Walk-forward validation (WFE = 201%)
 python3 -m backtest.walk_forward
 
 # Start live monitor (run at 9:20 AM ET)
 python3 monitor.py
+
+# Post-session P&L check
+python3 daily_check.py
 
 # Generate 105-page research paper
 python3 generate_report.py
@@ -260,8 +316,8 @@ The monitor runs in your terminal from 9:20 AM ET. It shows:
 - **Live price ticker**: updates every 0.5s, shows RVOL, VIX, buffer, trade count
 - **Level alerts**: bordered panels when approaching ORB/IB/PDH/PDL/VWAP
 - **Signal panels**: large bordered display with entry/stop/T1/T2/score/contracts
-- **Trade confirmation**: `y` = took it, `n` = skipped — only confirmed trades count toward 3/day limit
-- **Outcome tracking**: `w/l/s` after each trade — feeds regime-contextual WR learning
+- **Trade confirmation**: when a signal fires the ticker **pauses** and waits — type `y` = took it, `n` = skipped. Ticker resumes after you answer.
+- **Outcome tracking**: after confirming, ticker pauses again until you type `w` = win, `l` = loss, `s` = skip — feeds regime-contextual WR learning and bot_memory.json
 
 Works on **macOS**, **Windows**, and **Linux**.
 
@@ -293,14 +349,25 @@ Kelly guard          activates after 40+ real trades, prevents sizing up during 
 ```
 monitor.py                     Live session monitor — terminal UI, signals, memory
 hybrid_run.py                  Three-way backtest comparison (base/inst/hybrid)
+quant_run.py                   Standalone quant strategy backtest runner
+daily_check.py                 Post-session P&L check and journal review
 generate_report.py             105-page research paper (PDF) generator
+
+Price Feeds (plug-and-play, swap in monitor.py):
+  fast_feed.py                 yfinance 1-min bar fallback — zero setup required
+  yahoo_ws_feed.py             Yahoo Finance WebSocket (^NDX index, real-time)
+  tradovate_feed.py            Tradovate WebSocket — tick-level NQ futures
+  databento_feed.py            Databento CME Globex live stream — tick-level, zero delay
 
 backtest/
   hybrid_engine.py             20-point scoring + two-target exit + all signals
   quant_engine.py              Base strategies with two-target exit
   inst_engine.py               Hard-block overlay only
   walk_forward.py              IS/OOS walk-forward validation (WFE metric)
+  run_10yr.py                  10-year Databento backtest runner
   data_loader.py               yfinance NQ/ES loader + validation + holiday calendar
+  databento_loader.py          Databento historical NQ futures loader (10-yr 5-min OHLCV)
+  quant_charts.py              15 advanced 3D quant research charts (Kelly, PCA, Omega, Hawkes, GPD...)
 
 strategy/
   quant_regime.py              EMA trend + adaptive ATR + VIX/VIX3M/VVIX + overnight
@@ -323,6 +390,7 @@ strategy/
   inst_rvol.py                 Time-of-day adjusted RVOL (same 5-min slot, 20 sessions)
   inst_absorption.py           Wyckoff effort vs result absorption detection
   inst_lambda.py               Kyle's lambda informed flow proxy (1985)
+  inst_kelly.py                Fractional Kelly position sizing (Kelly 1956)
   inst_va_rule.py              80% Value Area Rule (Dalton — 30yr documented edge)
   inst_avwap.py                Anchored VWAP (yearly open, swing low, weekly open)
   inst_cot.py                  CFTC COT TFF Leveraged Funds — weekly macro compass
@@ -348,11 +416,12 @@ Contents:
 - All 20 institutional signals with academic citations and plain-English explanations
 - Full mathematical derivations (Kelly, Sharpe, HAR-RV, VPIN, OFI, HMM)
 - 4 complete trade walkthroughs (real backtest dates, real prices, real P&L)
+- 2-year Databento backtest results (283 trades, 67.1% WR, $6,794, 3/3 positive years)
 - Practical daily operating guide (9:00 AM pre-session checklist)
 - Walk-forward validation methodology and WFE=201% analysis
 - 8-question FAQ section
 - Formula reference (17 formulas with translations)
-- 7 embedded backtest charts
+- 6 embedded 3D quant research charts
 
 > To regenerate locally: `python3 generate_report.py`
 
