@@ -787,7 +787,8 @@ occ_col_v   = occ_dir=="long" ? C_POS_TXT : occ_dir=="short" ? C_NEG_TXT : C_DIM
 
 if show_dash and barstate.islast
     _hdr(c, t) => table.cell(dash,c,0,t,text_color=C_HDR_TXT,bgcolor=C_HDR_BG,text_size=size.small,text_halign=text.align_center)
-    _hdr(0,"ISOGENY  v7.0"); _hdr(1,"MNQ  9:30-12:00 ET")
+    _hdr(0,"ISOGENY  v7.0")
+    _hdr(1,"MNQ  9:30-12:00 ET")
 
     _row(r,k,v,vc) =>
         bg = r%2==0 ? C_CELL_BG : C_CELL_BG2
