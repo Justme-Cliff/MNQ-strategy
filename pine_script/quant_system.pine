@@ -339,8 +339,8 @@ gap_pts   = nz(d_open)-nz(d_prev_cls)
 gap_size  = math.abs(gap_pts)
 gap_ratio = atr_adapt>0 ? gap_size/atr_adapt : 0.0
 gap_pct   = nz(d_prev_cls)>0 ? gap_size/nz(d_prev_cls) : 0.0
-gap_valid = gap_size>=2.0 and gap_ratio<0.20 and gap_pct<0.0055 and
-            dayofweek!=dayofweek.monday and gap_ratio<1.2
+gap_valid = (gap_size>=2.0 and gap_ratio<0.20 and gap_pct<0.0055 and
+             dayofweek!=dayofweek.monday and gap_ratio<1.2)
 
 fb_bull = close[1]>open[1]
 fb_bear = close[1]<open[1]
