@@ -310,12 +310,18 @@ if in_rth
         vp_p4 := sess_lo+3.5*bk_sz
         vp_p5 := sess_lo+4.5*bk_sz
         vp_p6 := sess_lo+5.5*bk_sz
-        if bk_c==0: vp_vol1+=volume
-        if bk_c==1: vp_vol2+=volume
-        if bk_c==2: vp_vol3+=volume
-        if bk_c==3: vp_vol4+=volume
-        if bk_c==4: vp_vol5+=volume
-        if bk_c==5: vp_vol6+=volume
+        if bk_c==0
+            vp_vol1 += volume
+        if bk_c==1
+            vp_vol2 += volume
+        if bk_c==2
+            vp_vol3 += volume
+        if bk_c==3
+            vp_vol4 += volume
+        if bk_c==4
+            vp_vol5 += volume
+        if bk_c==5
+            vp_vol6 += volume
 
 // OCC (Opening Candle Continuation)
 var float occ_open  = na
@@ -361,7 +367,8 @@ if is_930
     orb_hi   := high
     orb_lo   := low
     orb_done := false
-    if show_orb and not na(orb_box): box.delete(orb_box)
+    if show_orb and not na(orb_box)
+        box.delete(orb_box)
     if show_orb
         orb_box := box.new(time, orb_hi, time+150*60*1000, orb_lo,
              xloc=xloc.bar_time,
@@ -397,11 +404,17 @@ if new_day
     ib_done := false
     ib_drawn := false
     ib_bias := ""
-    if show_ib and not na(ib_box): box.delete(ib_box); ib_box:=na
+    if show_ib and not na(ib_box)
+        box.delete(ib_box)
+        ib_box := na
 
 if is_in_ib
-    if na(ib_hi) or high>ib_hi: ib_hi:=high; ib_hi_idx:=bar_index
-    if na(ib_lo) or low<ib_lo:  ib_lo:=low;  ib_lo_idx:=bar_index
+    if na(ib_hi) or high>ib_hi
+        ib_hi     := high
+        ib_hi_idx := bar_index
+    if na(ib_lo) or low<ib_lo
+        ib_lo     := low
+        ib_lo_idx := bar_index
 
 if not ib_drawn and not is_in_ib and in_rth and not na(ib_hi) and not na(rth_open_time)
     ib_bias  := ib_hi_idx<=ib_lo_idx ? "bearish" : "bullish"
@@ -515,8 +528,10 @@ if new_day
 in_prior_va = close>=nz(d_prev_val) and close<=nz(d_prev_vah)
 
 if va_rule_ok and va_rule_w and not va_done and (va_above or va_below)
-    if in_prior_va: va_inside+=1
-    else:           va_inside:=0
+    if in_prior_va
+        va_inside += 1
+    else
+        va_inside := 0
     if va_inside>=3
         va_done := true
         va_dir  := va_above ? "short" : "long"
@@ -856,15 +871,24 @@ if show_of and barstate.islast
         blen = mx>0 ? math.round(v/mx*8) : 0
         blen = math.max(0, math.min(blen,8))
         bars_str = ""
-        if blen>=8: bars_str:="████████"
-        else if blen>=7: bars_str:="███████ "
-        else if blen>=6: bars_str:="██████  "
-        else if blen>=5: bars_str:="█████   "
-        else if blen>=4: bars_str:="████    "
-        else if blen>=3: bars_str:="███     "
-        else if blen>=2: bars_str:="██      "
-        else if blen>=1: bars_str:="█       "
-        else: bars_str:="        "
+        if blen>=8
+            bars_str := "████████"
+        else if blen>=7
+            bars_str := "███████ "
+        else if blen>=6
+            bars_str := "██████  "
+        else if blen>=5
+            bars_str := "█████   "
+        else if blen>=4
+            bars_str := "████    "
+        else if blen>=3
+            bars_str := "███     "
+        else if blen>=2
+            bars_str := "██      "
+        else if blen>=1
+            bars_str := "█       "
+        else
+            bars_str := "        "
         bars_str
 
     vp_max = math.max(vp_vol1,math.max(vp_vol2,math.max(vp_vol3,math.max(vp_vol4,math.max(vp_vol5,vp_vol6)))))
