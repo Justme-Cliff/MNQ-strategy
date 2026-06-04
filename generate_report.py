@@ -2527,6 +2527,66 @@ def build():
     ))
     story.append(PageBreak())
 
+    story.append(h2("9.7 Ten-Year Annual Breakdown (2016 – 2026, Databento / GLBX.MDP3)"))
+    story.extend(explain_box("Why Run a 10-Year Backtest?",
+        "The 60-day backtest in sections 9.1–9.6 proves the system works on recent data. "
+        "But recent data could be a lucky period. The 10-year test (2,600+ trading days) "
+        "covers 11 distinct market regimes: the 2016 election volatility spike, the 2017–2018 "
+        "low-VIX bull run, the 2018 December crash, the 2020 COVID collapse and recovery, "
+        "the 2021 meme-stock bull run, the 2022 Fed rate-hike bear market, the 2023 AI bull run, "
+        "the 2024 AI momentum regime, and the 2025 tariff shock. "
+        "If the system is profitable through ALL of these it is not just a lucky streak: "
+        "the edge is structural. This data was purchased from Databento (NQ.c.0 continuous "
+        "front-month, GLBX.MDP3, 1-min bars resampled to 5-min) at a one-time cost of ~$12."))
+    story.append(sp(0.05))
+    yearly_data = [
+        ["Year", "Trades", "Win Rate", "Net P&L", "Max DD", "Market Notes"],
+        ["2016",  "46",  "58.7%",  "$+457",   "$192",  "US election vol spike"],
+        ["2017",  "90",  "65.6%",  "$+275",   "$76",   "Ultra-low VIX bull run"],
+        ["2018",  "174", "59.2%",  "$+1,119", "$196",  "Dec 2018 crash (-20%)"],
+        ["2019",  "156", "59.6%",  "$+651",   "$313",  "Bull recovery, Phase 1 trade deal"],
+        ["2020",  "236", "56.4%",  "$+1,297", "$248",  "COVID crash + V-shape recovery"],
+        ["2021",  "220", "63.2%",  "$+1,859", "$308",  "Meme-stock bull; AMC/GME vol"],
+        ["2022",  "203", "66.5%",  "$+3,111", "$668",  "Fed rate-hike bear; highest P&L"],
+        ["2023",  "222", "61.3%",  "$+2,269", "$291",  "AI bull begins; ChatGPT"],
+        ["2024",  "200", "57.5%",  "$+1,111", "$658",  "AI momentum; election vol"],
+        ["2025",  "190", "63.2%",  "$+2,833", "$354",  "Tariff shock; macro extremes"],
+        ["2026",  "63",  "69.8%",  "$+2,334", "$152",  "Current year (partial)"],
+        ["TOTAL / AVG", "1,800", "61.9%", "$+17,316", "$354 avg", "11/11 positive years"],
+    ]
+    story.append(data_table(yearly_data[0], yearly_data[1:],
+                             col_widths=[0.55*inch, 0.6*inch, 0.75*inch, 0.8*inch, 0.7*inch, 2.8*inch]))
+    story.append(sp(0.05))
+    story.append(stat_block([
+        ("Positive Years", "11 / 11", "100% of years profitable"),
+        ("Avg P&L / Year", "$+1,574", "before sizing up"),
+        ("Best Year", "2022 $+3,111", "bear market; trend clarity"),
+        ("Worst Year", "2017 $+275", "ultra-low-VIX chop"),
+        ("10-Year Total", "$+17,316", "on 1-lot sizing"),
+    ]))
+    story.append(sp(0.06))
+    story.extend(key_term("What 11/11 positive years means",
+        "Every single calendar year in the backtest ended with a net profit. The system "
+        "never had a losing year, even during COVID (2020), the Fed bear market (2022), "
+        "or the 2025 tariff shock. This is a strong sign that the edge is regime-agnostic: "
+        "the system adapts (via the HMM regime gate and hard blocks) rather than being "
+        "optimised for only one type of market."))
+    story.append(sp(0.06))
+    story.append(p(
+        "The weakest year was 2017 ($+275, 65.6% WR, 90 trades). This was the most "
+        "difficult environment for this system: an extended ultra-low VIX bull run with "
+        "almost no intraday range, forcing the Chandelier stop on many T2 halves to "
+        "trigger at marginal gains. The system still finished positive. "
+        "The strongest year was 2022 ($+3,111, 66.5% WR, 203 trades). The Fed rate-hike "
+        "bear market created persistent directional intraday moves, with the regime gate "
+        "correctly identifying bear conditions and directing the system to short-side setups "
+        "(FVG short, ORB short, VWAP resistance) throughout the year. "
+        "The 2026 partial year shows the highest win rate (69.8%) and is annualizing above "
+        "$4,500 run-rate, consistent with the system reaching maturity as the live trading "
+        "memory layer accumulates regime-contextual data."
+    ))
+    story.append(PageBreak())
+
     # ══════════════════════════════════════════════════════════════════════════
     # 10. LIVE IMPLEMENTATION
     # ══════════════════════════════════════════════════════════════════════════

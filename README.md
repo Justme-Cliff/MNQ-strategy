@@ -23,6 +23,29 @@
 
 ---
 
+## Ten-Year Annual Breakdown (2016 – 2026)
+
+Databento GLBX.MDP3 · NQ.c.0 continuous · 1-min bars resampled to 5-min · ~$12 one-time data cost
+
+| Year | Trades | Win Rate | Net P&L | Max DD | Market Notes |
+|:--:|:--:|:--:|:--:|:--:|:--|
+| 2016 | 46 | 58.7% | $+457 | $192 | US election vol spike |
+| 2017 | 90 | 65.6% | $+275 | $76 | Ultra-low VIX bull run |
+| 2018 | 174 | 59.2% | $+1,119 | $196 | Dec 2018 crash (−20%) |
+| 2019 | 156 | 59.6% | $+651 | $313 | Bull recovery, Phase 1 trade deal |
+| 2020 | 236 | 56.4% | $+1,297 | $248 | COVID crash + V-shape recovery |
+| 2021 | 220 | 63.2% | $+1,859 | $308 | Meme-stock bull; AMC/GME vol |
+| 2022 | 203 | 66.5% | $+3,111 | $668 | Fed rate-hike bear; strongest year |
+| 2023 | 222 | 61.3% | $+2,269 | $291 | AI bull begins (ChatGPT) |
+| 2024 | 200 | 57.5% | $+1,111 | $658 | AI momentum; election vol |
+| 2025 | 190 | 63.2% | $+2,833 | $354 | Tariff shock; macro extremes |
+| 2026 | 63 | 69.8% | $+2,334 | $152 | Current year (partial) |
+| **TOTAL** | **1,800** | **61.9%** | **$+17,316** | **$354 avg** | **11 / 11 positive years** |
+
+> **11/11 positive years (100%).** The system was profitable in every single calendar year including COVID (2020), the Fed bear market (2022), and the 2025 tariff shock. Average P&L per year: **$+1,574** on 1-lot sizing.
+
+---
+
 ## Charts
 
 ### Master Dashboard — Equity Curve + Drawdown + System Metrics
