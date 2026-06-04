@@ -816,8 +816,8 @@ def chart_10_arch_surface(trades):
 
     # 95% CI boundary
     ci95 = 1.96/np.sqrt(30)
-    ax.contour(LG, WI, Z_acf, zdir="z", offset=-0.65, levels=[ci95,-ci95],
-               colors=[C_POS,C_NEG], linewidths=2.0, alpha=0.8)
+    ax.contour(LG, WI, Z_acf, zdir="z", offset=-0.65, levels=[-ci95, ci95],
+               colors=[C_NEG,C_POS], linewidths=2.0, alpha=0.8)
 
     ax.set_xlabel("Lag  k", labelpad=10, fontsize=9, color=SUB)
     ax.set_ylabel("Trade index  t", labelpad=10, fontsize=9, color=SUB)
@@ -1022,7 +1022,11 @@ def chart_13_gpd_tail_surface(trades):
     ax = fig.add_subplot(111, projection="3d"); _ax3d(ax)
 
     cmap = plt.get_cmap("RdYlGn_r")
-    norm = TwoSlopeNorm(vcenter=0, vmin=float(Z_xi_.min()), vmax=float(Z_xi_.max()))
+    _zmin, _zmax = float(Z_xi_.min()), float(Z_xi_.max())
+    if _zmin < 0 < _zmax:
+        norm = TwoSlopeNorm(vcenter=0, vmin=_zmin, vmax=_zmax)
+    else:
+        norm = Normalize(vmin=_zmin, vmax=_zmax)
     ax.plot_surface(X3, Y3, Z_xi_, facecolors=cmap(norm(Z_xi_)),
                     rstride=1, cstride=1, alpha=0.90, shade=True)
     ax.plot_wireframe(X3, Y3, Z_xi_, rstride=1, cstride=1,

@@ -353,18 +353,23 @@ def flow_steps(steps, title="HOW IT WORKS STEP BY STEP"):
 
 CHART_DIR = Path(__file__).parent / "backtest_charts"
 
-# Aspect ratios pre-measured from chart files (height/width)
+# Aspect ratios — all new charts are 16.05×10.04 = 0.626 ratio
 _CHART_RATIOS = {
-    "01_equity_curve.png":       0.574,
-    "02_drawdown.png":            0.576,
-    "03_strategy_breakdown.png":  0.509,
-    "04_pnl_distribution.png":    0.519,
-    "05_rolling_winrate.png":     0.580,
-    "06_winrate_heatmap.png":     0.529,
-    "07_vix_scatter.png":         0.518,
-    "08_rr_distribution.png":     0.512,
-    "09_monthly_calendar.png":    0.522,
-    "10_strategy_equity_curves.png": 0.574,
+    "01_kelly_surface.png":        0.626,
+    "02_pca_manifold.png":         0.626,
+    "03_omega_surface.png":        0.626,
+    "04_rolling_ic_surface.png":   0.626,
+    "05_dual_risk_surface.png":    0.626,
+    "06_hawkes_intensity.png":     0.626,
+    "07_joint_density.png":        0.626,
+    "08_rolling_kelly_surface.png":0.626,
+    "09_efficient_frontier.png":   0.626,
+    "10_arch_surface.png":         0.626,
+    "11_permutation_entropy.png":  0.626,
+    "12_stochastic_dominance.png": 0.626,
+    "13_gpd_tail_surface.png":     0.626,
+    "14_equity_path_3d.png":       0.626,
+    "15_regime_density_3d.png":    0.626,
 }
 
 def chart_img(filename, width=5.8*inch, caption_text=""):
@@ -602,22 +607,22 @@ def build():
     ))
     story.append(sp(0.1))
     story.append(p(
-        "The v7 Hybrid System backtested across 60 trading days (March to June 2026) produced "
-        "43 trades with a 76.7% win rate and net P&L of $2,499, exceeding the $1,500 Tradeify "
-        "profit target with a maximum simulated drawdown of $221 (22% of the $1,000 allowance). "
-        "The average Risk:Reward ratio of 4.23 represents a 35% improvement over v5.0 (3.14), "
-        "driven by the two-target exit system capturing trending moves that previously reverted to "
-        "breakeven. The out-of-sample walk-forward validation produced a 71.4% win rate and $808 "
-        "P&L on data the system had never seen, confirming the edge is structural, not overfit.",
+        "The v7.1 Hybrid System backtested across 623 trading days (June 2024 to June 2026) on "
+        "Databento GLBX.MDP3 NQ continuous futures produced 283 trades with a 67.1% win rate and "
+        "net P&L of $6,794 — averaging $2,265 per year. Maximum drawdown was $438.82, well within "
+        "the $1,000 Tradeify limit. The system was profitable in all 3 calendar years tested: 2024 "
+        "(65.4% WR, +$2,036), 2025 (66.0% WR, +$2,942), and 2026 partial (73.1% WR, +$1,816). "
+        "The out-of-sample walk-forward validation produced a 71.4% win rate and $808 P&L on data "
+        "the system had never seen, confirming the edge is structural, not overfit.",
         ABSTRACT_STYLE,
     ))
     story.append(sp(0.2))
     story.append(stat_block([
-        ("Win Rate", "76.7%", "Hybrid 60-day BT"),
-        ("Net P&L", "$2,499", "vs $1,500 target"),
-        ("Max Drawdown", "$221", "vs $1,000 limit"),
-        ("Avg R:R", "4.23x", "two-target exit"),
-        ("WFE", "201%", "walk-forward valid."),
+        ("Win Rate", "67.1%", "190W / 93L of 283"),
+        ("Net P&L", "$6,794", "2-year Databento BT"),
+        ("Max Drawdown", "$438", "vs $1,000 limit"),
+        ("Avg R:R", "4.77x", "two-target exit"),
+        ("Avg/Year", "$2,265", "3/3 positive years"),
     ]))
     story.append(PageBreak())
 
@@ -2271,7 +2276,7 @@ def build():
         "buffer rebuilds. This probability falls below 1% if the first 10 sessions are "
         "net positive, which the gap-fill and IB strategies (highest WR) make likely."
     ))
-    story.extend(chart_img("07_vix_scatter.png", caption_text="Figure 4. Monte Carlo Simulation (500 bootstrap paths) showing actual equity curve (yellow) "
+    story.extend(chart_img("07_joint_density.png", caption_text="Figure 4. Joint Density Surface: 3D Gaussian KDE of P&L × VIX — plasma ridge shows probability mass concentration. "
         "against simulated distribution. Right panel: VIX vs P&L scatter by strategy with regression."))
     story.append(sp(0.08))
 
@@ -2346,8 +2351,8 @@ def build():
         ("Max DD", "$438", "44% of $1,000 limit"),
         ("WFE", "201%", "out-of-sample robust"),
     ]))
-    story.extend(chart_img("01_equity_curve.png", caption_text="Figure 1. Master Dashboard: cumulative equity curve (cyan, neon glow), drawdown underwater "
-        "chart (magenta), and system metrics card showing all key performance statistics."))
+    story.extend(chart_img("01_kelly_surface.png", caption_text="Figure 1. Kelly Growth Landscape: 3D E[log-wealth] surface across Win Rate × R:R. "
+        "Red star = Isogeny Alpha system position. Ruin boundary and half-Kelly ridge shown."))
     story.append(sp(0.1))
 
     story.append(h2("9.2 Per-Strategy Breakdown (Hybrid v7.0)"))
@@ -2365,7 +2370,7 @@ def build():
     ]
     story.append(data_table(per_strat[0], per_strat[1:],
                              col_widths=[1.3*inch, 0.6*inch, 0.5*inch, 0.7*inch, 0.6*inch, 0.7*inch, 1.9*inch]))
-    story.extend(chart_img("03_strategy_breakdown.png", caption_text="Figure 2. Strategy Performance Matrix: win rate by strategy (top-left), total P&L (top-right), "
+    story.extend(chart_img("09_efficient_frontier.png", caption_text="Figure 2. 3D Efficient Frontier: 4,000 Monte Carlo portfolio combinations in return × vol × Sharpe space. "
         "R:R violin distributions (bottom-left), trade map (bottom-right)."))
     story.append(sp(0.1))
 
@@ -2390,7 +2395,7 @@ def build():
         "highest-conviction setups. The skip threshold of <=5 filters weak setups without "
         "losing too many trades (43 traded vs 59 base = −16 filtered)."
     ))
-    story.extend(chart_img("02_drawdown.png", caption_text="Figure 3. Alpha Generation Surface: 3D win rate mesh across VIX regime (x) vs confidence "
+    story.extend(chart_img("03_omega_surface.png", caption_text="Figure 3. Omega Function 3D Surface: Ω(VIX, Score) per regime cell. "
         "score (y). Color = win rate (red = low, cyan = high). Right panel: P&L by score bucket."))
     story.append(sp(0.15))
     story.append(PageBreak())
@@ -3574,9 +3579,9 @@ def build():
         "The system performed with 71.4% win rate on data it had never seen. The edge is "
         "structural rooted in institutional market microstructure, not parameter overfitting."
     ))
-    story.extend(chart_img("05_rolling_winrate.png", caption_text="Figure 5. Rolling 15-trade performance metrics. Top: win rate with green/red shading vs 50%%. "
+    story.extend(chart_img("14_equity_path_3d.png", caption_text="Figure 5. Equity Path in 3D Performance Space: cumulative P&L × rolling Sharpe × rolling volatility. Color = trade index (time). "
         "Middle: rolling average P&L per trade. Bottom: rolling Sharpe ratio with 1.0 and 2.0 reference lines."))
-    story.extend(chart_img("04_pnl_distribution.png", caption_text="Figure 6. Returns statistical analysis: P&L histogram with normal fit and VaR/CVaR lines, "
+    story.extend(chart_img("15_regime_density_3d.png", caption_text="Figure 6. Regime Density Ribbons: 3D KDE stack per HMM state. Each ribbon = P&L distribution in that market regime. "
         "Q-Q normality test, KDE decomposition (wins vs losses), and sorted trade waterfall."))
     story.append(PageBreak())
 
