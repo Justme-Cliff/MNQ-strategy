@@ -407,7 +407,7 @@ journal/trade_journal.py       SQLite trade log
 
 ## Research Paper
 
-**[Isogeny_Alpha_System_Kairos_Research_v7.pdf](https://drive.google.com/file/d/1LOtb1W11er0btztrAVTCl8z7XHoDBU8O/view?usp=sharing)** — 105 pages
+**[Isogeny_Alpha_System_Kairos_Research_v7.pdf](https://drive.google.com/file/d/1x_0VJevnLNjCFQ2CKj7Qp6aGqnlpZXQm/view?usp=sharing)** — 105 pages
 
 Written for both quantitative practitioners and complete beginners. Every formula has a plain-English translation. Every concept has a real-number NQ example.
 
