@@ -61,7 +61,6 @@ of_ofi_win  = input.int(20,  "OFI Z Window",        group=g_of, minval=10, maxva
 g_src = "Data Sources"
 vix_sym = input.string("TVC:VIX", "VIX Symbol", group=g_src)
 
-
 // ─── INSTITUTIONAL COLOR PALETTE ─────────────────────────────────────────────
 
 C_LONG     = #1B5E20   // deep forest green
@@ -107,7 +106,6 @@ C_OF_NEUT  = color.new(#455A64, 0)
 C_OF_BG    = color.new(#ECEFF1, 0)
 C_OF_BG2   = color.new(#CFD8DC, 0)
 
-
 // ─── DAILY / MULTI-TF DATA ───────────────────────────────────────────────────
 
 d_ema8     = request.security(syminfo.tickerid,"D",ta.ema(close,8),  lookahead=barmerge.lookahead_off)
@@ -126,7 +124,6 @@ d_prev_vah  = (nz(d_prev_hi)+nz(d_prev_vwap))/2.0
 d_prev_val  = (nz(d_prev_lo)+nz(d_prev_vwap))/2.0
 d_pmh       = request.security(syminfo.tickerid,"D",high, lookahead=barmerge.lookahead_off)
 d_pml       = request.security(syminfo.tickerid,"D",low,  lookahead=barmerge.lookahead_off)
-
 
 // ─── REGIME ───────────────────────────────────────────────────────────────────
 
@@ -159,7 +156,6 @@ gap_long_ok  = not trend_any_bear
 gap_short_ok = trend_neutral or trend_any_bear
 va_rule_ok   = vix_ok
 
-
 // ─── SESSION / TIME ───────────────────────────────────────────────────────────
 
 ET       = "America/New_York"
@@ -183,7 +179,6 @@ bounce_am_w = in_rth and bar_mins>=600 and bar_mins<720
 va_rule_w   = in_rth and bar_mins>=585 and bar_mins<690
 pm_window   = in_pm  and bar_mins>=810 and bar_mins<930
 no_data_w   = in_rth and bar_hr==10 and bar_min==0
-
 
 // ─── SESSION VWAP + BANDS ─────────────────────────────────────────────────────
 
@@ -216,7 +211,6 @@ vwap_u25 = vwap_val+2.5*rolling_std
 vwap_l25 = vwap_val-2.5*rolling_std
 vwap_u05 = vwap_val+0.5*rolling_std
 vwap_l05 = vwap_val-0.5*rolling_std
-
 
 // ─── ORDER FLOW COMPUTATIONS ──────────────────────────────────────────────────
 
@@ -339,7 +333,6 @@ if is_930[1] and not na(occ_open)
     occ_ret := occ_open>0 ? (close[1]-occ_open)/occ_open : 0.0
     occ_dir := occ_ret>0.0005 ? "long" : occ_ret<-0.0005 ? "short" : "neutral"
 
-
 // ─── GAP FILL ─────────────────────────────────────────────────────────────────
 
 gap_pts   = nz(d_open)-nz(d_prev_cls)
@@ -354,7 +347,6 @@ fb_bear = close[1]<open[1]
 
 gap_long  = is_930[1] and gap_valid[1] and gap_pts[1]<0 and fb_bull and gap_long_ok
 gap_short = is_930[1] and gap_valid[1] and gap_pts[1]>0 and fb_bear and gap_short_ok
-
 
 // ─── ORB ──────────────────────────────────────────────────────────────────────
 
@@ -385,7 +377,6 @@ orb_short_sig = (not orb_done and in_rth and not is_in_ib and not na(orb_lo) and
                  orb_ok_size and orb_short_ok and close<orb_lo and close<vwap_val)
 if orb_long_sig or orb_short_sig
     orb_done := true
-
 
 // ─── IB BREAKOUT ──────────────────────────────────────────────────────────────
 
@@ -437,11 +428,12 @@ ib_short_sig = (not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and
 if ib_long_sig or ib_short_sig
     ib_done := true
 
-
 // ─── VWAP REVERSION ───────────────────────────────────────────────────────────
 
-var bool vwap_l_done=false; var bool vwap_s_done=false
-var bool vwap_pm_l=false;   var bool vwap_pm_s=false
+var bool vwap_l_done=false
+var bool vwap_s_done=false
+var bool vwap_pm_l=false
+var bool vwap_pm_s=false
 if new_day
     vwap_l_done := false
     vwap_s_done := false
@@ -469,10 +461,10 @@ if vwap_pm_long_sig
 if vwap_pm_short_sig
     vwap_pm_s := true
 
-
 // ─── VWAP BOUNCE ──────────────────────────────────────────────────────────────
 
-var bool bnc_am_done=false; var bool bnc_pm_done=false
+var bool bnc_am_done=false
+var bool bnc_pm_done=false
 if new_day
     bnc_am_done := false
     bnc_pm_done := false
@@ -488,7 +480,6 @@ bnc_pm_long_sig  = not bnc_pm_done and pm_window and vwap_bnc_ok and trend_any_b
 bnc_pm_short_sig = not bnc_pm_done and pm_window and vwap_bnc_ok and trend_any_bear and at_vwap
 if bnc_pm_long_sig or bnc_pm_short_sig
     bnc_pm_done := true
-
 
 // ─── FVG ──────────────────────────────────────────────────────────────────────
 
@@ -507,7 +498,6 @@ if show_fvg and bull_fvg_ok
 if show_fvg and bear_fvg_ok
     box.new(time[2],low[2],time+120*60*1000,high,xloc=xloc.bar_time,
             border_color=color.new(C_SHORT,30),border_width=1,bgcolor=C_FVG_S)
-
 
 // ─── 80% VALUE AREA RULE ──────────────────────────────────────────────────────
 
@@ -540,7 +530,6 @@ if va_rule_ok and va_rule_w and not va_done and (va_above or va_below)
 va_rule_long_sig  = va_done and va_dir=="long"  and va_inside==3
 va_rule_short_sig = va_done and va_dir=="short" and va_inside==3
 
-
 // ─── OCC MARKER ───────────────────────────────────────────────────────────────
 
 if show_occ and not occ_done and not na(occ_dir) and occ_dir!="neutral" and is_930[2]
@@ -551,7 +540,6 @@ if show_occ and not occ_done and not na(occ_dir) and occ_dir!="neutral" and is_9
     label.new(bar_index[2], occ_y,
          "OCC " + str.upper(occ_dir) + "  " + str.tostring(occ_ret*100,"#.2") + "%",
          color=occ_col, textcolor=color.white, style=occ_sty, size=size.tiny)
-
 
 // ─── VWAP PLOTS ───────────────────────────────────────────────────────────────
 
@@ -575,7 +563,6 @@ fill(p_bu, p_bl, color=color.new(#00838F,91), title="Bounce Zone")
 bgcolor(shade_rth and in_rth ? color.new(#1565C0,97) : na, title="AM Window")
 bgcolor(show_pm and in_pm    ? color.new(#6A1B9A,97) : na, title="PM Window")
 
-
 // ─── CVD LINE ON CHART ────────────────────────────────────────────────────────
 
 // Scale CVD to chart by mapping to price range
@@ -594,13 +581,11 @@ if show_absorb and is_absorb and (in_rth or in_pm)
     label.new(bar_index, absorb_y, "ABS",
          color=color.new(C_ABSORB,20), textcolor=color.white, style=absorb_s, size=size.tiny)
 
-
 // ─── PRIOR CLOSE LINE ─────────────────────────────────────────────────────────
 
 if show_prev and is_930 and not na(d_prev_cls)
     line.new(time, d_prev_cls, time+150*60*1000, d_prev_cls,
          xloc=xloc.bar_time, color=color.new(C_LEVELS,40), width=1, style=line.style_dashed)
-
 
 // ─── KEY LEVELS: PDH / PDL / PMH / PML ───────────────────────────────────────
 
@@ -630,7 +615,6 @@ if show_levels and is_930
                   xloc=xloc.bar_time,color=color.new(C_PMH,70),textcolor=C_PMH,
                   style=label.style_label_right,size=size.tiny)
 
-
 // ─── PRIOR SESSION VA LEVELS ──────────────────────────────────────────────────
 
 if show_va and is_930
@@ -652,7 +636,6 @@ if show_va and is_930
         label.new(time,d_prev_val,"VAL  "+str.tostring(d_prev_val,"#.0"),
                   xloc=xloc.bar_time,color=color.new(#00838F,60),textcolor=C_POC,
                   style=label.style_label_right,size=size.tiny)
-
 
 // ─── SIGNAL DRAWING HELPERS ───────────────────────────────────────────────────
 
@@ -688,77 +671,108 @@ _draw_sig(int bi, float e, float s, float t1, float t2, bool is_long, string str
         label.new(end_bi,t2,  "T2 " +str.tostring(t2, "#,###.0")+" ("+str.tostring(rr_t2,"#.1")+"R)",
                   color=t2_col,textcolor=is_long?C_T2_L:C_T2_S,style=label.style_label_right,size=size.tiny)
 
-
 // ─── SIGNAL MARKERS ───────────────────────────────────────────────────────────
 
 if show_sigs
 
     // Gap Fill
     if gap_long
-        e=open; s=low[1]-2.0; r=math.abs(e-s)
+        e=open
+        s=low[1]-2.0
+        r=math.abs(e-s)
         _draw_sig(bar_index,e,s,e+r,nz(d_prev_cls),true,"GAP")
     if gap_short
-        e=open; s=high[1]+2.0; r=math.abs(s-e)
+        e=open
+        s=high[1]+2.0
+        r=math.abs(s-e)
         _draw_sig(bar_index,e,s,e-r,nz(d_prev_cls),false,"GAP")
 
     // ORB
     if orb_long_sig
-        e=close; s=math.max(nz(orb_hi)-2.0,e-25.0); r=e-s
+        e=close
+        s=math.max(nz(orb_hi)-2.0,e-25.0)
+        r=e-s
         _draw_sig(bar_index,e,s,e+r,e+orb_range*3.0,true,"ORB")
     if orb_short_sig
-        e=close; s=math.min(nz(orb_lo)+2.0,e+25.0); r=s-e
+        e=close
+        s=math.min(nz(orb_lo)+2.0,e+25.0)
+        r=s-e
         _draw_sig(bar_index,e,s,e-r,e-orb_range*3.0,false,"ORB")
 
     // IB
     if ib_long_sig
-        e=close; s=nz(ib_hi)-2.0; r=e-s
+        e=close
+        s=nz(ib_hi)-2.0
+        r=e-s
         _draw_sig(bar_index,e,s,e+r,nz(ib_hi)+ib_range*2.5,true,"IB")
     if ib_short_sig
-        e=close; s=nz(ib_lo)+2.0; r=s-e
+        e=close
+        s=nz(ib_lo)+2.0
+        r=s-e
         _draw_sig(bar_index,e,s,e-r,nz(ib_lo)-ib_range*2.5,false,"IB")
 
     // VWAP Rev AM
     sd=math.max(8.0,atr_adapt*0.06)
     if vwap_long_sig
-        e=close; s=e-sd; r=e-s
+        e=close
+        s=e-sd
+        r=e-s
         _draw_sig(bar_index,e,s,e+r,vwap_val,true,"VWAP-R")
     if vwap_short_sig
-        e=close; s=e+sd; r=s-e
+        e=close
+        s=e+sd
+        r=s-e
         _draw_sig(bar_index,e,s,e-r,vwap_val,false,"VWAP-R")
 
     // VWAP Rev PM
     if show_pm
         if vwap_pm_long_sig
-            e=close; s=e-sd; r=e-s
+            e=close
+            s=e-sd
+            r=e-s
             _draw_sig(bar_index,e,s,e+r,vwap_val,true,"VWAP-R PM")
         if vwap_pm_short_sig
-            e=close; s=e+sd; r=s-e
+            e=close
+            s=e+sd
+            r=s-e
             _draw_sig(bar_index,e,s,e-r,vwap_val,false,"VWAP-R PM")
 
     // VWAP Bounce
-    bs=math.max(5.0,atr_adapt*0.03); bt2=atr_adapt*0.25
+    bs=math.max(5.0,atr_adapt*0.03)
+    bt2=atr_adapt*0.25
     if bnc_am_long_sig
-        e=close; s=e-bs; r=e-s
+        e=close
+        s=e-bs
+        r=e-s
         _draw_sig(bar_index,e,s,e+r,e+bt2,true,"VWAP-B")
     if bnc_am_short_sig
-        e=close; s=e+bs; r=s-e
+        e=close
+        s=e+bs
+        r=s-e
         _draw_sig(bar_index,e,s,e-r,e-bt2,false,"VWAP-B")
     if show_pm
         if bnc_pm_long_sig
-            e=close; s=e-bs; r=e-s
+            e=close
+            s=e-bs
+            r=e-s
             _draw_sig(bar_index,e,s,e+r,e+bt2,true,"VWAP-B PM")
         if bnc_pm_short_sig
-            e=close; s=e+bs; r=s-e
+            e=close
+            s=e+bs
+            r=s-e
             _draw_sig(bar_index,e,s,e-r,e-bt2,false,"VWAP-B PM")
 
     // 80% VA Rule
     if va_rule_long_sig
-        e=close; s=nz(d_prev_val)-math.max(3.0,atr_adapt*0.015); r=e-s
+        e=close
+        s=nz(d_prev_val)-math.max(3.0,atr_adapt*0.015)
+        r=e-s
         _draw_sig(bar_index,e,s,e+r,nz(d_prev_vah),true,"VA-RULE")
     if va_rule_short_sig
-        e=close; s=nz(d_prev_vah)+math.max(3.0,atr_adapt*0.015); r=s-e
+        e=close
+        s=nz(d_prev_vah)+math.max(3.0,atr_adapt*0.015)
+        r=s-e
         _draw_sig(bar_index,e,s,e-r,nz(d_prev_val),false,"VA-RULE")
-
 
 // ─── REGIME DASHBOARD (Bloomberg style, compact, top-right) ──────────────────
 
@@ -808,7 +822,6 @@ if show_dash and barstate.islast
     table.cell(dash,0,12,"POC",text_color=C_POC,bgcolor=bg12,text_size=size.tiny,text_halign=text.align_right)
     table.cell(dash,1,12,str.tostring(d_prev_vwap,"#.0") + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"),
                text_color=C_POC,bgcolor=bg12,text_size=size.tiny,text_halign=text.align_left)
-
 
 // ─── ORDER FLOW PANEL (Bloomberg-style, bottom-right) ─────────────────────────
 
@@ -892,8 +905,12 @@ if show_of and barstate.islast
         bars_str
 
     vp_max = math.max(vp_vol1,math.max(vp_vol2,math.max(vp_vol3,math.max(vp_vol4,math.max(vp_vol5,vp_vol6)))))
-    is_poc1 = vp_vol1==vp_max; is_poc2 = vp_vol2==vp_max; is_poc3 = vp_vol3==vp_max
-    is_poc4 = vp_vol4==vp_max; is_poc5 = vp_vol5==vp_max; is_poc6 = vp_vol6==vp_max
+    is_poc1 = vp_vol1==vp_max
+    is_poc2 = vp_vol2==vp_max
+    is_poc3 = vp_vol3==vp_max
+    is_poc4 = vp_vol4==vp_max
+    is_poc5 = vp_vol5==vp_max
+    is_poc6 = vp_vol6==vp_max
 
     _vp_row(r, px, v, is_poc) =>
         bg = r%2==0 ? C_OF_BG : C_OF_BG2
@@ -915,7 +932,6 @@ if show_of and barstate.islast
     table.cell(of_tbl,1,15,"TWO-TARGET EXIT",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
     _of_row(16,"skip / 1-lot / 2-lot","<=5  /  6-15  /  >=16", C_DIM_TXT)
     _of_row(17,"T1 @ 1R (50% exit)","T2 @ Chandelier / extended", C_DIM_TXT)
-
 
 // ─── ALERTS ───────────────────────────────────────────────────────────────────
 
