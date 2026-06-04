@@ -321,6 +321,17 @@ if __name__ == "__main__":
         print("\nGenerating charts ...")
         generate_all_charts(hyb_trades)
 
+        # Generate videos
+        if "--video" in sys.argv:
+            from generate_videos import load_trades as _dummy, render_video, combine_videos, CHARTS
+            print("\nGenerating videos ...")
+            video_paths = []
+            for slug, fn_name, title in CHARTS:
+                path = render_video(slug, fn_name, title, hyb_trades)
+                video_paths.append(path)
+            print("\nCombining into showcase video ...")
+            combine_videos(video_paths)
+
     else:
         # ── Standard yfinance three-way comparison ────────────────────────────
         print(f"\n[1/3] Running BASE system ...")

@@ -282,14 +282,22 @@ Chandelier short = lowest_low_since_T1  + 3 × ATR_14
 # Install dependencies
 pip3 install -r requirements.txt
 
-# Run backtest (three-way: base / institutional / hybrid)
+# Run backtest — default 60-day (yfinance, free, ~5 sec)
 python3 hybrid_run.py
 
-# Run standalone quant strategy backtest
-python3 quant_run.py
+# Run backtest with period flags
+python3 hybrid_run.py /60d    # 60-day  (yfinance)   ~5 sec
+python3 hybrid_run.py /6mo    # 6-month (yfinance)   ~15 sec
+python3 hybrid_run.py /1y     # 1-year  (yfinance)   ~30 sec
+python3 hybrid_run.py /2y     # 2-year  (Databento)  ~2 min  ← recommended
+python3 hybrid_run.py /3y     # 3-year  (Databento)  ~3 min
+python3 hybrid_run.py /10y    # 10-year (Databento)  ~4 min
 
-# 10-year backtest on Databento NQ futures data (~$12 one-time data cost)
-python3 -m backtest.run_10yr
+# Generate charts + 16 rotating 3D videos (15 individual + 1 combined)
+python3 hybrid_run.py /2y --video
+
+# Force re-download Databento data
+python3 hybrid_run.py /2y --refresh
 
 # Walk-forward validation (WFE = 201%)
 python3 -m backtest.walk_forward
@@ -300,10 +308,38 @@ python3 monitor.py
 # Post-session P&L check
 python3 daily_check.py
 
-# Generate 105-page research paper
+# Generate research paper PDF
 python3 generate_report.py
 # outputs: Isogeny_Alpha_System_Kairos_Research_v7.pdf
+
+# Generate videos only (standalone)
+python3 generate_videos.py /2y
 ```
+
+---
+
+## Videos
+
+Run `python3 hybrid_run.py /2y --video` to generate 16 MP4s in `backtest_videos/`:
+
+| File | Description | Length |
+|:--|:--|:--:|
+| `01_kelly_surface.mp4` | Kelly Growth 3D surface rotating 360° | 5s |
+| `02_pca_manifold.mp4` | PCA manifold + LDA hyperplane | 5s |
+| `03_omega_surface.mp4` | Omega function 3D surface | 5s |
+| `04_rolling_ic_surface.mp4` | Rolling IC surface per factor | 5s |
+| `05_dual_risk_surface.mp4` | CVaR + Sharpe dual surface | 5s |
+| `06_hawkes_intensity.mp4` | Hawkes process intensity surface | 5s |
+| `07_joint_density.mp4` | Joint density P&L × VIX | 5s |
+| `08_rolling_kelly_surface.mp4` | Rolling Kelly surface | 5s |
+| `09_efficient_frontier.mp4` | 3D efficient frontier Monte Carlo | 5s |
+| `10_arch_surface.mp4` | ARCH variance surface | 5s |
+| `11_permutation_entropy.mp4` | Permutation entropy surface | 5s |
+| `12_stochastic_dominance.mp4` | Stochastic dominance surface | 5s |
+| `13_gpd_tail_surface.mp4` | GPD tail index surface | 5s |
+| `14_equity_path_3d.mp4` | Equity path in 3D performance space | 5s |
+| `15_regime_density_3d.mp4` | Regime density ribbons | 5s |
+| `ISOGENY_ALPHA_SHOWCASE.mp4` | **All 15 combined** | ~1:15 |
 
 ---
 
@@ -348,10 +384,11 @@ Kelly guard          activates after 40+ real trades, prevents sizing up during 
 
 ```
 monitor.py                     Live session monitor — terminal UI, signals, memory
-hybrid_run.py                  Three-way backtest comparison (base/inst/hybrid)
+hybrid_run.py                  Backtest runner — /60d /6mo /1y /2y /3y /10y --video --refresh
 quant_run.py                   Standalone quant strategy backtest runner
 daily_check.py                 Post-session P&L check and journal review
-generate_report.py             105-page research paper (PDF) generator
+generate_report.py             Research paper (PDF) generator
+generate_videos.py             16 rotating 3D MP4 videos (15 individual + 1 combined showcase)
 
 Price Feeds (plug-and-play, swap in monitor.py):
   fast_feed.py                 yfinance 1-min bar fallback — zero setup required
