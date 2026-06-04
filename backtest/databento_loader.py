@@ -42,7 +42,20 @@ def _fetch_from_databento(start: str, end: str) -> pd.DataFrame:
     print(f"  Range : {start[:10]}  ->  {end[:10]}")
     print(f"  Cost  : ~$12 one-time  (cached after this, free to re-run)")
     print(f"{'='*60}")
-    print("  Downloading... (30-60 seconds)", flush=True)
+    print("  Databento has no 5-min schema — downloading 1-min then resampling to 5-min.")
+    print("  This takes 30-90 seconds. Sit tight...", flush=True)
+
+    # Spinner so terminal doesn't look frozen
+    import threading, itertools as _it, time as _time
+    _stop = threading.Event()
+    def _spin():
+        for ch in _it.cycle(["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]):
+            if _stop.is_set(): break
+            print(f"\r  {ch}  downloading from Databento...", end="", flush=True)
+            _time.sleep(0.12)
+        print("\r" + " "*50 + "\r", end="", flush=True)
+    _t = threading.Thread(target=_spin, daemon=True)
+    _t.start()
 
     data = client.timeseries.get_range(
         dataset="GLBX.MDP3",
@@ -54,6 +67,7 @@ def _fetch_from_databento(start: str, end: str) -> pd.DataFrame:
     )
 
     df1m = data.to_df()
+    _stop.set()
     print(f"  Downloaded {len(df1m):,} 1-minute bars  ✓")
 
     if df1m.empty:
