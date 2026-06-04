@@ -1,243 +1,339 @@
 //@version=6
-indicator("Isogeny Alpha System v7.0  - Kairos Capital Research",
+indicator("Isogeny Alpha System v7.0 - Kairos Capital Research",
      overlay=true,
      max_boxes_count=150,
      max_labels_count=300,
-     max_lines_count=100)
+     max_lines_count=300)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  ISOGENY ALPHA SYSTEM v7.0
-//  Kairos Capital Research
+//  ISOGENY ALPHA SYSTEM v7.0  -  Kairos Capital Research
 //
-//  Six strategies with 20-point institutional confidence scoring:
-//    1. Gap Fill           - prior close target (tiny gaps only)
-//    2. ORB Pullback       - T1 @ 1R, T2 @ 3x ORB range
-//    3. IB Breakout        - T1 @ 1R, T2 @ 2.5x IB range
-//    4. VWAP Reversion     - T1 @ 1R, T2 @ VWAP (mean-rev)
-//    5. VWAP Bounce        - T1 @ 1R, T2 @ 3x ATR Chandelier
-//    6. 80% VA Rule        - T1 @ 1R, T2 @ opposite VA edge (Dalton)
+//  Same six strategies as the Python bot (hybrid_engine.py):
+//    1. Gap Fill  2. ORB Pullback  3. IB Breakout
+//    4. VWAP Rev  5. VWAP Bounce   6. 80% VA Rule
 //
-//  Exit system: TWO-TARGET
-//    T1  - 1x risk from entry → exit 50%, lock P&L
-//    T2  - strategy-specific extended target or Chandelier trail
-//
-//  Visual elements:
-//    Orange dashed   - PDH / PDL
-//    Yellow dashed   - PMH / PML  (premarket)
-//    Cyan solid      - Prior session POC (approximate)
-//    Teal dashed     - Prior session VAH / VAL (approximate)
-//    Blue dashed     - ORB box
-//    Purple dashed   - IB box
-//    Orange solid    - VWAP + bands
-//    Teal fill       - VWAP bounce zone
-//    Green fill      - Bullish FVG zone
-//    Red fill        - Bearish FVG zone
+//  Bloomberg-style display:
+//    - Tiny arrow markers for signals, no giant boxes
+//    - Thin dotted/dashed lines for Stop / T1 / T2
+//    - Compact regime dashboard (top-right)
+//    - Order flow panel (bottom-right):
+//        CVD, Bar Delta, RVOL, OFI Z-score, Kyle Lambda,
+//        Absorption flag, mini volume-profile ladder
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── INPUTS ───────────────────────────────────────────────────────────────────
 
 g_disp = "Display"
-show_orb    = input.bool(true,  "ORB Box",                    group=g_disp)
-show_ib     = input.bool(true,  "IB Box",                     group=g_disp)
-show_vwap   = input.bool(true,  "VWAP + Bands",               group=g_disp)
-show_prev   = input.bool(true,  "Prior Close Line",            group=g_disp)
-show_fvg    = input.bool(true,  "FVG Zones",                   group=g_disp)
-show_levels = input.bool(true,  "PDH/PDL/PMH/PML Levels",     group=g_disp)
-show_va     = input.bool(true,  "Prior VA Levels (POC/VAH/VAL)",group=g_disp)
-show_sigs   = input.bool(true,  "Signal Labels",               group=g_disp)
-show_dash   = input.bool(true,  "Regime Dashboard",            group=g_disp)
-shade_rth   = input.bool(false, "Shade AM Window (9:30-12)",   group=g_disp)
-show_pm     = input.bool(true,  "Show PM Session Signals",     group=g_disp)
-show_occ    = input.bool(true,  "Show OCC Arrow (first bar)",  group=g_disp)
+show_orb    = input.bool(true,  "ORB Box",                       group=g_disp)
+show_ib     = input.bool(true,  "IB Box",                        group=g_disp)
+show_vwap   = input.bool(true,  "VWAP",                          group=g_disp)
+show_bands  = input.bool(true,  "VWAP Bands",                    group=g_disp)
+show_prev   = input.bool(true,  "Prior Close",                   group=g_disp)
+show_fvg    = input.bool(true,  "FVG Zones",                     group=g_disp)
+show_levels = input.bool(true,  "PDH/PDL/PMH/PML",              group=g_disp)
+show_va     = input.bool(true,  "Prior VA Levels",               group=g_disp)
+show_sigs   = input.bool(true,  "Signal Markers",                group=g_disp)
+show_lvl_lines = input.bool(true, "S/T1/T2 Level Lines",        group=g_disp)
+show_dash   = input.bool(true,  "Regime Dashboard",              group=g_disp)
+show_of     = input.bool(true,  "Order Flow Panel",              group=g_disp)
+show_cvd    = input.bool(true,  "CVD Line on Chart",             group=g_disp)
+show_absorb = input.bool(true,  "Absorption Markers",            group=g_disp)
+show_pm     = input.bool(true,  "PM Session Signals",            group=g_disp)
+show_occ    = input.bool(true,  "OCC Arrow",                     group=g_disp)
+shade_rth   = input.bool(false, "Shade AM Window",               group=g_disp)
 
 g_par = "Strategy Parameters"
-vix_elev    = input.float(25.0, "VIX Gate (strategies off above)",   group=g_par, minval=15.0, maxval=40.0)
-ema_strong  = input.float(3.0,  "EMA% Threshold  - strong trend",     group=g_par, minval=1.0,  maxval=5.0)
-ema_mild    = input.float(1.0,  "EMA% Threshold  - mild trend",       group=g_par, minval=0.25, maxval=3.0)
-orb_min_atr = input.float(0.025,"ORB Min Range (x ATR)",              group=g_par, minval=0.01, maxval=0.10)
-orb_max_atr = input.float(0.50, "ORB Max Range (x ATR)",              group=g_par, minval=0.10, maxval=1.00)
-ib_min_atr  = input.float(0.05, "IB Min Range (x ATR)",               group=g_par, minval=0.02, maxval=0.15)
-ib_max_atr  = input.float(0.65, "IB Max Range (x ATR)",               group=g_par, minval=0.20, maxval=1.00)
+vix_elev    = input.float(25.0, "VIX Gate",        group=g_par, minval=15.0, maxval=40.0)
+ema_strong  = input.float(3.0,  "EMA% Strong",     group=g_par, minval=1.0,  maxval=5.0)
+ema_mild    = input.float(1.0,  "EMA% Mild",       group=g_par, minval=0.25, maxval=3.0)
+orb_min_atr = input.float(0.025,"ORB Min (xATR)",  group=g_par, minval=0.01, maxval=0.10)
+orb_max_atr = input.float(0.50, "ORB Max (xATR)",  group=g_par, minval=0.10, maxval=1.00)
+ib_min_atr  = input.float(0.05, "IB Min (xATR)",   group=g_par, minval=0.02, maxval=0.15)
+ib_max_atr  = input.float(0.65, "IB Max (xATR)",   group=g_par, minval=0.20, maxval=1.00)
+lvl_bars    = input.int(20,     "Level Lines (bars ahead)", group=g_par, minval=5, maxval=50)
+
+g_of = "Order Flow Settings"
+of_vol_win  = input.int(20,  "RVOL Lookback",      group=g_of, minval=5,  maxval=50)
+of_absorb_v = input.float(1.8,"Absorption Vol Thr",group=g_of, minval=1.2,maxval=3.0)
+of_absorb_r = input.float(0.4, "Absorption Rng Thr",group=g_of,minval=0.2,maxval=0.7)
+of_ofi_win  = input.int(20,  "OFI Z Window",        group=g_of, minval=10, maxval=50)
 
 g_src = "Data Sources"
 vix_sym = input.string("TVC:VIX", "VIX Symbol", group=g_src)
 
 
+// ─── INSTITUTIONAL COLOR PALETTE ─────────────────────────────────────────────
+
+C_LONG     = #1B5E20   // deep forest green
+C_SHORT    = #B71C1C   // deep brick red
+C_STOP_L   = #EF9A9A   // soft red (stop line)
+C_T1       = #F9A825   // amber T1
+C_T2_L     = #81C784   // soft green T2 long
+C_T2_S     = #EF9A9A   // soft red T2 short
+C_VWAP     = #E65100   // amber VWAP
+C_VWAP_B   = color.new(#E65100, 55)
+C_LEVELS   = #546E7A   // steel blue-gray
+C_PDH      = #FF8F00   // amber PDH/PDL
+C_PMH      = #F57F17   // lighter amber PMH/PML
+C_POC      = #00838F   // teal POC
+C_VA       = color.new(#00838F, 55)
+C_FVG_B    = color.new(#1B5E20, 85)
+C_FVG_S    = color.new(#B71C1C, 85)
+C_ORB_BG   = color.new(#1565C0, 93)
+C_ORB_BD   = color.new(#1565C0, 30)
+C_IB_BG    = color.new(#6A1B9A, 93)
+C_IB_BD    = color.new(#6A1B9A, 30)
+C_CVD_POS  = #1565C0
+C_CVD_NEG  = #B71C1C
+C_ABSORB   = #FF6F00
+
+// Dashboard
+C_HDR_BG   = color.new(#1A237E, 0)
+C_HDR_TXT  = color.white
+C_SUB_BG   = color.new(#283593, 0)
+C_CELL_BG  = color.new(#FAFAFA, 0)
+C_CELL_BG2 = color.new(#ECEFF1, 0)
+C_CELL_TXT = color.new(#212121, 0)
+C_POS_TXT  = color.new(#1B5E20, 0)
+C_NEG_TXT  = color.new(#B71C1C, 0)
+C_DIM_TXT  = color.new(#607D8B, 0)
+C_WARN_TXT = color.new(#E65100, 0)
+
+// Order flow panel
+C_OF_HDR   = color.new(#263238, 0)
+C_OF_BUY   = color.new(#1B5E20, 0)
+C_OF_SELL  = color.new(#B71C1C, 0)
+C_OF_NEUT  = color.new(#455A64, 0)
+C_OF_BG    = color.new(#ECEFF1, 0)
+C_OF_BG2   = color.new(#CFD8DC, 0)
+
+
 // ─── DAILY / MULTI-TF DATA ───────────────────────────────────────────────────
 
-d_ema8     = request.security(syminfo.tickerid, "D", ta.ema(close, 8),  lookahead=barmerge.lookahead_off)
-d_ema21    = request.security(syminfo.tickerid, "D", ta.ema(close, 21), lookahead=barmerge.lookahead_off)
-d_atr5     = request.security(syminfo.tickerid, "D", ta.atr(5),         lookahead=barmerge.lookahead_off)
-d_atr20    = request.security(syminfo.tickerid, "D", ta.atr(20),        lookahead=barmerge.lookahead_off)
-d_prev_cls = request.security(syminfo.tickerid, "D", close[1],          lookahead=barmerge.lookahead_off)
-d_prev_hi  = request.security(syminfo.tickerid, "D", high[1],           lookahead=barmerge.lookahead_off)
-d_prev_lo  = request.security(syminfo.tickerid, "D", low[1],            lookahead=barmerge.lookahead_off)
-d_open     = request.security(syminfo.tickerid, "D", open,              lookahead=barmerge.lookahead_off)
-d_vix      = request.security(vix_sym,          "D", close,             lookahead=barmerge.lookahead_off)
+d_ema8     = request.security(syminfo.tickerid,"D",ta.ema(close,8),  lookahead=barmerge.lookahead_off)
+d_ema21    = request.security(syminfo.tickerid,"D",ta.ema(close,21), lookahead=barmerge.lookahead_off)
+d_atr5     = request.security(syminfo.tickerid,"D",ta.atr(5),        lookahead=barmerge.lookahead_off)
+d_atr20    = request.security(syminfo.tickerid,"D",ta.atr(20),       lookahead=barmerge.lookahead_off)
+d_prev_cls = request.security(syminfo.tickerid,"D",close[1],         lookahead=barmerge.lookahead_off)
+d_prev_hi  = request.security(syminfo.tickerid,"D",high[1],          lookahead=barmerge.lookahead_off)
+d_prev_lo  = request.security(syminfo.tickerid,"D",low[1],           lookahead=barmerge.lookahead_off)
+d_open     = request.security(syminfo.tickerid,"D",open,             lookahead=barmerge.lookahead_off)
+d_vix      = request.security(vix_sym,         "D",close,            lookahead=barmerge.lookahead_off)
 
-// Adaptive ATR  - max(5d, 20d): captures spikes fast, doesn't deflate during recovery
-atr_adapt = math.max(nz(d_atr5, 200.0), nz(d_atr20, 200.0))
-
-// Prior session VWAP approximation (typical price = POC estimate)
-d_prev_vwap = request.security(syminfo.tickerid, "D",
-     (high[1] + low[1] + close[1]) / 3.0, lookahead=barmerge.lookahead_off)
-
-// Prior session VA approximation: VAH ≈ (prev_hi + prev_vwap) / 2, VAL ≈ (prev_lo + prev_vwap) / 2
-d_prev_vah = (nz(d_prev_hi) + nz(d_prev_vwap)) / 2.0
-d_prev_val = (nz(d_prev_lo) + nz(d_prev_vwap)) / 2.0
-
-// Premarket high/low (approximate from prior session overnight)
-d_pmh = request.security(syminfo.tickerid, "D", high,  lookahead=barmerge.lookahead_off)
-d_pml = request.security(syminfo.tickerid, "D", low,   lookahead=barmerge.lookahead_off)
+atr_adapt   = math.max(nz(d_atr5,200.0), nz(d_atr20,200.0))
+d_prev_vwap = request.security(syminfo.tickerid,"D",(high[1]+low[1]+close[1])/3.0,lookahead=barmerge.lookahead_off)
+d_prev_vah  = (nz(d_prev_hi)+nz(d_prev_vwap))/2.0
+d_prev_val  = (nz(d_prev_lo)+nz(d_prev_vwap))/2.0
+d_pmh       = request.security(syminfo.tickerid,"D",high, lookahead=barmerge.lookahead_off)
+d_pml       = request.security(syminfo.tickerid,"D",low,  lookahead=barmerge.lookahead_off)
 
 
-// ─── REGIME CLASSIFICATION ────────────────────────────────────────────────────
+// ─── REGIME ───────────────────────────────────────────────────────────────────
 
-ema_spread = nz(d_ema21, 1) > 0 ? (nz(d_ema8) - nz(d_ema21)) / nz(d_ema21) * 100 : 0.0
+ema_spread = nz(d_ema21,1)>0 ? (nz(d_ema8)-nz(d_ema21))/nz(d_ema21)*100 : 0.0
+trend_dir  = ema_spread> ema_strong ? "STRONG BULL" :
+             ema_spread> ema_mild   ? "bull"         :
+             ema_spread<-ema_strong ? "STRONG BEAR"  :
+             ema_spread<-ema_mild   ? "bear"         : "neutral"
 
-trend_dir = (ema_spread >  ema_strong ? "STRONG BULL" :
-             ema_spread >  ema_mild   ? "bull"         :
-             ema_spread < -ema_strong ? "STRONG BEAR"  :
-             ema_spread < -ema_mild   ? "bear"         : "neutral")
+vix_now    = nz(d_vix,18.0)
+vix_regime = vix_now>=35 ? "CRISIS" : vix_now>=25 ? "ELEVATED" : vix_now>=15 ? "NORMAL" : "LOW"
+vix_ok     = vix_now < vix_elev
 
-vix_now    = nz(d_vix, 18.0)
-vix_regime = (vix_now >= 35 ? "CRISIS" :
-              vix_now >= 25 ? "ELEVATED" :
-              vix_now >= 15 ? "NORMAL" : "LOW")
-
-vix_ok = vix_now < vix_elev
-
-trend_strong_bull = trend_dir == "STRONG BULL"
-trend_bull        = trend_dir == "bull"
-trend_neutral     = trend_dir == "neutral"
-trend_bear        = trend_dir == "bear"
-trend_strong_bear = trend_dir == "STRONG BEAR"
+trend_strong_bull = trend_dir=="STRONG BULL"
+trend_bull        = trend_dir=="bull"
+trend_neutral     = trend_dir=="neutral"
+trend_bear        = trend_dir=="bear"
+trend_strong_bear = trend_dir=="STRONG BEAR"
 trend_any_bull    = trend_strong_bull or trend_bull
 trend_any_bear    = trend_strong_bear or trend_bear
 trend_trending    = trend_any_bull or trend_any_bear
 
-// Strategy regime gates (mirrors hybrid_engine.py logic)
-orb_long_ok   = vix_ok and (trend_strong_bull or trend_bull or trend_neutral)
-orb_short_ok  = vix_ok and trend_strong_bear
-ib_ok         = vix_ok
-vwap_rev_ok   = vix_ok
-vwap_bnc_ok   = vix_ok and trend_trending
-fvg_ok        = vix_ok and trend_neutral
-gap_long_ok   = not trend_any_bear
-gap_short_ok  = trend_neutral or trend_any_bear
-va_rule_ok    = vix_ok
+orb_long_ok  = vix_ok and (trend_strong_bull or trend_bull or trend_neutral)
+orb_short_ok = vix_ok and trend_strong_bear
+ib_ok        = vix_ok
+vwap_rev_ok  = vix_ok
+vwap_bnc_ok  = vix_ok and trend_trending
+fvg_ok       = vix_ok and trend_neutral
+gap_long_ok  = not trend_any_bear
+gap_short_ok = trend_neutral or trend_any_bear
+va_rule_ok   = vix_ok
 
 
 // ─── SESSION / TIME ───────────────────────────────────────────────────────────
 
-ET = "America/New_York"
+ET       = "America/New_York"
+in_rth   = not na(time(timeframe.period,"0930-1200",ET))
+in_pm    = not na(time(timeframe.period,"1330-1530",ET))
+bar_hr   = hour(time,ET)
+bar_min  = minute(time,ET)
+bar_mins = bar_hr*60+bar_min
 
-in_rth   = not na(time(timeframe.period, "0930-1200", ET))
-in_pm    = not na(time(timeframe.period, "1330-1530", ET))
-bar_hr   = hour(time, ET)
-bar_min  = minute(time, ET)
-bar_mins = bar_hr * 60 + bar_min
-
-is_930      = in_rth and bar_hr == 9 and bar_min == 30
-is_in_ib    = in_rth and bar_mins < 600              // < 10:00
-is_c_period = in_rth and bar_mins >= 600 and bar_mins < 630  // 10:00-10:30
-new_day     = ta.change(time("D")) != 0
+is_930      = in_rth and bar_hr==9 and bar_min==30
+is_in_ib    = in_rth and bar_mins<600
+is_c_period = in_rth and bar_mins>=600 and bar_mins<630
+new_day     = ta.change(time("D"))!=0
 
 var int rth_open_time = na
 if is_930
     rth_open_time := time
 
-// Time windows
-am_window    = in_rth and bar_mins >= 585 and bar_mins < 720  // 9:45-12:00
-bounce_am_w  = in_rth and bar_mins >= 600 and bar_mins < 720  // 10:00-12:00
-va_rule_w    = in_rth and bar_mins >= 585 and bar_mins < 690  // 9:45-11:30
-pm_window    = in_pm  and bar_mins >= 810 and bar_mins < 930  // 1:30-3:30
-no_data_w    = in_rth and bar_hr == 10 and bar_min == 0       // 10:00 first bar (data release)
+am_window   = in_rth and bar_mins>=585 and bar_mins<720
+bounce_am_w = in_rth and bar_mins>=600 and bar_mins<720
+va_rule_w   = in_rth and bar_mins>=585 and bar_mins<690
+pm_window   = in_pm  and bar_mins>=810 and bar_mins<930
+no_data_w   = in_rth and bar_hr==10 and bar_min==0
 
 
 // ─── SESSION VWAP + BANDS ─────────────────────────────────────────────────────
 
 var float cum_tp_vol = na
-var float cum_volume = na
+var float cum_vol    = na
 var float cum_sq_dev = na
-var int   vwap_bars  = 0
+var int   vw_bars    = 0
 
 if new_day or na(cum_tp_vol)
     cum_tp_vol := 0.0
-    cum_volume := 0.0
+    cum_vol    := 0.0
     cum_sq_dev := 0.0
-    vwap_bars  := 0
+    vw_bars    := 0
 
-if (in_rth or in_pm) and volume > 0
-    tp          = (high + low + close) / 3.0
-    cum_tp_vol += tp * volume
-    cum_volume += volume
-    vwap_bars  += 1
+if (in_rth or in_pm) and volume>0
+    tp          = (high+low+close)/3.0
+    cum_tp_vol += tp*volume
+    cum_vol    += volume
+    vw_bars    += 1
 
-vwap_val = cum_volume > 0 ? cum_tp_vol / cum_volume : close
+vwap_val = cum_vol>0 ? cum_tp_vol/cum_vol : close
 
-if (in_rth or in_pm) and vwap_bars > 1
-    cum_sq_dev += math.pow(close - vwap_val, 2)
+if (in_rth or in_pm) and vw_bars>1
+    cum_sq_dev += math.pow(close-vwap_val,2)
 
-rolling_std = vwap_bars > 1 ? math.sqrt(cum_sq_dev / math.max(vwap_bars - 1, 1)) : 0.0
+rolling_std  = vw_bars>1 ? math.sqrt(cum_sq_dev/math.max(vw_bars-1,1)) : 0.0
+vwap_u15 = vwap_val+1.5*rolling_std
+vwap_l15 = vwap_val-1.5*rolling_std
+vwap_u25 = vwap_val+2.5*rolling_std
+vwap_l25 = vwap_val-2.5*rolling_std
+vwap_u05 = vwap_val+0.5*rolling_std
+vwap_l05 = vwap_val-0.5*rolling_std
 
-vwap_u15 = vwap_val + 1.5 * rolling_std    // reversion signal
-vwap_l15 = vwap_val - 1.5 * rolling_std
-vwap_u25 = vwap_val + 2.5 * rolling_std    // stop reference
-vwap_l25 = vwap_val - 2.5 * rolling_std
-vwap_u05 = vwap_val + 0.5 * rolling_std    // bounce zone
-vwap_l05 = vwap_val - 0.5 * rolling_std
 
+// ─── ORDER FLOW COMPUTATIONS ──────────────────────────────────────────────────
 
-// ─── OPENING CANDLE CONTINUATION (OCC) ───────────────────────────────────────
-// First 5-min bar direction → 84% day-continuation documented on NQ (10yr data)
+// Bar-level OFI (Lee-Ready proxy) — same formula as Python inst_ofi.py
+spread_hl  = math.max(high-low, 1e-8)
+ofi_bar    = volume*(2*close-high-low)/spread_hl
 
-var float occ_bar_open  = na
-var float occ_ret       = 0.0
-var string occ_dir      = "neutral"
-var bool   occ_shown    = false
+// Cumulative Volume Delta (session)
+var float session_cvd = 0.0
+if new_day
+    session_cvd := 0.0
+if in_rth or in_pm
+    session_cvd += ofi_bar
+
+// OFI Z-score (rolling window, mirrors Python)
+ofi_sma = ta.sma(ofi_bar, of_ofi_win)
+ofi_std = ta.stdev(ofi_bar, of_ofi_win)
+ofi_z   = ofi_std>1e-8 ? (ofi_bar-ofi_sma)/ofi_std : 0.0
+
+// Bar delta: estimated buy vol vs sell vol
+buy_vol_bar  = volume * (close-low)/math.max(high-low,1e-8)
+sell_vol_bar = volume - buy_vol_bar
+bar_delta    = buy_vol_bar - sell_vol_bar
+
+// RVOL (time-of-day adjusted approximation)
+avg_vol = ta.sma(volume, of_vol_win)
+rvol    = avg_vol>0 ? volume/avg_vol : 1.0
+
+// Absorption detection — mirrors Python inst_absorption.py
+avg_vol20   = ta.sma(volume,20)
+avg_rng20   = ta.sma(high-low,20)
+body_size   = math.abs(close-open)
+body_pct    = (high-low)>0 ? body_size/(high-low) : 1.0
+vol_ratio   = avg_vol20>0 ? volume/avg_vol20 : 1.0
+rng_ratio   = avg_rng20>0 ? (high-low)/avg_rng20 : 1.0
+is_absorb   = vol_ratio>of_absorb_v and rng_ratio<of_absorb_r and body_pct<0.30
+
+close_pos   = (high-low)>0 ? (close-low)/(high-low) : 0.5
+absorb_dir  = close_pos>0.65 ? "sell" : close_pos<0.35 ? "buy" : "neutral"
+
+// Kyle's Lambda proxy — price impact per unit volume
+kyle_lambda = volume>0 ? math.abs(close-open)/volume : 0.0
+kyle_avg    = ta.sma(kyle_lambda,20)
+kyle_std    = ta.stdev(kyle_lambda,20)
+kyle_z      = kyle_std>1e-10 ? (kyle_lambda-kyle_avg)/kyle_std : 0.0
+kyle_regime = math.abs(kyle_z)>2.0 ? "INFORMED" : math.abs(kyle_z)>1.0 ? "MIXED" : "NOISE"
+
+// CVD divergence flag (simplified)
+cvd_prev10_high = ta.highest(close,10)
+cvd_near_high   = close>=cvd_prev10_high*0.999
+cvd_max10       = ta.highest(session_cvd,10)
+cvd_div_bear    = cvd_near_high and session_cvd<cvd_max10*0.80
+
+// Session volume profile (approximate — tracks vol at price buckets)
+var float vp_vol1=0.0; var float vp_vol2=0.0; var float vp_vol3=0.0
+var float vp_vol4=0.0; var float vp_vol5=0.0; var float vp_vol6=0.0
+var float vp_p1=na;    var float vp_p2=na;    var float vp_p3=na
+var float vp_p4=na;    var float vp_p5=na;    var float vp_p6=na
+var float sess_hi=na;  var float sess_lo=na
+
+if new_day
+    vp_vol1:=0.0; vp_vol2:=0.0; vp_vol3:=0.0
+    vp_vol4:=0.0; vp_vol5:=0.0; vp_vol6:=0.0
+    sess_hi:=high; sess_lo:=low
+
+if in_rth
+    sess_hi := math.max(nz(sess_hi,high), high)
+    sess_lo := math.min(nz(sess_lo,low),  low)
+    rng6 = sess_hi-sess_lo
+    if rng6>0
+        bk_sz = rng6/6.0
+        bk    = math.floor((close-sess_lo)/bk_sz)
+        bk_c  = math.min(math.max(bk,0),5)
+        vp_p1 := sess_lo+0.5*bk_sz;  vp_p2 := sess_lo+1.5*bk_sz
+        vp_p3 := sess_lo+2.5*bk_sz;  vp_p4 := sess_lo+3.5*bk_sz
+        vp_p5 := sess_lo+4.5*bk_sz;  vp_p6 := sess_lo+5.5*bk_sz
+        if bk_c==0: vp_vol1+=volume
+        if bk_c==1: vp_vol2+=volume
+        if bk_c==2: vp_vol3+=volume
+        if bk_c==3: vp_vol4+=volume
+        if bk_c==4: vp_vol5+=volume
+        if bk_c==5: vp_vol6+=volume
+
+// OCC (Opening Candle Continuation)
+var float occ_open  = na
+var float occ_ret   = 0.0
+var string occ_dir  = "neutral"
+var bool   occ_done = false
 
 if is_930
-    occ_bar_open := open
-    occ_dir      := "neutral"
-    occ_shown    := false
+    occ_open := open
+    occ_dir  := "neutral"
+    occ_done := false
+    occ_ret  := 0.0
 
-if is_930[1] and not na(occ_bar_open)
-    // Bar that closed at 9:35  - classify first 5-min bar direction
-    occ_ret  := (close[1] - occ_bar_open) / occ_bar_open
-    occ_dir  := occ_ret > 0.0005 ? "long" : occ_ret < -0.0005 ? "short" : "neutral"
-
-if show_occ and not occ_shown and not na(occ_dir) and occ_dir != "neutral" and is_930[2]
-    occ_shown := true
-    occ_lbl_col = occ_dir == "long" ? color.new(color.lime, 20) : color.new(color.red, 20)
-    occ_lbl_sty = occ_dir == "long" ? label.style_arrowup : label.style_arrowdown
-    occ_lbl_y   = occ_dir == "long" ? low[2]  - atr_adapt * 0.02 : high[2] + atr_adapt * 0.02
-    label.new(bar_index[2], occ_lbl_y,
-         "OCC " + str.upper(occ_dir) + "\n" + str.tostring(nz(occ_ret * 100, 0.0), "#.2") + "%",
-         color=occ_lbl_col, textcolor=color.white,
-         style=occ_lbl_sty, size=size.tiny)
+if is_930[1] and not na(occ_open)
+    occ_ret := occ_open>0 ? (close[1]-occ_open)/occ_open : 0.0
+    occ_dir := occ_ret>0.0005 ? "long" : occ_ret<-0.0005 ? "short" : "neutral"
 
 
 // ─── GAP FILL ─────────────────────────────────────────────────────────────────
 
-gap_pts   = nz(d_open) - nz(d_prev_cls)
+gap_pts   = nz(d_open)-nz(d_prev_cls)
 gap_size  = math.abs(gap_pts)
-gap_ratio = atr_adapt > 0 ? gap_size / atr_adapt : 0.0
-gap_pct   = nz(d_prev_cls) > 0 ? gap_size / nz(d_prev_cls) : 0.0
+gap_ratio = atr_adapt>0 ? gap_size/atr_adapt : 0.0
+gap_pct   = nz(d_prev_cls)>0 ? gap_size/nz(d_prev_cls) : 0.0
+gap_valid = gap_size>=2.0 and gap_ratio<0.20 and gap_pct<0.0055 and
+            dayofweek!=dayofweek.monday and gap_ratio<1.2
 
-// Tiny gap only: < 0.20x ATR, < 0.55% price, not Monday, not too large (>1.2x ATR = news)
-gap_valid = (gap_size >= 2.0 and gap_ratio < 0.20 and gap_pct < 0.0055 and
-             dayofweek != dayofweek.monday and gap_ratio < 1.2)
+fb_bull = close[1]>open[1]
+fb_bear = close[1]<open[1]
 
-first_bar_bull = close[1] > open[1]
-first_bar_bear = close[1] < open[1]
-prev_was_930   = is_930[1]
-
-gap_long  = prev_was_930 and gap_valid[1] and gap_pts[1] < 0 and first_bar_bull and gap_long_ok
-gap_short = prev_was_930 and gap_valid[1] and gap_pts[1] > 0 and first_bar_bear and gap_short_ok
+gap_long  = is_930[1] and gap_valid[1] and gap_pts[1]<0 and fb_bull and gap_long_ok
+gap_short = is_930[1] and gap_valid[1] and gap_pts[1]>0 and fb_bear and gap_short_ok
 
 
-// ─── ORB (Opening Range Breakout  - pullback entry) ────────────────────────────
+// ─── ORB ──────────────────────────────────────────────────────────────────────
 
 var float orb_hi   = na
 var float orb_lo   = na
@@ -248,36 +344,25 @@ if is_930
     orb_hi   := high
     orb_lo   := low
     orb_done := false
-    if show_orb and not na(orb_box)
-        box.delete(orb_box)
+    if show_orb and not na(orb_box): box.delete(orb_box)
     if show_orb
-        orb_box := box.new(time, orb_hi, time + 150 * 60 * 1000, orb_lo,
+        orb_box := box.new(time, orb_hi, time+150*60*1000, orb_lo,
              xloc=xloc.bar_time,
-             border_color=color.new(color.blue, 20), border_width=1,
-             border_style=line.style_dashed,
-             bgcolor=color.new(color.blue, 92))
+             border_color=C_ORB_BD, border_width=1, border_style=line.style_dashed,
+             bgcolor=C_ORB_BG)
 
-orb_range   = nz(orb_hi) - nz(orb_lo)
-orb_ok_size = (atr_adapt > 0 and
-               orb_range >= math.max(3.0, atr_adapt * orb_min_atr) and
-               orb_range <= atr_adapt * orb_max_atr)
+orb_range   = nz(orb_hi)-nz(orb_lo)
+orb_ok_size = atr_adapt>0 and orb_range>=math.max(3.0,atr_adapt*orb_min_atr) and orb_range<=atr_adapt*orb_max_atr
+no_mon_tue  = dayofweek!=dayofweek.monday and dayofweek!=dayofweek.tuesday
 
-// Mon + Tue longs historically weak for ORB
-no_mon_tue  = dayofweek != dayofweek.monday and dayofweek != dayofweek.tuesday
-
-orb_long_sig  = (not orb_done and in_rth and not is_in_ib and
-                 not na(orb_hi) and orb_ok_size and orb_long_ok and
-                 close > orb_hi and close > vwap_val and no_mon_tue)
-
-orb_short_sig = (not orb_done and in_rth and not is_in_ib and
-                 not na(orb_lo) and orb_ok_size and orb_short_ok and
-                 close < orb_lo and close < vwap_val)
-
-if orb_long_sig or orb_short_sig
-    orb_done := true
+orb_long_sig  = (not orb_done and in_rth and not is_in_ib and not na(orb_hi) and
+                 orb_ok_size and orb_long_ok and close>orb_hi and close>vwap_val and no_mon_tue)
+orb_short_sig = (not orb_done and in_rth and not is_in_ib and not na(orb_lo) and
+                 orb_ok_size and orb_short_ok and close<orb_lo and close<vwap_val)
+if orb_long_sig or orb_short_sig: orb_done := true
 
 
-// ─── IB BREAKOUT (Initial Balance 9:30-10:00) ─────────────────────────────────
+// ─── IB BREAKOUT ──────────────────────────────────────────────────────────────
 
 var float  ib_hi      = na
 var float  ib_lo      = na
@@ -289,714 +374,506 @@ var box    ib_box     = na
 var string ib_bias    = ""
 
 if new_day
-    ib_hi    := na
-    ib_lo    := na
-    ib_done  := false
-    ib_drawn := false
-    ib_bias  := ""
-    if show_ib and not na(ib_box)
-        box.delete(ib_box)
-        ib_box := na
+    ib_hi:=na; ib_lo:=na; ib_done:=false; ib_drawn:=false; ib_bias:=""
+    if show_ib and not na(ib_box): box.delete(ib_box); ib_box:=na
 
 if is_in_ib
-    if na(ib_hi) or high > ib_hi
-        ib_hi     := high
-        ib_hi_idx := bar_index
-    if na(ib_lo) or low < ib_lo
-        ib_lo     := low
-        ib_lo_idx := bar_index
+    if na(ib_hi) or high>ib_hi: ib_hi:=high; ib_hi_idx:=bar_index
+    if na(ib_lo) or low<ib_lo:  ib_lo:=low;  ib_lo_idx:=bar_index
 
 if not ib_drawn and not is_in_ib and in_rth and not na(ib_hi) and not na(rth_open_time)
-    ib_bias  := ib_hi_idx <= ib_lo_idx ? "bearish" : "bullish"
+    ib_bias  := ib_hi_idx<=ib_lo_idx ? "bearish" : "bullish"
     ib_drawn := true
     if show_ib
-        ib_box := box.new(rth_open_time, ib_hi, rth_open_time + 30 * 60 * 1000, ib_lo,
+        ib_box := box.new(rth_open_time,ib_hi,rth_open_time+30*60*1000,ib_lo,
              xloc=xloc.bar_time,
-             border_color=color.new(color.purple, 20), border_width=1,
-             border_style=line.style_dashed,
-             bgcolor=color.new(color.purple, 92))
+             border_color=C_IB_BD, border_width=1, border_style=line.style_dashed,
+             bgcolor=C_IB_BG)
 
-ib_range   = nz(ib_hi) - nz(ib_lo)
-ib_ok_size = (atr_adapt > 0 and
-              ib_range >= math.max(5.0, atr_adapt * ib_min_atr) and
-              ib_range <= atr_adapt * ib_max_atr)
+ib_range   = nz(ib_hi)-nz(ib_lo)
+ib_ok_size = atr_adapt>0 and ib_range>=math.max(5.0,atr_adapt*ib_min_atr) and ib_range<=atr_adapt*ib_max_atr
 
 ib_long_sig  = (not ib_done and is_c_period and not na(ib_hi) and ib_ok_size and ib_ok and
-                ib_bias == "bullish" and close > ib_hi and (close - ib_hi) <= 30.0 and
+                ib_bias=="bullish" and close>ib_hi and (close-ib_hi)<=30.0 and
                 (trend_any_bull or trend_neutral))
-
 ib_short_sig = (not ib_done and is_c_period and not na(ib_lo) and ib_ok_size and ib_ok and
-                ib_bias == "bearish" and close < ib_lo and (ib_lo - close) <= 30.0 and
+                ib_bias=="bearish" and close<ib_lo and (ib_lo-close)<=30.0 and
                 (trend_any_bear or trend_neutral))
-
-if ib_long_sig or ib_short_sig
-    ib_done := true
+if ib_long_sig or ib_short_sig: ib_done:=true
 
 
-// ─── VWAP REVERSION AM + PM ───────────────────────────────────────────────────
+// ─── VWAP REVERSION ───────────────────────────────────────────────────────────
 
-var bool vwap_l_done    = false
-var bool vwap_s_done    = false
-var bool vwap_pm_l_done = false
-var bool vwap_pm_s_done = false
+var bool vwap_l_done=false; var bool vwap_s_done=false
+var bool vwap_pm_l=false;   var bool vwap_pm_s=false
+if new_day: vwap_l_done:=false; vwap_s_done:=false; vwap_pm_l:=false; vwap_pm_s:=false
 
-if new_day
-    vwap_l_done    := false
-    vwap_s_done    := false
-    vwap_pm_l_done := false
-    vwap_pm_s_done := false
-
-vwap_min_dev = math.max(15.0, atr_adapt * 0.05)
-vwap_max_dev = math.min(30.0, atr_adapt * 0.12)
-vwap_dev     = math.abs(close - vwap_val)
-dev_ok       = vwap_dev >= vwap_min_dev and vwap_dev <= vwap_max_dev
+vwap_min_dev = math.max(15.0,atr_adapt*0.05)
+vwap_max_dev = math.min(30.0, atr_adapt*0.12)
+vwap_dev     = math.abs(close-vwap_val)
+dev_ok       = vwap_dev>=vwap_min_dev and vwap_dev<=vwap_max_dev
 
 vwap_long_sig  = (not vwap_l_done and am_window and vwap_rev_ok and not no_data_w and
-                  (trend_neutral or trend_any_bull) and close < vwap_l15 and dev_ok)
-
+                  (trend_neutral or trend_any_bull) and close<vwap_l15 and dev_ok)
 vwap_short_sig = (not vwap_s_done and am_window and vwap_rev_ok and not no_data_w and
-                  (trend_neutral or trend_any_bear) and close > vwap_u15 and dev_ok)
+                  (trend_neutral or trend_any_bear) and close>vwap_u15 and dev_ok)
+if vwap_long_sig:  vwap_l_done:=true
+if vwap_short_sig: vwap_s_done:=true
 
-if vwap_long_sig
-    vwap_l_done := true
-if vwap_short_sig
-    vwap_s_done := true
-
-vwap_pm_long_sig  = (not vwap_pm_l_done and pm_window and vwap_rev_ok and
-                     trend_strong_bull and close < vwap_l15 and dev_ok)
-
-vwap_pm_short_sig = (not vwap_pm_s_done and pm_window and vwap_rev_ok and
-                     trend_strong_bear and close > vwap_u15 and dev_ok)
-
-if vwap_pm_long_sig
-    vwap_pm_l_done := true
-if vwap_pm_short_sig
-    vwap_pm_s_done := true
+vwap_pm_long_sig  = (not vwap_pm_l and pm_window and vwap_rev_ok and trend_strong_bull and close<vwap_l15 and dev_ok)
+vwap_pm_short_sig = (not vwap_pm_s and pm_window and vwap_rev_ok and trend_strong_bear and close>vwap_u15 and dev_ok)
+if vwap_pm_long_sig:  vwap_pm_l:=true
+if vwap_pm_short_sig: vwap_pm_s:=true
 
 
-// ─── VWAP BOUNCE AM + PM ──────────────────────────────────────────────────────
+// ─── VWAP BOUNCE ──────────────────────────────────────────────────────────────
 
-var bool bnc_am_done = false
-var bool bnc_pm_done = false
+var bool bnc_am_done=false; var bool bnc_pm_done=false
+if new_day: bnc_am_done:=false; bnc_pm_done:=false
 
-if new_day
-    bnc_am_done := false
-    bnc_pm_done := false
-
-at_vwap = close >= vwap_l05 and close <= vwap_u05
+at_vwap = close>=vwap_l05 and close<=vwap_u05
 
 bnc_am_long_sig  = not bnc_am_done and bounce_am_w and vwap_bnc_ok and trend_any_bull and at_vwap
 bnc_am_short_sig = not bnc_am_done and bounce_am_w and vwap_bnc_ok and trend_any_bear and at_vwap
-
-if bnc_am_long_sig or bnc_am_short_sig
-    bnc_am_done := true
+if bnc_am_long_sig or bnc_am_short_sig: bnc_am_done:=true
 
 bnc_pm_long_sig  = not bnc_pm_done and pm_window and vwap_bnc_ok and trend_any_bull and at_vwap
 bnc_pm_short_sig = not bnc_pm_done and pm_window and vwap_bnc_ok and trend_any_bear and at_vwap
-
-if bnc_pm_long_sig or bnc_pm_short_sig
-    bnc_pm_done := true
+if bnc_pm_long_sig or bnc_pm_short_sig: bnc_pm_done:=true
 
 
-// ─── FVG ZONES ────────────────────────────────────────────────────────────────
+// ─── FVG ──────────────────────────────────────────────────────────────────────
 
-fvg_window = am_window and dayofweek != dayofweek.monday
+fvg_window = am_window and dayofweek!=dayofweek.monday
 fvg_active = fvg_ok and fvg_window
-fvg_min    = math.max(12.0, atr_adapt * 0.06)
-fvg_max    = math.min(60.0, atr_adapt * 0.30)
-
+fvg_min    = math.max(12.0, atr_adapt*0.06)
+fvg_max    = math.min(60.0, atr_adapt*0.30)
 bull_fvg_sz = low - high[2]
 bear_fvg_sz = low[2] - high
-bull_fvg_ok = fvg_active and bull_fvg_sz >= fvg_min and bull_fvg_sz <= fvg_max
-bear_fvg_ok = fvg_active and bear_fvg_sz >= fvg_min and bear_fvg_sz <= fvg_max
+bull_fvg_ok = fvg_active and bull_fvg_sz>=fvg_min and bull_fvg_sz<=fvg_max
+bear_fvg_ok = fvg_active and bear_fvg_sz>=fvg_min and bear_fvg_sz<=fvg_max
 
 if show_fvg and bull_fvg_ok
-    box.new(time[2], low, time + 120 * 60 * 1000, high[2],
-         xloc=xloc.bar_time,
-         border_color=color.new(color.lime, 30), border_width=1,
-         bgcolor=color.new(color.lime, 83))
-
+    box.new(time[2],low,time+120*60*1000,high[2],xloc=xloc.bar_time,
+            border_color=color.new(C_LONG,30),border_width=1,bgcolor=C_FVG_B)
 if show_fvg and bear_fvg_ok
-    box.new(time[2], low[2], time + 120 * 60 * 1000, high,
-         xloc=xloc.bar_time,
-         border_color=color.new(color.red, 30), border_width=1,
-         bgcolor=color.new(color.red, 83))
+    box.new(time[2],low[2],time+120*60*1000,high,xloc=xloc.bar_time,
+            border_color=color.new(C_SHORT,30),border_width=1,bgcolor=C_FVG_S)
 
 
 // ─── 80% VALUE AREA RULE ──────────────────────────────────────────────────────
-// If today's open is OUTSIDE prior VA and price re-enters + holds 3 bars → signal
-// Target: traverse to the opposite VA edge  (Dalton ~80% documented probability)
 
-var float va_rule_signal  = na
-var string va_rule_dir    = "none"
-var bool  va_rule_done    = false
-var int   va_bars_inside  = 0
-var bool  va_opened_above = false
-var bool  va_opened_below = false
+var float  va_signal  = na
+var string va_dir     = "none"
+var bool   va_done    = false
+var int    va_inside  = 0
+var bool   va_above   = false
+var bool   va_below   = false
 
 if new_day
-    va_rule_done   := false
-    va_bars_inside := 0
-    va_rule_dir    := "none"
-    // Classify how today opened relative to prior VA
-    today_open      = nz(d_open)
-    va_opened_above := today_open > nz(d_prev_vah)
-    va_opened_below := today_open < nz(d_prev_val)
+    va_done   := false; va_inside:=0; va_dir:="none"
+    va_above  := nz(d_open)>nz(d_prev_vah)
+    va_below  := nz(d_open)<nz(d_prev_val)
 
-in_prior_va = close >= nz(d_prev_val) and close <= nz(d_prev_vah)
+in_prior_va = close>=nz(d_prev_val) and close<=nz(d_prev_vah)
 
-if va_rule_ok and va_rule_w and not va_rule_done and (va_opened_above or va_opened_below)
-    if in_prior_va
-        va_bars_inside += 1
-    else
-        va_bars_inside := 0
+if va_rule_ok and va_rule_w and not va_done and (va_above or va_below)
+    if in_prior_va: va_inside+=1
+    else:           va_inside:=0
+    if va_inside>=3
+        va_done := true
+        va_dir  := va_above ? "short" : "long"
+        va_signal := close
 
-    // 3+ consecutive bars inside VA = confirmed re-entry
-    if va_bars_inside >= 3
-        va_rule_done  := true
-        // Type A: opened above VAH, rotated inside → SHORT to VAL
-        // Type B: opened below VAL, rotated inside → LONG to VAH
-        va_rule_dir   := va_opened_above ? "short" : "long"
-        va_rule_signal := close
-
-va_rule_long_sig  = va_rule_done and va_rule_dir == "long"  and va_bars_inside == 3
-va_rule_short_sig = va_rule_done and va_rule_dir == "short" and va_bars_inside == 3
+va_rule_long_sig  = va_done and va_dir=="long"  and va_inside==3
+va_rule_short_sig = va_done and va_dir=="short" and va_inside==3
 
 
-// ─── PLOTS ────────────────────────────────────────────────────────────────────
+// ─── OCC MARKER ───────────────────────────────────────────────────────────────
+
+if show_occ and not occ_done and not na(occ_dir) and occ_dir!="neutral" and is_930[2]
+    occ_done := true
+    occ_col  = occ_dir=="long" ? color.new(C_LONG,20) : color.new(C_SHORT,20)
+    occ_sty  = occ_dir=="long" ? label.style_arrowup : label.style_arrowdown
+    occ_y    = occ_dir=="long" ? low[2]-atr_adapt*0.015 : high[2]+atr_adapt*0.015
+    label.new(bar_index[2], occ_y,
+         "OCC " + str.upper(occ_dir) + "  " + str.tostring(occ_ret*100,"#.2") + "%",
+         color=occ_col, textcolor=color.white, style=occ_sty, size=size.tiny)
+
+
+// ─── VWAP PLOTS ───────────────────────────────────────────────────────────────
 
 plot_active = in_rth or (show_pm and in_pm)
 
-// VWAP main line
-plot(show_vwap and plot_active ? vwap_val : na, "VWAP",
-     color=color.orange, linewidth=2)
+p_vwap = plot(show_vwap and plot_active ? vwap_val : na, "VWAP", color=C_VWAP, linewidth=2)
 
-// 1.5sd signal bands
-plot(show_vwap and plot_active ? vwap_u15 : na, "VWAP +1.5sd",
-     color=color.new(color.orange, 40), linewidth=1)
-plot(show_vwap and plot_active ? vwap_l15 : na, "VWAP -1.5sd",
-     color=color.new(color.orange, 40), linewidth=1)
+p_u15  = plot(show_bands and plot_active ? vwap_u15 : na, "VWAP+1.5s", color=C_VWAP_B, linewidth=1)
+p_l15  = plot(show_bands and plot_active ? vwap_l15 : na, "VWAP-1.5s", color=C_VWAP_B, linewidth=1)
+p_u25  = plot(show_bands and plot_active ? vwap_u25 : na, "VWAP+2.5s",
+              color=color.new(C_VWAP,75), linewidth=1, style=plot.style_circles)
+p_l25  = plot(show_bands and plot_active ? vwap_l25 : na, "VWAP-2.5s",
+              color=color.new(C_VWAP,75), linewidth=1, style=plot.style_circles)
 
-// 2.5sd stop reference (dots)
-plot(show_vwap and plot_active ? vwap_u25 : na, "VWAP +2.5sd",
-     color=color.new(color.orange, 70), linewidth=1, style=plot.style_circles)
-plot(show_vwap and plot_active ? vwap_l25 : na, "VWAP -2.5sd",
-     color=color.new(color.orange, 70), linewidth=1, style=plot.style_circles)
+p_bu   = plot(show_bands and vwap_bnc_ok and plot_active ? vwap_u05 : na,
+              "Bounce+", color=color.new(#00838F,55), linewidth=1, style=plot.style_stepline)
+p_bl   = plot(show_bands and vwap_bnc_ok and plot_active ? vwap_l05 : na,
+              "Bounce-", color=color.new(#00838F,55), linewidth=1, style=plot.style_stepline)
+fill(p_bu, p_bl, color=color.new(#00838F,91), title="Bounce Zone")
 
-// 0.5sd bounce zone (fill when trending)
-p_bu = plot(show_vwap and vwap_bnc_ok and plot_active ? vwap_u05 : na,
-     "VWAP +0.5sd", color=color.new(color.teal, 55), linewidth=1, style=plot.style_stepline)
-p_bl = plot(show_vwap and vwap_bnc_ok and plot_active ? vwap_l05 : na,
-     "VWAP -0.5sd", color=color.new(color.teal, 55), linewidth=1, style=plot.style_stepline)
-fill(p_bu, p_bl, color=color.new(color.teal, 91), title="VWAP Bounce Zone")
+bgcolor(shade_rth and in_rth ? color.new(#1565C0,97) : na, title="AM Window")
+bgcolor(show_pm and in_pm    ? color.new(#6A1B9A,97) : na, title="PM Window")
 
-// Session background shading
-bgcolor(shade_rth and in_rth ? color.new(color.blue, 97) : na, title="AM Window")
-bgcolor(show_pm and in_pm    ? color.new(color.purple, 97) : na, title="PM Window")
 
-// Prior close line (gap fill target)
+// ─── CVD LINE ON CHART ────────────────────────────────────────────────────────
+
+// Scale CVD to chart by mapping to price range
+var float cvd_base_price = na
+if new_day or na(cvd_base_price)
+    cvd_base_price := close
+
+cvd_scale     = atr_adapt*0.0015   // 0.15% of ATR per unit of CVD
+cvd_chart_val = plot_active and show_cvd ? cvd_base_price + session_cvd*cvd_scale : na
+p_cvd         = plot(cvd_chart_val, "CVD", color=session_cvd>=0 ? color.new(C_CVD_POS,30) : color.new(C_CVD_NEG,30), linewidth=1, style=plot.style_stepline)
+
+// Absorption markers on chart
+if show_absorb and is_absorb and (in_rth or in_pm)
+    absorb_y = absorb_dir=="sell" ? high+atr_adapt*0.008 : low-atr_adapt*0.008
+    absorb_s = absorb_dir=="sell" ? label.style_label_down : label.style_label_up
+    label.new(bar_index, absorb_y, "ABS",
+         color=color.new(C_ABSORB,20), textcolor=color.white, style=absorb_s, size=size.tiny)
+
+
+// ─── PRIOR CLOSE LINE ─────────────────────────────────────────────────────────
+
 if show_prev and is_930 and not na(d_prev_cls)
-    line.new(time, d_prev_cls, time + 150 * 60 * 1000, d_prev_cls,
-         xloc=xloc.bar_time,
-         color=color.new(color.gray, 25), width=1, style=line.style_dashed)
+    line.new(time, d_prev_cls, time+150*60*1000, d_prev_cls,
+         xloc=xloc.bar_time, color=color.new(C_LEVELS,40), width=1, style=line.style_dashed)
 
 
 // ─── KEY LEVELS: PDH / PDL / PMH / PML ───────────────────────────────────────
 
 if show_levels and is_930
-    // PDH  - Prior Day High
     if not na(d_prev_hi)
-        line.new(time, d_prev_hi, time + 150 * 60 * 1000, d_prev_hi,
-             xloc=xloc.bar_time,
-             color=color.new(color.orange, 10), width=1, style=line.style_dashed)
-        label.new(time, d_prev_hi, "PDH " + str.tostring(d_prev_hi, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.orange, 75),
-             textcolor=color.orange, style=label.style_label_right, size=size.tiny)
-
-    // PDL  - Prior Day Low
+        line.new(time,d_prev_hi,time+150*60*1000,d_prev_hi,xloc=xloc.bar_time,
+                 color=color.new(C_PDH,20),width=1,style=line.style_dashed)
+        label.new(time,d_prev_hi,"PDH  "+str.tostring(d_prev_hi,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(C_PDH,70),textcolor=C_PDH,
+                  style=label.style_label_right,size=size.tiny)
     if not na(d_prev_lo)
-        line.new(time, d_prev_lo, time + 150 * 60 * 1000, d_prev_lo,
-             xloc=xloc.bar_time,
-             color=color.new(color.orange, 10), width=1, style=line.style_dashed)
-        label.new(time, d_prev_lo, "PDL " + str.tostring(d_prev_lo, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.orange, 75),
-             textcolor=color.orange, style=label.style_label_right, size=size.tiny)
-
-    // PMH / PML  - premarket high/low (approximate from current day pre-open)
-    if not na(d_pmh) and d_pmh != d_prev_hi
-        line.new(time, d_pmh, time + 150 * 60 * 1000, d_pmh,
-             xloc=xloc.bar_time,
-             color=color.new(color.yellow, 20), width=1, style=line.style_dotted)
-        label.new(time, d_pmh, "PMH " + str.tostring(d_pmh, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.yellow, 75),
-             textcolor=color.yellow, style=label.style_label_right, size=size.tiny)
-
-    if not na(d_pml) and d_pml != d_prev_lo
-        line.new(time, d_pml, time + 150 * 60 * 1000, d_pml,
-             xloc=xloc.bar_time,
-             color=color.new(color.yellow, 20), width=1, style=line.style_dotted)
-        label.new(time, d_pml, "PML " + str.tostring(d_pml, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.yellow, 75),
-             textcolor=color.yellow, style=label.style_label_right, size=size.tiny)
+        line.new(time,d_prev_lo,time+150*60*1000,d_prev_lo,xloc=xloc.bar_time,
+                 color=color.new(C_PDH,20),width=1,style=line.style_dashed)
+        label.new(time,d_prev_lo,"PDL  "+str.tostring(d_prev_lo,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(C_PDH,70),textcolor=C_PDH,
+                  style=label.style_label_right,size=size.tiny)
+    if not na(d_pmh) and d_pmh!=d_prev_hi
+        line.new(time,d_pmh,time+150*60*1000,d_pmh,xloc=xloc.bar_time,
+                 color=color.new(C_PMH,30),width=1,style=line.style_dotted)
+        label.new(time,d_pmh,"PMH  "+str.tostring(d_pmh,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(C_PMH,70),textcolor=C_PMH,
+                  style=label.style_label_right,size=size.tiny)
+    if not na(d_pml) and d_pml!=d_prev_lo
+        line.new(time,d_pml,time+150*60*1000,d_pml,xloc=xloc.bar_time,
+                 color=color.new(C_PMH,30),width=1,style=line.style_dotted)
+        label.new(time,d_pml,"PML  "+str.tostring(d_pml,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(C_PMH,70),textcolor=C_PMH,
+                  style=label.style_label_right,size=size.tiny)
 
 
-// ─── PRIOR SESSION VA LEVELS (POC / VAH / VAL) ───────────────────────────────
+// ─── PRIOR SESSION VA LEVELS ──────────────────────────────────────────────────
 
 if show_va and is_930
-    // POC (volume-weighted typical price approximation  - cyan)
     if not na(d_prev_vwap)
-        line.new(time, d_prev_vwap, time + 150 * 60 * 1000, d_prev_vwap,
-             xloc=xloc.bar_time,
-             color=color.new(color.aqua, 10), width=2, style=line.style_solid)
-        label.new(time, d_prev_vwap, "POC " + str.tostring(d_prev_vwap, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.aqua, 70),
-             textcolor=color.aqua, style=label.style_label_right, size=size.tiny)
-
-    // VAH  - Value Area High (teal dashed)
+        line.new(time,d_prev_vwap,time+150*60*1000,d_prev_vwap,xloc=xloc.bar_time,
+                 color=color.new(C_POC,20),width=2,style=line.style_solid)
+        label.new(time,d_prev_vwap,"POC  "+str.tostring(d_prev_vwap,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(C_POC,60),textcolor=C_POC,
+                  style=label.style_label_right,size=size.tiny)
     if not na(d_prev_vah)
-        line.new(time, d_prev_vah, time + 150 * 60 * 1000, d_prev_vah,
-             xloc=xloc.bar_time,
-             color=color.new(color.teal, 20), width=1, style=line.style_dashed)
-        label.new(time, d_prev_vah, "VAH " + str.tostring(d_prev_vah, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.teal, 70),
-             textcolor=color.teal, style=label.style_label_right, size=size.tiny)
-
-    // VAL  - Value Area Low (teal dashed)
+        line.new(time,d_prev_vah,time+150*60*1000,d_prev_vah,xloc=xloc.bar_time,
+                 color=C_VA,width=1,style=line.style_dashed)
+        label.new(time,d_prev_vah,"VAH  "+str.tostring(d_prev_vah,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(#00838F,60),textcolor=C_POC,
+                  style=label.style_label_right,size=size.tiny)
     if not na(d_prev_val)
-        line.new(time, d_prev_val, time + 150 * 60 * 1000, d_prev_val,
-             xloc=xloc.bar_time,
-             color=color.new(color.teal, 20), width=1, style=line.style_dashed)
-        label.new(time, d_prev_val, "VAL " + str.tostring(d_prev_val, "#.0"),
-             xloc=xloc.bar_time, color=color.new(color.teal, 70),
-             textcolor=color.teal, style=label.style_label_right, size=size.tiny)
+        line.new(time,d_prev_val,time+150*60*1000,d_prev_val,xloc=xloc.bar_time,
+                 color=C_VA,width=1,style=line.style_dashed)
+        label.new(time,d_prev_val,"VAL  "+str.tostring(d_prev_val,"#.0"),
+                  xloc=xloc.bar_time,color=color.new(#00838F,60),textcolor=C_POC,
+                  style=label.style_label_right,size=size.tiny)
 
 
-// ─── SIGNAL LABELS (two-target: T1 @ 1R, T2 @ extended) ─────────────────────
+// ─── SIGNAL DRAWING HELPERS ───────────────────────────────────────────────────
 
-f_lbl(p_entry, p_stop, p_t1, p_t2, is_long) =>
-    r = math.abs(p_entry - p_stop)
-    rr_t1 = r > 0 ? math.abs(p_t1 - p_entry) / r : 0.0
-    rr_t2 = r > 0 ? math.abs(p_t2 - p_entry) / r : 0.0
-    side   = is_long ? "L" : "S"
-    ("E:" + str.tostring(p_entry, "#.0") +
-     "  S:" + str.tostring(p_stop, "#.0") +
-     "  T1:" + str.tostring(p_t1, "#.0") +
-     "  T2:" + str.tostring(p_t2, "#.0") +
-     "\nR=" + str.tostring(r, "#.0") + "pt  T1=" + str.tostring(rr_t1, "#.1") + "R  T2=" + str.tostring(rr_t2, "#.1") + "R")
+// Draw compact arrow marker + thin level lines for each signal
+// Bloomberg style: small arrow, no box, thin dotted/dashed lines for S/T1/T2
 
-stop_dist    = math.max(8.0,  atr_adapt * 0.06)
-bnc_stop     = math.max(5.0,  atr_adapt * 0.03)
-bnc_t2_dist  = atr_adapt * 0.25    // Chandelier approx: 3x intraday ATR
+_draw_sig(int bi, float e, float s, float t1, float t2, bool is_long, string strat) =>
+    arrow_col = is_long ? color.new(C_LONG,15)  : color.new(C_SHORT,15)
+    txt_col   = is_long ? C_LONG : C_SHORT
+    sty       = is_long ? label.style_arrowup : label.style_arrowdown
+    y_pos     = is_long ? e - atr_adapt*0.006  : e + atr_adapt*0.006
+    rr_t2     = math.abs(e-s)>0 ? math.abs(t2-e)/math.abs(e-s) : 0.0
 
-lbl_off_up   = atr_adapt * 0.012
-lbl_off_dn   = atr_adapt * 0.012
+    // Arrow marker with compact text
+    label.new(bi, y_pos,
+         strat + "  " + str.tostring(e,"#,###.0") + "\n" +
+         "S " + str.tostring(s,"#,###.0") + "  T1 " + str.tostring(t1,"#,###.0") + "  T2 " + str.tostring(t2,"#,###.0"),
+         color=arrow_col, textcolor=color.white, style=sty,
+         size=size.tiny, textalign=text.align_left)
+
+    if show_lvl_lines
+        end_bi = bi + lvl_bars
+        // Stop line: thin red dotted
+        line.new(bi,s,   end_bi,s,   color=color.new(C_STOP_L,20),width=1,style=line.style_dotted)
+        // T1 line: thin amber dashed
+        line.new(bi,t1,  end_bi,t1,  color=color.new(C_T1,20),width=1,style=line.style_dashed)
+        // T2 line: thin green/red dashed
+        t2_col = is_long ? color.new(C_T2_L,20) : color.new(C_T2_S,20)
+        line.new(bi,t2,  end_bi,t2,  color=t2_col, width=1,style=line.style_dashed)
+        // Price labels at end of lines
+        label.new(end_bi,s,   "S "  +str.tostring(s,  "#,###.0"),color=color.new(C_STOP_L,70),textcolor=C_STOP_L,style=label.style_label_right,size=size.tiny)
+        label.new(end_bi,t1,  "T1 " +str.tostring(t1, "#,###.0"),color=color.new(C_T1,70),    textcolor=C_T1,    style=label.style_label_right,size=size.tiny)
+        label.new(end_bi,t2,  "T2 " +str.tostring(t2, "#,###.0")+" ("+str.tostring(rr_t2,"#.1")+"R)",
+                  color=t2_col,textcolor=is_long?C_T2_L:C_T2_S,style=label.style_label_right,size=size.tiny)
+
+
+// ─── SIGNAL MARKERS ───────────────────────────────────────────────────────────
 
 if show_sigs
 
-    // ── Gap Fill ─────────────────────────────────────────────────────────────
+    // Gap Fill
     if gap_long
-        e = open
-        s = low[1] - 2.0
-        r = math.abs(e - s)
-        t1 = e + r                          // T1: 1R
-        t2 = nz(d_prev_cls)                 // T2: prior close (fill target)
-        label.new(bar_index, low - lbl_off_dn,
-             "GAP FILL LONG\n" + f_lbl(e, s, t1, t2, true) +
-             "\ngap=" + str.tostring(gap_size[1], "#.1") + "pt",
-             color=color.new(#1b5e20, 10), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
-
+        e=open; s=low[1]-2.0; r=math.abs(e-s)
+        _draw_sig(bar_index,e,s,e+r,nz(d_prev_cls),true,"GAP")
     if gap_short
-        e = open
-        s = high[1] + 2.0
-        r = math.abs(s - e)
-        t1 = e - r
-        t2 = nz(d_prev_cls)
-        label.new(bar_index, high + lbl_off_up,
-             "GAP FILL SHORT\n" + f_lbl(e, s, t1, t2, false) +
-             "\ngap=" + str.tostring(gap_size[1], "#.1") + "pt",
-             color=color.new(#b71c1c, 10), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
+        e=open; s=high[1]+2.0; r=math.abs(s-e)
+        _draw_sig(bar_index,e,s,e-r,nz(d_prev_cls),false,"GAP")
 
-    // ── ORB ──────────────────────────────────────────────────────────────────
+    // ORB
     if orb_long_sig
-        e  = close
-        s  = math.max(nz(orb_hi) - 2.0, e - 25.0)
-        r  = e - s
-        t1 = e + r                                    // T1: 1R
-        t2 = e + orb_range * 3.0                      // T2: 3x ORB range
-        label.new(bar_index, high + lbl_off_up,
-             "ORB LONG  [" + trend_dir + "]\n" + f_lbl(e, s, t1, t2, true) +
-             "\nORB=" + str.tostring(orb_range, "#.0") + "pt  ATR=" + str.tostring(atr_adapt, "#.0"),
-             color=color.new(#0d47a1, 10), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
-
+        e=close; s=math.max(nz(orb_hi)-2.0,e-25.0); r=e-s
+        _draw_sig(bar_index,e,s,e+r,e+orb_range*3.0,true,"ORB")
     if orb_short_sig
-        e  = close
-        s  = math.min(nz(orb_lo) + 2.0, e + 25.0)
-        r  = s - e
-        t1 = e - r
-        t2 = e - orb_range * 3.0
-        label.new(bar_index, low - lbl_off_dn,
-             "ORB SHORT  [" + trend_dir + "]\n" + f_lbl(e, s, t1, t2, false) +
-             "\nORB=" + str.tostring(orb_range, "#.0") + "pt",
-             color=color.new(#c62828, 10), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
+        e=close; s=math.min(nz(orb_lo)+2.0,e+25.0); r=s-e
+        _draw_sig(bar_index,e,s,e-r,e-orb_range*3.0,false,"ORB")
 
-    // ── IB Breakout ───────────────────────────────────────────────────────────
+    // IB
     if ib_long_sig
-        e  = close
-        s  = nz(ib_hi) - 2.0
-        r  = e - s
-        t1 = e + r
-        t2 = nz(ib_hi) + ib_range * 2.5              // T2: 2.5x IB range
-        label.new(bar_index, high + lbl_off_up,
-             "IB BREAKOUT LONG  [" + ib_bias + "]\n" + f_lbl(e, s, t1, t2, true) +
-             "\nIB=" + str.tostring(ib_range, "#.0") + "pt",
-             color=color.new(#4a148c, 10), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
-
+        e=close; s=nz(ib_hi)-2.0; r=e-s
+        _draw_sig(bar_index,e,s,e+r,nz(ib_hi)+ib_range*2.5,true,"IB")
     if ib_short_sig
-        e  = close
-        s  = nz(ib_lo) + 2.0
-        r  = s - e
-        t1 = e - r
-        t2 = nz(ib_lo) - ib_range * 2.5
-        label.new(bar_index, low - lbl_off_dn,
-             "IB BREAKOUT SHORT  [" + ib_bias + "]\n" + f_lbl(e, s, t1, t2, false) +
-             "\nIB=" + str.tostring(ib_range, "#.0") + "pt",
-             color=color.new(#4a148c, 10), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
+        e=close; s=nz(ib_lo)+2.0; r=s-e
+        _draw_sig(bar_index,e,s,e-r,nz(ib_lo)-ib_range*2.5,false,"IB")
 
-    // ── VWAP Reversion AM ─────────────────────────────────────────────────────
+    // VWAP Rev AM
+    sd=math.max(8.0,atr_adapt*0.06)
     if vwap_long_sig
-        e  = close
-        s  = e - stop_dist
-        r  = e - s
-        t1 = e + r
-        t2 = vwap_val
-        label.new(bar_index, low - lbl_off_dn,
-             "VWAP REV LONG  [AM]\n" + f_lbl(e, s, t1, t2, true) +
-             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (-1.5sd)",
-             color=color.new(#00695c, 10), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
-
+        e=close; s=e-sd; r=e-s
+        _draw_sig(bar_index,e,s,e+r,vwap_val,true,"VWAP-R")
     if vwap_short_sig
-        e  = close
-        s  = e + stop_dist
-        r  = s - e
-        t1 = e - r
-        t2 = vwap_val
-        label.new(bar_index, high + lbl_off_up,
-             "VWAP REV SHORT  [AM]\n" + f_lbl(e, s, t1, t2, false) +
-             "\ndev=" + str.tostring(vwap_dev, "#.0") + "pt (+1.5sd)",
-             color=color.new(#00695c, 10), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
+        e=close; s=e+sd; r=s-e
+        _draw_sig(bar_index,e,s,e-r,vwap_val,false,"VWAP-R")
 
-    // ── VWAP Reversion PM ─────────────────────────────────────────────────────
-    if show_pm and vwap_pm_long_sig
-        e  = close
-        s  = e - stop_dist
-        r  = e - s
-        t1 = e + r
-        t2 = vwap_val
-        label.new(bar_index, low - lbl_off_dn,
-             "VWAP REV LONG  [PM]\n" + f_lbl(e, s, t1, t2, true),
-             color=color.new(#004d40, 10), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
+    // VWAP Rev PM
+    if show_pm
+        if vwap_pm_long_sig
+            e=close; s=e-sd; r=e-s
+            _draw_sig(bar_index,e,s,e+r,vwap_val,true,"VWAP-R PM")
+        if vwap_pm_short_sig
+            e=close; s=e+sd; r=s-e
+            _draw_sig(bar_index,e,s,e-r,vwap_val,false,"VWAP-R PM")
 
-    if show_pm and vwap_pm_short_sig
-        e  = close
-        s  = e + stop_dist
-        r  = s - e
-        t1 = e - r
-        t2 = vwap_val
-        label.new(bar_index, high + lbl_off_up,
-             "VWAP REV SHORT  [PM]\n" + f_lbl(e, s, t1, t2, false),
-             color=color.new(#004d40, 10), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
-
-    // ── VWAP Bounce AM ────────────────────────────────────────────────────────
+    // VWAP Bounce
+    bs=math.max(5.0,atr_adapt*0.03); bt2=atr_adapt*0.25
     if bnc_am_long_sig
-        e  = close
-        s  = e - bnc_stop
-        r  = e - s
-        t1 = e + r
-        t2 = e + bnc_t2_dist
-        label.new(bar_index, low - lbl_off_dn,
-             "VWAP BOUNCE LONG  [AM]\n" + f_lbl(e, s, t1, t2, true) +
-             "\n" + trend_dir + "  - VWAP support",
-             color=color.new(#1b5e20, 5), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
-
+        e=close; s=e-bs; r=e-s
+        _draw_sig(bar_index,e,s,e+r,e+bt2,true,"VWAP-B")
     if bnc_am_short_sig
-        e  = close
-        s  = e + bnc_stop
-        r  = s - e
-        t1 = e - r
-        t2 = e - bnc_t2_dist
-        label.new(bar_index, high + lbl_off_up,
-             "VWAP BOUNCE SHORT  [AM]\n" + f_lbl(e, s, t1, t2, false) +
-             "\n" + trend_dir + "  - VWAP resistance",
-             color=color.new(#b71c1c, 5), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
+        e=close; s=e+bs; r=s-e
+        _draw_sig(bar_index,e,s,e-r,e-bt2,false,"VWAP-B")
+    if show_pm
+        if bnc_pm_long_sig
+            e=close; s=e-bs; r=e-s
+            _draw_sig(bar_index,e,s,e+r,e+bt2,true,"VWAP-B PM")
+        if bnc_pm_short_sig
+            e=close; s=e+bs; r=s-e
+            _draw_sig(bar_index,e,s,e-r,e-bt2,false,"VWAP-B PM")
 
-    // ── VWAP Bounce PM ────────────────────────────────────────────────────────
-    if show_pm and bnc_pm_long_sig
-        e  = close
-        s  = e - bnc_stop
-        r  = e - s
-        t1 = e + r
-        t2 = e + bnc_t2_dist
-        label.new(bar_index, low - lbl_off_dn,
-             "VWAP BOUNCE LONG  [PM]\n" + f_lbl(e, s, t1, t2, true),
-             color=color.new(#2e7d32, 20), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
-
-    if show_pm and bnc_pm_short_sig
-        e  = close
-        s  = e + bnc_stop
-        r  = s - e
-        t1 = e - r
-        t2 = e - bnc_t2_dist
-        label.new(bar_index, high + lbl_off_up,
-             "VWAP BOUNCE SHORT  [PM]\n" + f_lbl(e, s, t1, t2, false),
-             color=color.new(#c62828, 20), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
-
-    // ── 80% Value Area Rule ───────────────────────────────────────────────────
+    // 80% VA Rule
     if va_rule_long_sig
-        e   = close
-        s   = nz(d_prev_val) - math.max(3.0, atr_adapt * 0.015)
-        r   = e - s
-        t1  = e + r
-        t2  = nz(d_prev_vah)                           // T2: opposite VA edge (VAH)
-        label.new(bar_index, low - lbl_off_dn * 1.5,
-             "80% VA RULE LONG  [Type B]\n" + f_lbl(e, s, t1, t2, true) +
-             "\nVAL=" + str.tostring(nz(d_prev_val), "#.0") +
-             "  VAH=" + str.tostring(nz(d_prev_vah), "#.0") +
-             "  POC=" + str.tostring(nz(d_prev_vwap), "#.0"),
-             color=color.new(#006064, 5), textcolor=color.white,
-             style=label.style_label_up, size=size.small)
-
+        e=close; s=nz(d_prev_val)-math.max(3.0,atr_adapt*0.015); r=e-s
+        _draw_sig(bar_index,e,s,e+r,nz(d_prev_vah),true,"VA-RULE")
     if va_rule_short_sig
-        e   = close
-        s   = nz(d_prev_vah) + math.max(3.0, atr_adapt * 0.015)
-        r   = s - e
-        t1  = e - r
-        t2  = nz(d_prev_val)                           // T2: opposite VA edge (VAL)
-        label.new(bar_index, high + lbl_off_up * 1.5,
-             "80% VA RULE SHORT  [Type A]\n" + f_lbl(e, s, t1, t2, false) +
-             "\nVAH=" + str.tostring(nz(d_prev_vah), "#.0") +
-             "  VAL=" + str.tostring(nz(d_prev_val), "#.0") +
-             "  POC=" + str.tostring(nz(d_prev_vwap), "#.0"),
-             color=color.new(#006064, 5), textcolor=color.white,
-             style=label.style_label_down, size=size.small)
+        e=close; s=nz(d_prev_vah)+math.max(3.0,atr_adapt*0.015); r=s-e
+        _draw_sig(bar_index,e,s,e-r,nz(d_prev_val),false,"VA-RULE")
 
 
-// ─── REGIME DASHBOARD ─────────────────────────────────────────────────────────
+// ─── REGIME DASHBOARD (Bloomberg style, compact, top-right) ──────────────────
 
-var table dash = table.new(position.top_right, 2, 16,
-     border_width=1, border_color=color.new(color.gray, 65),
-     frame_width=2,  frame_color=color.new(color.gray, 40))
+var table dash = table.new(position.top_right, 2, 13,
+     border_width=1, border_color=color.new(#B0BEC5,40),
+     frame_width=1,  frame_color=color.new(#B0BEC5,60))
 
-c_hdr    = color.new(#0a1628, 0)     // deep navy header
-c_key    = color.new(#1a237e, 50)    // muted blue key cells
-c_green  = color.new(#1b5e20, 15)    // active/good
-c_red    = color.new(#b71c1c, 15)    // warning/off
-c_orange = color.new(#e65100, 15)    // elevated
-c_teal   = color.new(#004d40, 15)    // VWAP strategies
-c_purple = color.new(#4a148c, 15)    // IB / VA
-c_gray   = color.new(#37474f, 40)    // off/inactive
-c_white  = color.white
-
-trend_col = (trend_strong_bull ? c_green :
-             trend_bull        ? color.new(color.green, 35) :
-             trend_neutral     ? c_gray :
-             trend_bear        ? color.new(color.orange, 35) :
-             trend_strong_bear ? c_red : c_gray)
-
-vix_col   = (vix_now < 15 ? c_green :
-             vix_now < 25 ? color.new(color.green, 35) :
-             vix_now < 35 ? c_orange : c_red)
-
-occ_col   = (occ_dir == "long"  ? c_green :
-             occ_dir == "short" ? c_red : c_gray)
-
-va_rule_regime_col = (not na(d_prev_vah) and va_rule_ok) ? c_purple : c_gray
+trend_col_v = trend_strong_bull ? C_POS_TXT : trend_bull ? C_POS_TXT :
+              trend_neutral ? C_DIM_TXT : trend_bear ? C_WARN_TXT : C_NEG_TXT
+vix_col_v   = vix_now<15 ? C_POS_TXT : vix_now<25 ? C_DIM_TXT : vix_now<35 ? C_WARN_TXT : C_NEG_TXT
+occ_col_v   = occ_dir=="long" ? C_POS_TXT : occ_dir=="short" ? C_NEG_TXT : C_DIM_TXT
 
 if show_dash and barstate.islast
+    _hdr(c, t) => table.cell(dash,c,0,t,text_color=C_HDR_TXT,bgcolor=C_HDR_BG,text_size=size.small,text_halign=text.align_center)
+    _hdr(0,"ISOGENY  v7.0"); _hdr(1,"MNQ  9:30-12:00 ET")
 
-    // Row 0: Header
-    table.cell(dash, 0, 0, "ISOGENY ALPHA", text_color=c_white, bgcolor=c_hdr, text_size=size.small)
-    table.cell(dash, 1, 0, "SYSTEM v7.0",   text_color=c_white, bgcolor=c_hdr, text_size=size.small)
+    _row(r,k,v,vc) =>
+        bg = r%2==0 ? C_CELL_BG : C_CELL_BG2
+        table.cell(dash,0,r,k,text_color=C_DIM_TXT,bgcolor=bg,text_size=size.tiny,text_halign=text.align_right)
+        table.cell(dash,1,r,v,text_color=vc,bgcolor=bg,text_size=size.tiny,text_halign=text.align_left)
 
-    // Row 1: Trend
-    table.cell(dash, 0, 1, "Trend", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 1,
-         trend_dir + "  (" + str.tostring(ema_spread, "#.1") + "%)",
-         text_color=c_white, bgcolor=trend_col, text_size=size.small)
+    _row(1, "Trend",  trend_dir + "  (" + str.tostring(ema_spread,"#.1") + "%)", trend_col_v)
+    _row(2, "VIX",    str.tostring(vix_now,"#.1") + "  [" + vix_regime + "]", vix_col_v)
+    _row(3, "ATR",    str.tostring(atr_adapt,"#.0") + " pts  (5d/20d max)", C_DIM_TXT)
+    _row(4, "OCC",    occ_dir=="long" ? "BULLISH  " + str.tostring(occ_ret*100,"#.2") + "%" :
+                      occ_dir=="short"? "BEARISH  " + str.tostring(occ_ret*100,"#.2") + "%" : "neutral", occ_col_v)
+    _row(5, "IB Bias",ib_bias=="" ? "building..." : ib_bias=="bullish" ? "BULLISH -> long" : "BEARISH -> short",
+         ib_bias=="bullish" ? C_POS_TXT : ib_bias=="bearish" ? C_NEG_TXT : C_DIM_TXT)
 
-    // Row 2: VIX
-    table.cell(dash, 0, 2, "VIX", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 2,
-         str.tostring(vix_now, "#.1") + "  [" + vix_regime + "]",
-         text_color=c_white, bgcolor=vix_col, text_size=size.small)
+    // Strategy status row
+    gap_s  = vix_ok ? "ON" : "off"
+    orb_s  = orb_long_ok ? "LONG" : orb_short_ok ? "SHORT" : "off"
+    ib_s   = ib_ok ? "ON" : "off"
+    vwr_s  = vwap_rev_ok ? "ON" : "off"
+    vwb_s  = vwap_bnc_ok ? "ON" : "off"
+    va_s   = va_rule_ok ? "ON" : "off"
 
-    // Row 3: ATR
-    table.cell(dash, 0, 3, "ATR (adapt.)", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 3,
-         str.tostring(atr_adapt, "#.0") + " pts  [5d/20d max]",
-         text_color=c_white, bgcolor=c_hdr, text_size=size.small)
+    _row(6, "Gap/ORB", gap_s + "  /  " + orb_s, vix_ok ? C_POS_TXT : C_DIM_TXT)
+    _row(7, "IB/FVG",  ib_s + "  /  " + (fvg_ok ? "ON" : "off"), vix_ok ? C_POS_TXT : C_DIM_TXT)
+    _row(8, "VWAP-R/B",vwr_s + "  /  " + vwb_s, vix_ok ? C_POS_TXT : C_DIM_TXT)
+    _row(9, "VA Rule",  va_s + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"), C_DIM_TXT)
+    _row(10,"Scoring",  "skip<=5  1-lot:6-15  2-lot>=16", C_DIM_TXT)
+    _row(11,"Session",  "MAX 3 trades  noon ET hard stop", C_DIM_TXT)
 
-    // Row 4: OCC
-    table.cell(dash, 0, 4, "OCC (9:35 bar)", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 4,
-         occ_dir == "long"  ? "BULLISH  - favor longs" :
-         occ_dir == "short" ? "BEARISH  - favor shorts" : "neutral / building",
-         text_color=c_white, bgcolor=occ_col, text_size=size.small)
-
-    // Row 5: Separator label
-    table.cell(dash, 0, 5, "STRATEGY", text_color=color.new(color.gray, 50), bgcolor=c_hdr, text_size=size.tiny)
-    table.cell(dash, 1, 5, "STATUS",   text_color=color.new(color.gray, 50), bgcolor=c_hdr, text_size=size.tiny)
-
-    // Row 6: Gap Fill
-    table.cell(dash, 0, 6, "Gap Fill", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 6,
-         vix_ok ? "ACTIVE  78% WR  T2=prior close" : "off (VIX " + str.tostring(vix_now, "#.0") + ")",
-         text_color=c_white, bgcolor=vix_ok ? c_green : c_gray, text_size=size.small)
-
-    // Row 7: ORB
-    table.cell(dash, 0, 7, "ORB Pullback", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 7,
-         orb_long_ok ? "ACTIVE LONG  T2=3xORB" :
-         orb_short_ok ? "ACTIVE SHORT  T2=3xORB" : "off (trend/VIX)",
-         text_color=c_white,
-         bgcolor=(orb_long_ok or orb_short_ok) ? c_green : c_gray, text_size=size.small)
-
-    // Row 8: IB
-    table.cell(dash, 0, 8, "IB Breakout", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    ib_bias_show = ib_bias == "" ? "building..." : ib_bias + " bias"
-    table.cell(dash, 1, 8,
-         ib_ok ? "ACTIVE  " + ib_bias_show + "  T2=2.5xIB" : "off (VIX)",
-         text_color=c_white,
-         bgcolor=ib_ok ? (ib_bias == "bullish" ? color.new(color.green, 40) :
-                          ib_bias == "bearish" ? color.new(color.orange, 40) : c_purple) : c_gray,
-         text_size=size.small)
-
-    // Row 9: VWAP Reversion
-    table.cell(dash, 0, 9, "VWAP Rev", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 9,
-         vwap_rev_ok ? "ACTIVE  1.5sd  T2=VWAP" : "off (VIX)",
-         text_color=c_white, bgcolor=vwap_rev_ok ? c_teal : c_gray, text_size=size.small)
-
-    // Row 10: VWAP Bounce
-    table.cell(dash, 0, 10, "VWAP Bounce", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 10,
-         vwap_bnc_ok ? "ACTIVE  0.5sd zone  T2=Chandelier" : "off (need trend)",
-         text_color=c_white, bgcolor=vwap_bnc_ok ? c_teal : c_gray, text_size=size.small)
-
-    // Row 11: FVG
-    table.cell(dash, 0, 11, "FVG", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 11,
-         fvg_ok ? "ACTIVE (neutral + VIX ok)" : "off (trend/VIX)",
-         text_color=c_white, bgcolor=fvg_ok ? c_green : c_gray, text_size=size.small)
-
-    // Row 12: 80% VA Rule
-    table.cell(dash, 0, 12, "80% VA Rule", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    va_status = (not na(d_prev_vah) and va_rule_ok) ?
-         "ACTIVE  VAH=" + str.tostring(d_prev_vah, "#.0") + "  VAL=" + str.tostring(d_prev_val, "#.0") :
-         "off (no VA data)"
-    table.cell(dash, 1, 12, va_status, text_color=c_white, bgcolor=va_rule_regime_col, text_size=size.small)
-
-    // Row 13: Prior session VA levels
-    table.cell(dash, 0, 13, "Prev VA", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    va_lvl_txt = not na(d_prev_vwap) ?
-         "POC " + str.tostring(d_prev_vwap, "#.0") + "  VAH " + str.tostring(d_prev_vah, "#.0") + "  VAL " + str.tostring(d_prev_val, "#.0") :
-         "unavailable"
-    table.cell(dash, 1, 13, va_lvl_txt, text_color=c_white, bgcolor=c_hdr, text_size=size.small)
-
-    // Row 14: Score rules
-    table.cell(dash, 0, 14, "Score Gates", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 14, "skip<=5  1-lot 6-15  2-lot>=16",
-         text_color=c_white, bgcolor=c_hdr, text_size=size.small)
-
-    // Row 15: Max trades
-    table.cell(dash, 0, 15, "Session", text_color=c_white, bgcolor=c_key, text_size=size.small)
-    table.cell(dash, 1, 15, "MAX 3 trades/day  9:30-12:00 ET",
-         text_color=c_white, bgcolor=c_hdr, text_size=size.small)
+    // Sub-header for VA
+    bg12 = C_CELL_BG2
+    table.cell(dash,0,12,"POC",text_color=C_POC,bgcolor=bg12,text_size=size.tiny,text_halign=text.align_right)
+    table.cell(dash,1,12,str.tostring(d_prev_vwap,"#.0") + "  VAH:" + str.tostring(d_prev_vah,"#.0") + "  VAL:" + str.tostring(d_prev_val,"#.0"),
+               text_color=C_POC,bgcolor=bg12,text_size=size.tiny,text_halign=text.align_left)
 
 
-// ─── ALERT CONDITIONS ─────────────────────────────────────────────────────────
+// ─── ORDER FLOW PANEL (Bloomberg-style, bottom-right) ─────────────────────────
 
-alertcondition(gap_long,
-     title="Gap Fill LONG",
-     message="ISOGENY ALPHA  - GAP FILL LONG: tiny gap-down confirmed. Enter next bar open. Target: prior close (T2). Max risk 25pts.")
+var table of_tbl = table.new(position.bottom_right, 2, 18,
+     border_width=1, border_color=color.new(#B0BEC5,50),
+     frame_width=1,  frame_color=color.new(#B0BEC5,50))
 
-alertcondition(gap_short,
-     title="Gap Fill SHORT",
-     message="ISOGENY ALPHA  - GAP FILL SHORT: tiny gap-up confirmed. Enter next bar open. Target: prior close (T2). Max risk 25pts.")
+if show_of and barstate.islast
 
-alertcondition(orb_long_sig,
-     title="ORB LONG",
-     message="ISOGENY ALPHA  - ORB LONG: breakout + pullback in bull trend. Enter next bar. T1=1R, T2=3x ORB range. Tight stop 2pts below ORB high.")
+    // Helper
+    _of_row(r,k,v,vc) =>
+        bg = r%2==0 ? C_OF_BG : C_OF_BG2
+        table.cell(of_tbl,0,r,k,text_color=C_DIM_TXT,bgcolor=bg,text_size=size.tiny,text_halign=text.align_right)
+        table.cell(of_tbl,1,r,v,text_color=vc,         bgcolor=bg,text_size=size.tiny,text_halign=text.align_left)
 
-alertcondition(orb_short_sig,
-     title="ORB SHORT",
-     message="ISOGENY ALPHA  - ORB SHORT: breakdown + pullback in bear trend. Enter next bar. T1=1R, T2=3x ORB range.")
+    // Header
+    table.cell(of_tbl,0,0,"ORDER FLOW",text_color=C_HDR_TXT,bgcolor=C_OF_HDR,text_size=size.small,text_halign=text.align_center)
+    table.cell(of_tbl,1,0,"LIVE  NQ",  text_color=C_HDR_TXT,bgcolor=C_OF_HDR,text_size=size.small,text_halign=text.align_center)
 
-alertcondition(ib_long_sig,
-     title="IB Breakout LONG",
-     message="ISOGENY ALPHA  - IB BREAKOUT LONG: C-period, bullish IB bias. Enter next bar. T1=1R, T2=2.5x IB range.")
+    // CVD
+    cvd_col = session_cvd>=0 ? C_OF_BUY : C_OF_SELL
+    cvd_str = (session_cvd>=0 ? "+" : "") + str.tostring(session_cvd,"#,###")
+    _of_row(1,"CVD", cvd_str + "  " + (session_cvd>0 ? "BUY BIAS" : session_cvd<0 ? "SELL BIAS" : "FLAT"), cvd_col)
 
-alertcondition(ib_short_sig,
-     title="IB Breakout SHORT",
-     message="ISOGENY ALPHA  - IB BREAKOUT SHORT: C-period, bearish IB bias. Enter next bar. T1=1R, T2=2.5x IB range.")
+    // Bar delta
+    d_col = bar_delta>=0 ? C_OF_BUY : C_OF_SELL
+    d_str = (bar_delta>=0 ? "+" : "") + str.tostring(bar_delta,"#,###")
+    _of_row(2,"Bar Delta", d_str + (bar_delta>200 ? "  LG BUY" : bar_delta<-200 ? "  LG SELL" : ""), d_col)
 
-alertcondition(vwap_long_sig,
-     title="VWAP Rev LONG (AM)",
-     message="ISOGENY ALPHA  - VWAP REVERSION LONG AM: price at -1.5sd. Enter next bar. T1=1R, T2=VWAP.")
+    // RVOL
+    rvol_col = rvol>=1.5 ? C_OF_BUY : rvol<0.8 ? C_OF_SELL : C_OF_NEUT
+    rvol_reg = rvol>=3.0 ? "CLIMAX" : rvol>=1.5 ? "HIGH" : rvol>=0.8 ? "NORMAL" : "THIN"
+    _of_row(3,"RVOL", str.tostring(rvol,"#.2") + "x  " + rvol_reg, rvol_col)
 
-alertcondition(vwap_short_sig,
-     title="VWAP Rev SHORT (AM)",
-     message="ISOGENY ALPHA  - VWAP REVERSION SHORT AM: price at +1.5sd. Enter next bar. T1=1R, T2=VWAP.")
+    // OFI Z-score
+    ofi_col = ofi_z>=1.5 ? C_OF_BUY : ofi_z<=-1.5 ? C_OF_SELL : C_OF_NEUT
+    ofi_str = (ofi_z>=0 ? "+" : "") + str.tostring(ofi_z,"#.2") + "  " +
+              (math.abs(ofi_z)>=2.0 ? "STRONG" : math.abs(ofi_z)>=1.0 ? "MODERATE" : "NEUTRAL")
+    _of_row(4,"OFI Z", ofi_str, ofi_col)
 
-alertcondition(vwap_pm_long_sig,
-     title="VWAP Rev LONG (PM)",
-     message="ISOGENY ALPHA  - VWAP REVERSION LONG PM: strong bull + -1.5sd. T1=1R, T2=VWAP. Close by 4PM.")
+    // Kyle Lambda
+    k_col = kyle_regime=="INFORMED" ? C_OF_BUY : C_OF_NEUT
+    _of_row(5,"Kyle Lambda", str.tostring(kyle_z,"#.2") + "  " + kyle_regime, k_col)
 
-alertcondition(vwap_pm_short_sig,
-     title="VWAP Rev SHORT (PM)",
-     message="ISOGENY ALPHA  - VWAP REVERSION SHORT PM: strong bear + +1.5sd. T1=1R, T2=VWAP. Close by 4PM.")
+    // Absorption
+    ab_col = is_absorb ? C_ABSORB : C_OF_NEUT
+    ab_str = is_absorb ? "DETECTED  " + str.upper(absorb_dir) + " SIDE" : "none"
+    _of_row(6,"Absorption", ab_str, ab_col)
 
-alertcondition(bnc_am_long_sig,
-     title="VWAP Bounce LONG (AM)",
-     message="ISOGENY ALPHA  - VWAP BOUNCE LONG AM: bull trend + price at VWAP. T1=1R, T2=Chandelier.")
+    // CVD divergence
+    cdiv_col = cvd_div_bear ? C_OF_SELL : C_OF_NEUT
+    _of_row(7,"CVD Div", cvd_div_bear ? "BEARISH  distribution" : "none", cdiv_col)
 
-alertcondition(bnc_am_short_sig,
-     title="VWAP Bounce SHORT (AM)",
-     message="ISOGENY ALPHA  - VWAP BOUNCE SHORT AM: bear trend + price at VWAP. T1=1R, T2=Chandelier.")
+    // Divider
+    table.cell(of_tbl,0,8,"VOLUME",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
+    table.cell(of_tbl,1,8,"PROFILE  (session)",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
 
-alertcondition(bnc_pm_long_sig,
-     title="VWAP Bounce LONG (PM)",
-     message="ISOGENY ALPHA  - VWAP BOUNCE LONG PM: bull trend + VWAP. T1=1R, T2=Chandelier. Close by 4PM.")
+    // Mini volume profile ladder (6 price buckets with ASCII bar)
+    _bar(v,mx) =>
+        blen = mx>0 ? math.round(v/mx*8) : 0
+        blen = math.max(0, math.min(blen,8))
+        bars_str = ""
+        if blen>=8: bars_str:="████████"
+        else if blen>=7: bars_str:="███████ "
+        else if blen>=6: bars_str:="██████  "
+        else if blen>=5: bars_str:="█████   "
+        else if blen>=4: bars_str:="████    "
+        else if blen>=3: bars_str:="███     "
+        else if blen>=2: bars_str:="██      "
+        else if blen>=1: bars_str:="█       "
+        else: bars_str:="        "
+        bars_str
 
-alertcondition(bnc_pm_short_sig,
-     title="VWAP Bounce SHORT (PM)",
-     message="ISOGENY ALPHA  - VWAP BOUNCE SHORT PM: bear trend + VWAP. T1=1R, T2=Chandelier. Close by 4PM.")
+    vp_max = math.max(vp_vol1,math.max(vp_vol2,math.max(vp_vol3,math.max(vp_vol4,math.max(vp_vol5,vp_vol6)))))
+    is_poc1 = vp_vol1==vp_max; is_poc2 = vp_vol2==vp_max; is_poc3 = vp_vol3==vp_max
+    is_poc4 = vp_vol4==vp_max; is_poc5 = vp_vol5==vp_max; is_poc6 = vp_vol6==vp_max
 
-alertcondition(bull_fvg_ok,
-     title="Bullish FVG Formed",
-     message="ISOGENY ALPHA  - BULLISH FVG: unfinished auction zone formed. Watch for return + fill (neutral trend only).")
+    _vp_row(r, px, v, is_poc) =>
+        bg = r%2==0 ? C_OF_BG : C_OF_BG2
+        poc_marker = is_poc ? " POC" : ""
+        table.cell(of_tbl,0,r,str.tostring(px,"#,###.0") + poc_marker,
+                   text_color=is_poc ? C_POC : C_DIM_TXT, bgcolor=bg, text_size=size.tiny,text_halign=text.align_right)
+        table.cell(of_tbl,1,r,_bar(v,vp_max) + "  " + str.tostring(v/1000,"#.0") + "K",
+                   text_color=is_poc ? C_POC : C_CELL_TXT, bgcolor=bg, text_size=size.tiny,text_halign=text.align_left)
 
-alertcondition(bear_fvg_ok,
-     title="Bearish FVG Formed",
-     message="ISOGENY ALPHA  - BEARISH FVG: unfinished auction zone formed. Watch for return + fill (neutral trend only).")
+    _vp_row(9,  nz(vp_p6,0.0), vp_vol6, is_poc6)
+    _vp_row(10, nz(vp_p5,0.0), vp_vol5, is_poc5)
+    _vp_row(11, nz(vp_p4,0.0), vp_vol4, is_poc4)
+    _vp_row(12, nz(vp_p3,0.0), vp_vol3, is_poc3)
+    _vp_row(13, nz(vp_p2,0.0), vp_vol2, is_poc2)
+    _vp_row(14, nz(vp_p1,0.0), vp_vol1, is_poc1)
 
-alertcondition(va_rule_long_sig,
-     title="80% VA Rule LONG",
-     message="ISOGENY ALPHA  - VA RULE LONG (Type B): opened below VAL, re-entered VA, 3-bar confirmed. T1=1R, T2=VAH. 80% documented probability.")
+    // Divider
+    table.cell(of_tbl,0,15,"SCORE GATES",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
+    table.cell(of_tbl,1,15,"TWO-TARGET EXIT",text_color=C_HDR_TXT,bgcolor=C_SUB_BG,text_size=size.tiny,text_halign=text.align_center)
+    _of_row(16,"skip / 1-lot / 2-lot","<=5  /  6-15  /  >=16", C_DIM_TXT)
+    _of_row(17,"T1 @ 1R (50% exit)","T2 @ Chandelier / extended", C_DIM_TXT)
 
-alertcondition(va_rule_short_sig,
-     title="80% VA Rule SHORT",
-     message="ISOGENY ALPHA  - VA RULE SHORT (Type A): opened above VAH, re-entered VA, 3-bar confirmed. T1=1R, T2=VAL. 80% documented probability.")
+
+// ─── ALERTS ───────────────────────────────────────────────────────────────────
+
+alertcondition(gap_long,          "GAP FILL LONG",     "ISOGENY - GAP FILL LONG: enter next bar. T1=1R, T2=prior close.")
+alertcondition(gap_short,         "GAP FILL SHORT",    "ISOGENY - GAP FILL SHORT: enter next bar. T1=1R, T2=prior close.")
+alertcondition(orb_long_sig,      "ORB LONG",          "ISOGENY - ORB LONG: pullback in bull trend. T1=1R, T2=3xORB.")
+alertcondition(orb_short_sig,     "ORB SHORT",         "ISOGENY - ORB SHORT: pullback in bear trend. T1=1R, T2=3xORB.")
+alertcondition(ib_long_sig,       "IB BREAKOUT LONG",  "ISOGENY - IB BREAKOUT LONG: C-period, bullish bias. T1=1R, T2=2.5xIB.")
+alertcondition(ib_short_sig,      "IB BREAKOUT SHORT", "ISOGENY - IB BREAKOUT SHORT: C-period, bearish bias. T1=1R, T2=2.5xIB.")
+alertcondition(vwap_long_sig,     "VWAP REV LONG AM",  "ISOGENY - VWAP REV LONG AM: at -1.5sd. T1=1R, T2=VWAP.")
+alertcondition(vwap_short_sig,    "VWAP REV SHORT AM", "ISOGENY - VWAP REV SHORT AM: at +1.5sd. T1=1R, T2=VWAP.")
+alertcondition(vwap_pm_long_sig,  "VWAP REV LONG PM",  "ISOGENY - VWAP REV LONG PM. T1=1R, T2=VWAP. Close by 4PM.")
+alertcondition(vwap_pm_short_sig, "VWAP REV SHORT PM", "ISOGENY - VWAP REV SHORT PM. T1=1R, T2=VWAP. Close by 4PM.")
+alertcondition(bnc_am_long_sig,   "VWAP BOUNCE LONG",  "ISOGENY - VWAP BOUNCE LONG: bull trend at VWAP. T1=1R, T2=Chandelier.")
+alertcondition(bnc_am_short_sig,  "VWAP BOUNCE SHORT", "ISOGENY - VWAP BOUNCE SHORT: bear trend at VWAP. T1=1R, T2=Chandelier.")
+alertcondition(bnc_pm_long_sig,   "VWAP BNC LONG PM",  "ISOGENY - VWAP BOUNCE LONG PM. T1=1R, T2=Chandelier. Close by 4PM.")
+alertcondition(bnc_pm_short_sig,  "VWAP BNC SHORT PM", "ISOGENY - VWAP BOUNCE SHORT PM. T1=1R, T2=Chandelier. Close by 4PM.")
+alertcondition(bull_fvg_ok,       "BULLISH FVG",       "ISOGENY - BULLISH FVG formed. Watch for fill on return.")
+alertcondition(bear_fvg_ok,       "BEARISH FVG",       "ISOGENY - BEARISH FVG formed. Watch for fill on return.")
+alertcondition(va_rule_long_sig,  "VA RULE LONG",      "ISOGENY - VA RULE LONG (Type B): 80% probability traverse to VAH.")
+alertcondition(va_rule_short_sig, "VA RULE SHORT",     "ISOGENY - VA RULE SHORT (Type A): 80% probability traverse to VAL.")
+alertcondition(is_absorb,         "ABSORPTION",        "ISOGENY - ABSORPTION detected. Check direction before entry.")
