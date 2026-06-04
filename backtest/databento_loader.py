@@ -126,6 +126,10 @@ def load_nq_databento(years: int = 10, force_refresh: bool = False) -> pd.DataFr
         df = pd.read_parquet(CACHE_FILE)
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC")
+        # Slice to requested years so shorter runs (2y/3y) are fast
+        if years < 10:
+            cutoff = pd.Timestamp.now(tz="UTC") - pd.DateOffset(years=years)
+            df = df[df.index >= cutoff]
         print(f"[DB] Cache loaded: {len(df):,} bars  "
               f"({df.index[0].date()} -> {df.index[-1].date()})")
         return df

@@ -107,7 +107,7 @@ def print_hybrid(trades: list[HybridTrade], s: dict, blocks: dict) -> None:
         sw = [t for t in sg if t.outcome == "WIN"]
         n2 = sum(1 for t in sg if t.n_contracts == 2)
         lots_label = f"  {n2}×2-lot" if n2 else ""
-        flag = "  ← 2-lot" if sc >= 10 else ""
+        flag = "  ← 2-lot" if sc >= 19 else ""
         print(f"    score {sc:>2}:  {len(sw)}/{len(sg)} WR={len(sw)/len(sg)*100:.0f}%  "
               f"P&L ${sum(t.pnl for t in sg):+.0f}{lots_label}{flag}")
 
@@ -252,11 +252,13 @@ def print_comparison(base_s: dict, inst_s: dict, hyb_s: dict) -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 #
 #  Usage:
-#    python3 hybrid_run.py          → default 60-day backtest
-#    python3 hybrid_run.py /60d     → 60-day (yfinance, free)
-#    python3 hybrid_run.py /6mo     → 6-month (yfinance, free)
-#    python3 hybrid_run.py /1y      → 1-year (yfinance, free)
-#    python3 hybrid_run.py /10y     → 10-year (Databento ~$12 first run, cached)
+#    python3 hybrid_run.py          → default 60-day backtest  (~5 sec)
+#    python3 hybrid_run.py /60d     → 60-day (yfinance, free)  (~5 sec)
+#    python3 hybrid_run.py /6mo     → 6-month (yfinance, free) (~15 sec)
+#    python3 hybrid_run.py /1y      → 1-year (yfinance, free)  (~30 sec)
+#    python3 hybrid_run.py /2y      → 2-year (Databento cache) (~2 min) ← fast iteration
+#    python3 hybrid_run.py /3y      → 3-year (Databento cache) (~3 min)
+#    python3 hybrid_run.py /10y     → 10-year (Databento cache) (~4 min after HMM cache warm)
 #    python3 hybrid_run.py /10y --refresh  → force re-download from Databento
 
 if __name__ == "__main__":
@@ -265,7 +267,7 @@ if __name__ == "__main__":
     arg       = next((a for a in sys.argv[1:] if a.startswith("/")), "/60d")
     period    = arg.lstrip("/")              # "60d", "6mo", "1y", "10y"
     refresh   = "--refresh" in sys.argv
-    use_db    = period in ("10y", "5y", "3y")
+    use_db    = period in ("10y", "5y", "3y", "2y")
 
     print("=" * 72)
     print(f"  ISOGENY ALPHA SYSTEM v7.0  |  {period.upper()} BACKTEST")

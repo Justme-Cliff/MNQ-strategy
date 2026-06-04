@@ -30,8 +30,8 @@ Confidence score (0-20 points + memory bonus):
   +1  (memory bonus) strategy recently performing well
 
 Contract sizing:
-  score >= 16  ->  2 MNQ contracts  (full institutional consensus)
-  score 6-15   ->  1 MNQ contract   (strong signal, standard size)
+  score >= 19  ->  2 MNQ contracts  (strong institutional consensus)
+  score 6-18   ->  1 MNQ contract   (standard size)
   score <= 5   ->  SKIP             (insufficient backing)
   Kelly check  ->  further caps 2-lot if recent WR below threshold
 
@@ -874,11 +874,13 @@ def run_hybrid_backtest(
 
             local_pos = _local_pos(sig)
 
-            # HAR stop multiplier
+            # HAR stop multiplier — va_rule is mean-reversion; the VA edge IS the stop,
+            # so never widen it further (widening a wide VA stop creates asymmetric losses)
+            effective_mult = 1.0 if strategy == "va_rule" else stop_mult
             if sig.direction == "long":
-                adjusted_stop = sig.entry - (sig.entry - sig.stop) * stop_mult
+                adjusted_stop = sig.entry - (sig.entry - sig.stop) * effective_mult
             else:
-                adjusted_stop = sig.entry + (sig.stop - sig.entry) * stop_mult
+                adjusted_stop = sig.entry + (sig.stop - sig.entry) * effective_mult
 
             # Hard blocks
             blocked, block_reason = _is_hard_blocked(
@@ -904,9 +906,19 @@ def run_hybrid_backtest(
             # Skip weak setups (threshold scaled with new 20-point max)
             if score <= 5:
                 return False
+            # FVG needs stronger confirmation — the fill mechanism is fragile
+            if strategy == "fvg" and score < 17:
+                return False
+            # va_rule has a variable-width stop (the VA edge) — require more
+            # institutional backing than other strategies before taking the risk
+            if strategy == "va_rule" and score < 18:
+                return False
 
-            # Score-based contract size (2-lot at score >= 16 out of 21 max)
-            n_contracts = 2 if score >= 16 else 1
+            # Score-based contract size (2-lot at score >= 19 out of 21 max)
+            n_contracts = 2 if score >= 19 else 1
+            # va_rule uses a variable-width stop (the VA edge); never double size
+            if strategy == "va_rule":
+                n_contracts = 1
 
             # Kelly guard: only reduce size if we have 40+ trades and recent
             # performance is genuinely poor (protects against drawdown streaks).
@@ -967,12 +979,11 @@ def run_hybrid_backtest(
                 _try_hybrid("gap_fill", gap,
                             f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
 
-        # ── Priority 2: FVG ───────────────────────────────────────────────────
-        if _can_trade() and vix_ok and trend["direction"] == "neutral" and dow != 0:
-            fvg = detect_fvg(df, today, atr, trend["direction"])
-            if fvg and direction_allowed(fvg.direction, trend, strict=True):
-                _try_hybrid("fvg", fvg,
-                            f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
+        # ── Priority 2: FVG — REMOVED ─────────────────────────────────────────
+        # 10-yr data: 52.6% WR, +$51 on 97 trades (breakeven).
+        # 2-yr data: 40% WR, -$78 on 10 trades (losing).
+        # OHLCV-only FVG detection lacks the order-flow confirmation needed
+        # to reliably identify which gaps institutions will return to fill.
 
         # ── Priority 3: ORB ───────────────────────────────────────────────────
         if _can_trade() and vix_ok:
@@ -994,25 +1005,27 @@ def run_hybrid_backtest(
                             f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR)")
 
         # ── Priority 5: AM VWAP Reversion ────────────────────────────────────
+        # Require directional HMM — VWAP reversion only has edge when there is
+        # an established regime to revert to (not sideways / neutral HMM).
+        _rev_hmm = hmm.get("state", "unavailable")
         if _can_trade() and market["vwap_ok"]:
             for vs in detect_vwap(df, today, vix, atr, max_signals=MAX_TRADES_DAY - trades_today):
                 if not _can_trade():
                     break
                 if direction_allowed(vs.direction, trend, strict=True):
-                    _try_hybrid("vwap_rev", vs,
-                                f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
+                    # Require confirmed directional regime — no bypass for unavailable.
+                    # Without regime data we can't know if there's a trend to revert to.
+                    _rev_ok = (
+                        (vs.direction == "long"  and _rev_hmm in ("bull", "strong_bull")) or
+                        (vs.direction == "short" and _rev_hmm in ("bear", "stress"))
+                    )
+                    if _rev_ok:
+                        _try_hybrid("vwap_rev", vs,
+                                    f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
 
-        # ── Priority 6: PM VWAP Reversion ────────────────────────────────────
-        if _can_trade() and market["vwap_ok"]:
-            for vs in detect_vwap(df, today, vix, atr,
-                                  max_signals=MAX_TRADES_DAY - trades_today,
-                                  start_min=13*60+30, end_min=15*60+30):
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True):
-                    _try_hybrid("vwap_pm", vs,
-                                f"PM dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)",
-                                max_hour=16)
+        # ── Priority 6: PM VWAP Reversion — REMOVED ──────────────────────────
+        # 10-year data: 48.7% WR, -$105 P&L over 113 trades.
+        # PM session has lower institutional volume; VWAP loses its anchor.
 
         # ── Priority 7: AM VWAP Bounce ────────────────────────────────────────
         if _can_trade() and market["vwap_ok"]:

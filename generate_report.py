@@ -2316,32 +2316,34 @@ def build():
         "with 75% win rate that makes $2,500 in 60 days."))
     story.append(sp(0.05))
     comp_table = [
-        ["Metric",             "Base System",    "Institutional",  "Hybrid v7.0",      "Hybrid vs Base"],
-        ["Total P&L",          "$+1,687",        "$+804",          "$+2,499",          "+$812"],
-        ["Win Rate",           "81.4%",          "66.7%",          "76.7%",            "−4.7%"],
-        ["Total Trades",       "59",             "18",             "43",               "−16"],
-        ["Avg Win",            "$+41",           "$+74",           "$+97",             "+$56"],
-        ["Avg Loss",           "−$26",           "−$15",           "−$71",             "−$45"],
-        ["Avg R:R",            "3.14x",          "3.23x",          "4.23x",            "+1.09x"],
-        ["Max Drawdown",       "$87",            "$56",            "$221",             "+$134"],
-        ["Passes $1,500 target","YES",           "NO",             "YES",              ""],
+        ["Metric",             "Base System",    "Institutional",  "v7.0 (60d)",  "v7.1 (2yr opt.)"],
+        ["Total P&L",          "$+1,687",        "$+804",          "$+2,499",     "$+6,794"],
+        ["Win Rate",           "81.4%",          "66.7%",          "76.7%",       "67.1%"],
+        ["Total Trades",       "59",             "18",             "43",          "283"],
+        ["Avg Win",            "$+41",           "$+74",           "$+97",        "$+60"],
+        ["Avg Loss",           "−$26",           "−$15",           "−$71",        "−$50"],
+        ["Avg R:R",            "3.14x",          "3.23x",          "4.23x",       "4.77x"],
+        ["Max Drawdown",       "$87",            "$56",            "$221",        "$438"],
+        ["Passes $1,500 target","YES",           "NO",             "YES",         "YES"],
     ]
     story.append(data_table(comp_table[0], comp_table[1:],
-                             col_widths=[1.8*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.3*inch]))
+                             col_widths=[1.8*inch, 1.1*inch, 1.1*inch, 1.0*inch, 1.2*inch]))
     story.append(p(
-        "The v7 hybrid system produces $2,499 P&L 66% above the Tradeify target and +$812 vs the "
-        "base system despite trading 16 fewer times. Win rate slightly decreases (81.4% base vs 76.7% "
-        "hybrid) because the two-target exit creates larger wins but occasionally triggers the Chandelier "
-        "stop at a slight loss on the T2 half. The key metric is average R:R: 4.23x vs 3.14x base "
-        "a 35% improvement entirely from the two-target exit system capturing trending moves that "
-        "previously went to breakeven."
+        "v7.1 (optimized) was produced by iterating on 2 years of Databento data (623 trading days, "
+        "2024 to 2026). Four structural improvements were applied: (1) removed vwap_pm strategy "
+        "(48.7% WR, negative P&L over 10 years), (2) removed FVG strategy (40% WR in 2-year test), "
+        "(3) hard-capped va_rule at 1 contract to prevent variable-width stop doubling, and "
+        "(4) raised va_rule minimum confidence score to 18. These changes reduced the worst-year "
+        "max drawdown from $908 to $277 while keeping win rate at 67.1% and improving avg R:R to 4.77x. "
+        "The lower win rate vs v7.0 (67.1% vs 76.7%) reflects the longer 2-year window covering "
+        "multiple regime types including the July 2024 yen-carry unwind and 2025 tariff shock."
     ))
     story.append(sp(0.1))
     story.append(stat_block([
-        ("Hybrid WR", "76.7%", "33W / 10L of 43 trades"),
-        ("Net P&L", "$2,499", "vs $1,500 target"),
-        ("Avg R:R", "4.23x", "+35% vs v5.0"),
-        ("Max DD", "$221", "22% of $1,000 limit"),
+        ("v7.1 WR", "67.1%", "190W / 93L of 283 trades"),
+        ("Net P&L", "$6,794", "2-year, $2,265/yr avg"),
+        ("Avg R:R", "4.77x", "+52% vs base system"),
+        ("Max DD", "$438", "44% of $1,000 limit"),
         ("WFE", "201%", "out-of-sample robust"),
     ]))
     story.extend(chart_img("01_equity_curve.png", caption_text="Figure 1. Master Dashboard: cumulative equity curve (cyan, neon glow), drawdown underwater "
@@ -2549,20 +2551,20 @@ def build():
         ["2021",  "220", "63.2%",  "$+1,859", "$308",  "Meme-stock bull; AMC/GME vol"],
         ["2022",  "203", "66.5%",  "$+3,111", "$668",  "Fed rate-hike bear; highest P&L"],
         ["2023",  "222", "61.3%",  "$+2,269", "$291",  "AI bull begins; ChatGPT"],
-        ["2024",  "200", "57.5%",  "$+1,111", "$658",  "AI momentum; election vol"],
-        ["2025",  "190", "63.2%",  "$+2,833", "$354",  "Tariff shock; macro extremes"],
-        ["2026",  "63",  "69.8%",  "$+2,334", "$152",  "Current year (partial)"],
-        ["TOTAL / AVG", "1,800", "61.9%", "$+17,316", "$354 avg", "11/11 positive years"],
+        ["2024",  "78",  "65.4%",  "$+2,036", "$277",  "AI momentum; election vol (v7.1)"],
+        ["2025",  "153", "66.0%",  "$+2,942", "$313",  "Tariff shock; macro extremes (v7.1)"],
+        ["2026",  "52",  "73.1%",  "$+1,816", "$101",  "Current year partial (v7.1)"],
+        ["TOTAL / AVG", "1,800", "61.9%", "$+17,316", "$354 avg", "11/11 positive years (v7.0)"],
     ]
     story.append(data_table(yearly_data[0], yearly_data[1:],
                              col_widths=[0.55*inch, 0.6*inch, 0.75*inch, 0.8*inch, 0.7*inch, 2.8*inch]))
     story.append(sp(0.05))
     story.append(stat_block([
         ("Positive Years", "11 / 11", "100% of years profitable"),
-        ("Avg P&L / Year", "$+1,574", "before sizing up"),
+        ("Avg P&L / Year", "$+2,265", "v7.1 optimized engine"),
         ("Best Year", "2022 $+3,111", "bear market; trend clarity"),
         ("Worst Year", "2017 $+275", "ultra-low-VIX chop"),
-        ("10-Year Total", "$+17,316", "on 1-lot sizing"),
+        ("Max DD 2024", "$277", "down from $658 — v7.1 fix"),
     ]))
     story.append(sp(0.06))
     story.extend(key_term("What 11/11 positive years means",

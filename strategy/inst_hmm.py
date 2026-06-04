@@ -18,15 +18,36 @@ Requires: pip install hmmlearn
 from __future__ import annotations
 import io
 import sys
+import json
 import warnings
 warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 from datetime import date
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Optional
 
 EST = ZoneInfo("America/New_York")
+
+# Disk cache so 10-year backtests don't re-train HMM every run
+_HMM_CACHE_FILE = Path(__file__).parent.parent / ".cache" / "hmm_states.json"
+_hmm_disk_cache: dict[str, dict] = {}
+
+def _load_hmm_cache():
+    global _hmm_disk_cache
+    if _HMM_CACHE_FILE.exists() and not _hmm_disk_cache:
+        try:
+            _hmm_disk_cache = json.loads(_HMM_CACHE_FILE.read_text())
+        except Exception:
+            _hmm_disk_cache = {}
+
+def _save_hmm_cache():
+    try:
+        _HMM_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _HMM_CACHE_FILE.write_text(json.dumps(_hmm_disk_cache))
+    except Exception:
+        pass
 
 try:
     from hmmlearn.hmm import GaussianHMM
@@ -110,7 +131,7 @@ def _train(df: pd.DataFrame, today: date, lookback_days: int = 60):
         sys.stdout = io.StringIO()
         try:
             model = GaussianHMM(n_components=N_STATES, covariance_type="diag",
-                                n_iter=300, random_state=42, tol=1e-4)
+                                n_iter=100, random_state=42, tol=1e-3)
             model.fit(X_scaled)
         finally:
             sys.stdout = _old_stdout
@@ -149,6 +170,12 @@ def get_hmm_gate(df: pd.DataFrame, today: date, bear_threshold: float = BEAR_THR
     if not HMM_AVAILABLE:
         return default
 
+    # Check disk cache first — avoids re-training on repeated 10-year runs
+    _load_hmm_cache()
+    _cache_key = str(today)
+    if _cache_key in _hmm_disk_cache:
+        return _hmm_disk_cache[_cache_key]
+
     model, order = _train(df, today, lookback_days=60)
     if model is None:
         return default
@@ -181,7 +208,7 @@ def get_hmm_gate(df: pd.DataFrame, today: date, bear_threshold: float = BEAR_THR
         # Skip day if in bear OR strong stress regime
         skip = (bear_p > bear_threshold) or (stress_p > STRESS_THRESHOLD)
 
-        return {
+        result = {
             "skip_day":    skip,
             "bear_prob":   float(bear_p),
             "stress_prob": float(stress_p),
@@ -191,5 +218,9 @@ def get_hmm_gate(df: pd.DataFrame, today: date, bear_threshold: float = BEAR_THR
             "vol_prob":    float(stress_p),   # backward compat alias
             "state":       state,
         }
+        # Save to disk cache
+        _hmm_disk_cache[_cache_key] = result
+        _save_hmm_cache()
+        return result
     except Exception:
         return default
