@@ -93,6 +93,26 @@ from strategy.inst_sectors    import get_smh_lead_signal, load_smh_data
 from strategy.inst_kelly      import kelly_contracts
 from strategy.bot_memory      import get_conf_adjustment
 
+# ── Meta-labeling ML gate (optional — degrades to a complete no-op if the
+# `ml` package or its saved models aren't present, e.g. on a fresh checkout) ──
+try:
+    from ml.inference import score_candidate as _ml_score_candidate, ml_gate_enabled as _ml_gate_enabled
+    _ML_AVAILABLE = True
+except Exception:
+    _ML_AVAILABLE = False
+
+import os
+# "off"    -> ML never runs (zero overhead, identical behavior to pre-ML code)
+# "shadow" -> compute & log P(win) on every scored candidate; NEVER changes
+#             take/skip/sizing decisions (used to validate the model live
+#             over weeks before trusting it with real filtering — see
+#             ML_IMPLEMENTATION_PLAN.md §18 "shadow-mode deployment")
+# "live"   -> additionally require P(win) >= ML_GATE_THRESHOLD for any
+#             strategy whose model demonstrated real OOS edge
+#             (`ml.inference.ml_gate_enabled` — others stay rule-only)
+ML_GATE_MODE      = os.environ.get("ISOGENY_ML_GATE", "off").lower()
+ML_GATE_THRESHOLD = float(os.environ.get("ISOGENY_ML_THRESHOLD", "0.55"))
+
 EST = ZoneInfo("America/New_York")
 
 MNQ_PER_POINT  = 2.0
@@ -136,6 +156,7 @@ class HybridTrade:
     tsmom_bias:    str   = "neutral"
     signal_detail: str   = ""
     stop_mult:     float = 1.0
+    ml_proba:      Optional[float] = None   # meta-model P(win); None = no model / ML gate off
 
 
 # ── VIX helpers ───────────────────────────────────────────────────────────────
@@ -903,6 +924,42 @@ def run_hybrid_backtest(
                 cot=cot, breadth=breadth, smh_signal=smh_sig, smh_vxn=(vix or 20.0),
             )
 
+            # Strategy-specific target extensions for T2 — computed BEFORE the
+            # score gate (not just before simulation) so the planned R:R fed to
+            # the ML meta-model exactly matches what `ml.generate_dataset`
+            # captured at training time (feature parity = no train/serve skew).
+            effective_target = sig.target
+            if strategy == "orb" and hasattr(sig, "orb_range") and sig.orb_range > 0:
+                ext = sig.entry + sig.orb_range * 3.0 if sig.direction == "long" \
+                      else sig.entry - sig.orb_range * 3.0
+                effective_target = max(sig.target, ext) if sig.direction == "long" \
+                                   else min(sig.target, ext)
+            elif strategy == "ib_breakout" and hasattr(sig, "ib_range") and sig.ib_range > 0:
+                ext = sig.entry + sig.ib_range * 2.5 if sig.direction == "long" \
+                      else sig.entry - sig.ib_range * 2.5
+                effective_target = max(sig.target, ext) if sig.direction == "long" \
+                                   else min(sig.target, ext)
+            reward_pts = abs(effective_target - sig.entry)
+            rr_planned = reward_pts / risk_pts if risk_pts > 0 else 0.0
+
+            # Meta-labeling ML gate — "off" costs nothing; "shadow" scores and
+            # logs P(win) without touching the decision; "live" additionally
+            # filters, but ONLY for strategies whose model proved real OOS edge.
+            ml_proba = None
+            if _ML_AVAILABLE and ML_GATE_MODE in ("shadow", "live"):
+                try:
+                    ml_proba = _ml_score_candidate(
+                        strategy, sig, signal_bar_idx=sig.signal_bar_idx, local_pos=local_pos,
+                        df=df, today_df=today_df, today=today,
+                        vix=vix, vix3m=vix3m, vvix=vvix,
+                        market=market, hmm=hmm, gex=gex, tsmom=tsmom, sector=sector, macro=macro,
+                        nq_es_spread=nq_es_spread, occ=occ, cot=cot, breadth=breadth, smh_sig=smh_sig,
+                        har=har, stop_mult=stop_mult, score=score, breakdown=breakdown,
+                        risk_pts=risk_pts, reward_pts=reward_pts, rr_planned=rr_planned,
+                    )
+                except Exception:
+                    ml_proba = None
+
             # Skip weak setups (threshold scaled with new 20-point max)
             if score <= 5:
                 return False
@@ -912,6 +969,12 @@ def run_hybrid_backtest(
             # va_rule has a variable-width stop (the VA edge) — require more
             # institutional backing than other strategies before taking the risk
             if strategy == "va_rule" and score < 18:
+                return False
+            # Live ML gate: require the meta-model's confidence to clear the bar
+            # too — but only for strategies whose model demonstrated real OOS
+            # edge (`ml_gate_enabled`); everything else stays 100% rule-based.
+            if (ML_GATE_MODE == "live" and ml_proba is not None
+                    and _ml_gate_enabled(strategy) and ml_proba < ML_GATE_THRESHOLD):
                 return False
 
             # Score-based contract size (2-lot at score >= 19 out of 21 max)
@@ -927,26 +990,12 @@ def run_hybrid_backtest(
                 kelly_size = kelly_contracts(trades)
                 n_contracts = min(n_contracts, kelly_size)
 
-            # Strategy-specific target extensions for T2
-            effective_target = sig.target
-            if strategy == "orb" and hasattr(sig, "orb_range") and sig.orb_range > 0:
-                ext = sig.entry + sig.orb_range * 3.0 if sig.direction == "long" \
-                      else sig.entry - sig.orb_range * 3.0
-                effective_target = max(sig.target, ext) if sig.direction == "long" \
-                                   else min(sig.target, ext)
-            elif strategy == "ib_breakout" and hasattr(sig, "ib_range") and sig.ib_range > 0:
-                ext = sig.entry + sig.ib_range * 2.5 if sig.direction == "long" \
-                      else sig.entry - sig.ib_range * 2.5
-                effective_target = max(sig.target, ext) if sig.direction == "long" \
-                                   else min(sig.target, ext)
-
             exit_p, pnl, outcome = _simulate_trade(
                 df, sig.signal_bar_idx,
                 sig.direction, sig.entry, adjusted_stop, effective_target,
                 n_contracts=n_contracts, max_hour=max_hour,
             )
-            reward_pts = abs(effective_target - sig.entry)
-            rr = reward_pts / risk_pts if risk_pts > 0 else 0
+            rr = rr_planned
 
             trades.append(HybridTrade(
                 date=today, day_name=day_names[dow],
@@ -964,6 +1013,7 @@ def run_hybrid_backtest(
                 tsmom_bias=tsmom["bias"],
                 signal_detail=detail,
                 stop_mult=stop_mult,
+                ml_proba=ml_proba,
             ))
             trades_today += 1
             daily_pnl    += pnl

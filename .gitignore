@@ -44,6 +44,7 @@ env/
 
 # PDF files and generator (keep locally, not in git)
 *.pdf
+!Isogeny_Alpha_System_Kairos_Research_v8.pdf
 generate_research_paper.py
 
 # Jupyter
@@ -64,3 +65,6 @@ IMPROVEMENTS.md
 # Backtest charts — tracked for README display
 # backtest_charts/
 .cache/
+
+# Claude Code local tool state
+.claude/

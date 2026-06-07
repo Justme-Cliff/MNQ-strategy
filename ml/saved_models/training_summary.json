@@ -1,0 +1,274 @@
+[
+  {
+    "strategy": "gap_fill",
+    "trained": false,
+    "n": 2,
+    "reason": "insufficient_data"
+  },
+  {
+    "strategy": "ib_breakout",
+    "trained": true,
+    "n": 380,
+    "base_rate": 0.5210526315789473,
+    "fold_metrics": [
+      {
+        "fold": 1,
+        "n_train": 304,
+        "n_test": 76,
+        "test_wr": 0.5394736842105263,
+        "auc": 0.6209059233449477,
+        "brier": 0.24317133530894539
+      },
+      {
+        "fold": 2,
+        "n_train": 304,
+        "n_test": 76,
+        "test_wr": 0.5131578947368421,
+        "auc": 0.5176715176715176,
+        "brier": 0.27094587739597914
+      },
+      {
+        "fold": 3,
+        "n_train": 302,
+        "n_test": 76,
+        "test_wr": 0.5394736842105263,
+        "auc": 0.7184668989547038,
+        "brier": 0.21724166785666432
+      },
+      {
+        "fold": 4,
+        "n_train": 303,
+        "n_test": 76,
+        "test_wr": 0.47368421052631576,
+        "auc": 0.7659722222222223,
+        "brier": 0.21702159572767443
+      },
+      {
+        "fold": 5,
+        "n_train": 304,
+        "n_test": 76,
+        "test_wr": 0.5394736842105263,
+        "auc": 0.6425087108013937,
+        "brier": 0.23309637574727488
+      }
+    ],
+    "avg_auc": 0.653105054598957,
+    "avg_brier": 0.23629537040730764,
+    "naive_brier": 0.24955678670360112,
+    "verdict": "model adds signal \u2014 proceed to SHAP + threshold tuning"
+  },
+  {
+    "strategy": "orb",
+    "trained": true,
+    "n": 427,
+    "base_rate": 0.7447306791569087,
+    "fold_metrics": [
+      {
+        "fold": 1,
+        "n_train": 341,
+        "n_test": 86,
+        "test_wr": 0.6627906976744186,
+        "auc": 0.8499697519661222,
+        "brier": 0.16805274668134632
+      },
+      {
+        "fold": 2,
+        "n_train": 341,
+        "n_test": 86,
+        "test_wr": 0.7441860465116279,
+        "auc": 0.7883522727272727,
+        "brier": 0.1536956613934012
+      },
+      {
+        "fold": 3,
+        "n_train": 342,
+        "n_test": 85,
+        "test_wr": 0.7294117647058823,
+        "auc": 0.7279102384291725,
+        "brier": 0.1706974247545781
+      },
+      {
+        "fold": 4,
+        "n_train": 342,
+        "n_test": 85,
+        "test_wr": 0.7411764705882353,
+        "auc": 0.766955266955267,
+        "brier": 0.1609644060805084
+      },
+      {
+        "fold": 5,
+        "n_train": 342,
+        "n_test": 85,
+        "test_wr": 0.8470588235294118,
+        "auc": 0.7884615384615383,
+        "brier": 0.10836955965333127
+      }
+    ],
+    "avg_auc": 0.7843298137078746,
+    "avg_brier": 0.15235595971263308,
+    "naive_brier": 0.19010689467939826,
+    "verdict": "model adds signal \u2014 proceed to SHAP + threshold tuning"
+  },
+  {
+    "strategy": "va_rule",
+    "trained": true,
+    "n": 1059,
+    "base_rate": 0.6383380547686497,
+    "fold_metrics": [
+      {
+        "fold": 1,
+        "n_train": 845,
+        "n_test": 212,
+        "test_wr": 0.6320754716981132,
+        "auc": 0.6261002678913127,
+        "brier": 0.22247841837353313
+      },
+      {
+        "fold": 2,
+        "n_train": 845,
+        "n_test": 212,
+        "test_wr": 0.6037735849056604,
+        "auc": 0.6157924107142858,
+        "brier": 0.2339172405638802
+      },
+      {
+        "fold": 3,
+        "n_train": 845,
+        "n_test": 212,
+        "test_wr": 0.660377358490566,
+        "auc": 0.6684523809523809,
+        "brier": 0.20899550845615156
+      },
+      {
+        "fold": 4,
+        "n_train": 844,
+        "n_test": 212,
+        "test_wr": 0.6698113207547169,
+        "auc": 0.6091549295774648,
+        "brier": 0.22135519210329577
+      },
+      {
+        "fold": 5,
+        "n_train": 847,
+        "n_test": 211,
+        "test_wr": 0.6255924170616114,
+        "auc": 0.6419255849635596,
+        "brier": 0.22240558404725783
+      }
+    ],
+    "avg_auc": 0.6322851148198008,
+    "avg_brier": 0.22183038870882368,
+    "naive_brier": 0.23086258260282605,
+    "verdict": "model adds signal \u2014 proceed to SHAP + threshold tuning"
+  },
+  {
+    "strategy": "vwap_bounce",
+    "trained": true,
+    "n": 863,
+    "base_rate": 0.6384704519119351,
+    "fold_metrics": [
+      {
+        "fold": 1,
+        "n_train": 688,
+        "n_test": 173,
+        "test_wr": 0.6184971098265896,
+        "auc": 0.7771169640328519,
+        "brier": 0.18341706911720562
+      },
+      {
+        "fold": 2,
+        "n_train": 688,
+        "n_test": 173,
+        "test_wr": 0.6184971098265896,
+        "auc": 0.799207023506089,
+        "brier": 0.18862144080197654
+      },
+      {
+        "fold": 3,
+        "n_train": 690,
+        "n_test": 173,
+        "test_wr": 0.6647398843930635,
+        "auc": 0.8241379310344827,
+        "brier": 0.1623700421821564
+      },
+      {
+        "fold": 4,
+        "n_train": 690,
+        "n_test": 172,
+        "test_wr": 0.6395348837209303,
+        "auc": 0.8898826979472141,
+        "brier": 0.13780769302073434
+      },
+      {
+        "fold": 5,
+        "n_train": 690,
+        "n_test": 172,
+        "test_wr": 0.6511627906976745,
+        "auc": 0.8589285714285714,
+        "brier": 0.1500811249459073
+      }
+    ],
+    "avg_auc": 0.8298546375898418,
+    "avg_brier": 0.16445947401359606,
+    "naive_brier": 0.23082593394730447,
+    "verdict": "model adds signal \u2014 proceed to SHAP + threshold tuning"
+  },
+  {
+    "strategy": "vwap_bounce_pm",
+    "trained": true,
+    "n": 528,
+    "base_rate": 0.5681818181818182,
+    "fold_metrics": [
+      {
+        "fold": 1,
+        "n_train": 421,
+        "n_test": 106,
+        "test_wr": 0.5660377358490566,
+        "auc": 0.7431159420289856,
+        "brier": 0.21388761198314232
+      },
+      {
+        "fold": 2,
+        "n_train": 421,
+        "n_test": 106,
+        "test_wr": 0.5660377358490566,
+        "auc": 0.8257246376811594,
+        "brier": 0.1617645294152064
+      },
+      {
+        "fold": 3,
+        "n_train": 420,
+        "n_test": 106,
+        "test_wr": 0.5566037735849056,
+        "auc": 0.8258204111071041,
+        "brier": 0.16638363005480197
+      },
+      {
+        "fold": 4,
+        "n_train": 421,
+        "n_test": 105,
+        "test_wr": 0.6,
+        "auc": 0.8582766439909296,
+        "brier": 0.14060202023817694
+      },
+      {
+        "fold": 5,
+        "n_train": 421,
+        "n_test": 105,
+        "test_wr": 0.5523809523809524,
+        "auc": 0.9075568598679382,
+        "brier": 0.12799087309286455
+      }
+    ],
+    "avg_auc": 0.8320988989352234,
+    "avg_brier": 0.1621257329568384,
+    "naive_brier": 0.24535123966942152,
+    "verdict": "model adds signal \u2014 proceed to SHAP + threshold tuning"
+  },
+  {
+    "strategy": "vwap_rev",
+    "trained": false,
+    "n": 112,
+    "reason": "insufficient_data"
+  }
+]

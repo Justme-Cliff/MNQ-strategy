@@ -1,0 +1,89 @@
+feature,mean_abs_shap,corr_with_shap,direction
+lambda_val,0.7979477078387541,0.5114341166145905,higher value -> WIN
+setup_atr_ratio,0.2488534331382554,-0.9268070164576682,higher value -> LOSS
+lambda_zscore,0.2290883775013546,0.8408893497953711,higher value -> WIN
+rvol,0.2199541256151909,0.8358306347034198,higher value -> WIN
+tsmom_return_30m,0.13516043528474322,0.608278141519006,higher value -> WIN
+hmm_bear_prob,0.13001922722987025,0.3544239363119194,higher value -> WIN
+lambda_aligned,0.12275002679014671,0.991602361402007,higher value -> WIN
+occ_first_bar_ret,0.09992545634349524,0.8913142593734514,higher value -> WIN
+hmm_bull_prob,0.08452461144903568,0.1249310921716291,higher value -> WIN
+tsmom_conviction,0.0804011803819906,0.8236718994861865,higher value -> WIN
+hmm_strong_prob,0.07572397578846995,0.5016054227321279,higher value -> WIN
+atr_20,0.07052127390586065,0.8844182201879764,higher value -> WIN
+reward_pts_planned,0.06687555694538912,-0.8453795950087765,higher value -> LOSS
+bd_lambda,0.05538375611577883,0.9938299692394744,higher value -> WIN
+vwap_at_entry,0.05520140576778404,0.8525587956160503,higher value -> WIN
+atr_5,0.054048596618508665,0.68819237610187,higher value -> WIN
+score,0.04812700231391468,-0.6327198396771911,higher value -> LOSS
+har_rv_forecast,0.042751283359760306,-0.3302686215228636,higher value -> LOSS
+minute,0.04137011344809952,0.37450850698860866,higher value -> WIN
+minute_of_day,0.03872291852118062,-0.3937185468439984,higher value -> LOSS
+open_type_cat,0.03352952534464227,,'trend'(+0.034) vs 'reversal'(-0.035)
+rr_planned,0.033263736926238026,0.08916068536741908,higher value -> WIN
+bd_overnight,0.02888708440663561,-0.9053437830940468,higher value -> LOSS
+entry_type_cat,0.026778843363859394,,'direct'(+0.026) vs 'pullback'(-0.027)
+tsmom_bias_cat,0.025366376684377676,,'long'(+0.018) vs 'short'(-0.040)
+atr,0.02485116418004924,0.8357822755149552,higher value -> WIN
+risk_pts,0.02221580881531219,-0.8272781463897141,higher value -> LOSS
+hmm_stress_prob,0.02207377778660622,0.8538276610082521,higher value -> WIN
+hmm_neutral_prob,0.02201767419869256,-0.07975823238187965,higher value -> LOSS
+har_vol_regime_cat,0.013413853599874915,,'normal'(+0.009) vs 'high'(-0.023)
+stop_mult,0.011565457682007571,-0.9503258456244025,higher value -> LOSS
+bd_rvol,0.010780338542156827,0.9760941443816801,higher value -> WIN
+bd_hmm,0.009316805413789757,0.9552267881866433,higher value -> WIN
+overnight_type_cat,0.009282442757199848,,'rotation'(+0.011) vs 'neutral'(-0.008)
+rvol_regime_cat,0.007110741410247583,,'high'(+0.006) vs 'thin'(-0.013)
+hmm_state_ord,0.006135203576376645,-0.7772900134913581,higher value -> LOSS
+occ_dir_cat,0.004563664226257041,,'long'(+0.004) vs 'short'(-0.005)
+bd_occ,0.0022427552992977657,-0.8358594578413043,higher value -> LOSS
+bd_cvd,0.0021344021694121073,-0.8891609039411472,higher value -> LOSS
+gex_bias_cat,0.0,,'neutral'(+0.000) vs 'mean_rev'(0.000)
+cot_bias_cat,0.0,,'neutral'(+0.000) vs 'extreme_long'(0.000)
+breadth_bias_cat,0.0,,'neutral'(+0.000) vs 'bullish'(0.000)
+vix,0.0,,no clear monotonic direction
+bd_smh,0.0,,no clear monotonic direction
+bd_cot,0.0,,no clear monotonic direction
+bd_avwap,0.0,,no clear monotonic direction
+bd_breadth,0.0,,no clear monotonic direction
+bd_memory,0.0,,no clear monotonic direction
+vol_regime_cat,0.0,,'normal'(+0.000) vs 'compressed'(0.000)
+vix_regime_cat,0.0,,'normal'(+0.000) vs 'elevated'(0.000)
+hmm_state_cat,0.0,,'unavailable'(+0.000) vs 'bear'(0.000)
+trend_dir_cat,0.0,,'strong_bull'(+0.000) vs 'neutral'(0.000)
+vix_term_cat,0.0,,'flat'(+0.000) vs 'contango'(0.000)
+dir_long,0.0,,no clear monotonic direction
+nq_es_signal_cat,0.0,,'nq_extended'(+0.000) vs 'neutral'(0.000)
+macro_combined_cat,0.0,,'tailwind'(+0.000) vs 'headwind'(0.000)
+smh_signal_cat,0.0,,single level
+bd_absorption,0.0,,no clear monotonic direction
+sector_bias_cat,0.0,,'neutral'(+0.000) vs 'bearish'(0.000)
+occ_conviction_cat,0.0,,'normal'(+0.000) vs 'low'(0.000)
+tsmom_available,0.0,,no clear monotonic direction
+bd_nq_es_spread,0.0,,no clear monotonic direction
+bd_open_type,0.0,,no clear monotonic direction
+bd_conviction,0.0,,no clear monotonic direction
+sector_rs_ratio,0.0,,no clear monotonic direction
+sector_rs_vs_sma,0.0,,no clear monotonic direction
+smh_rs_slope,0.0,,no clear monotonic direction
+macro_dxy_ret,0.0,,no clear monotonic direction
+macro_tnx_chg_bps,0.0,,no clear monotonic direction
+nq_es_zscore,0.0,,no clear monotonic direction
+cot_index,0.0,,no clear monotonic direction
+breadth_addn,0.0,,no clear monotonic direction
+gex_ratio,0.0,,no clear monotonic direction
+gex_bias_ord,0.0,,no clear monotonic direction
+avwap_near,0.0,,no clear monotonic direction
+avwap_confluence,0.0,,no clear monotonic direction
+trend_dir_ord,0.0,,no clear monotonic direction
+deviation_std,0.0,,no clear monotonic direction
+vvix,0.0,,no clear monotonic direction
+bd_tsmom,0.0,,no clear monotonic direction
+bd_gex,0.0,,no clear monotonic direction
+bd_es,0.0,,no clear monotonic direction
+vix3m,0.0,,no clear monotonic direction
+bd_vix_term,0.0,,no clear monotonic direction
+bd_sector,0.0,,no clear monotonic direction
+bd_macro,0.0,,no clear monotonic direction
+tsmom_bias_ord,0.0,,no clear monotonic direction
+hour,0.0,,no clear monotonic direction
