@@ -273,6 +273,10 @@ ISOGENY_ML_GATE=live  python3 hybrid_run.py /2y
 # Shadow mode — log P(win) predictions without changing any decision (validate before trusting)
 ISOGENY_ML_GATE=shadow python3 hybrid_run.py /2y
 
+# Live monitor on the hybrid engine with the ML gate active (see "Live Monitor" section below
+# for the full ISOGENY_ENGINE switch + what changes in the signal panel)
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live python3 monitor.py
+
 # Try a different confidence threshold for the live gate (default 0.55)
 ISOGENY_ML_GATE=live ISOGENY_ML_THRESHOLD=0.60 python3 hybrid_run.py /2y
 
@@ -447,8 +451,14 @@ python3 -m ml.evaluation.compare_backtest --strategy vwap_bounce
 # Regenerate the 3 ML interpretability charts (decision surface, feature importance, validation gate)
 python3 -m ml.ml_charts
 
-# Start live monitor (run at 9:20 AM ET)
+# Start live monitor (run at 9:20 AM ET) — rule-only quant engine, default, unchanged
 python3 monitor.py
+
+# Live monitor on the full institutional engine + meta-labeling ML gate
+# (ISOGENY_ENGINE=hybrid is the only thing that switches monitor.py's signal
+#  engine — default "quant" is byte-identical to the original monitor)
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=shadow python3 monitor.py   # ML scores + displays P(win), never vetoes
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live  python3 monitor.py   # ML actively vetoes low-confidence signals
 
 # Post-session P&L check
 python3 daily_check.py
@@ -501,6 +511,27 @@ The monitor runs in your terminal from 9:20 AM ET. It shows:
 - **Outcome tracking**: after confirming, ticker pauses again until you type `w` = win, `l` = loss, `s` = skip — feeds regime-contextual WR learning and bot_memory.json
 
 Works on **macOS**, **Windows**, and **Linux**.
+
+### Engine switch — `ISOGENY_ENGINE`
+
+The monitor can run on either signal engine, controlled by one env var (default `quant` — byte-identical to the original monitor, zero behavior change):
+
+| `ISOGENY_ENGINE` | Engine | What it does |
+|:--|:--|:--|
+| `quant` (default) | `backtest.quant_engine` | Rule-only scanner — exactly the original monitor, no ML involved |
+| `hybrid` | `backtest.hybrid_engine` | Full institutional stack (HMM/GEX/sector/macro/COT/breadth/SMH) — same engine that powers the validated 2-yr backtest above. Loads a live ES (`MES=F`) feed alongside NQ for lead-lag features. Combine with `ISOGENY_ML_GATE` to add the meta-labeling filter live |
+
+```bash
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=shadow python3 monitor.py   # rules + live ML opinion, nothing vetoed
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live  python3 monitor.py   # rules + ML actively vetoes low-confidence signals
+```
+
+In `hybrid` mode, signal panels gain two extra rows whenever the data is available:
+
+- **ML conf.** — the model's live `P(win)` for this candidate, color-coded (green ≥ 55%, yellow ≥ 45%, red below)
+- **Regime** — current HMM state and GEX bias at signal time
+
+`shadow` mode shows these for every signal without ever blocking one — useful for building trust in the model's calls before relying on `live` to filter for you. `live` mode silently vetoes any candidate from the four ML-eligible strategies (`orb`, `vwap_bounce`, `vwap_bounce_pm`, `ib_breakout`) that scores below `ISOGENY_ML_THRESHOLD` (default `0.55`) — the rules never change, the ML can only say "skip," never "take."
 
 ---
 

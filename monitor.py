@@ -17,6 +17,7 @@ Features:
   - Bot memory insights shown at session start
 """
 from __future__ import annotations
+import os
 import sys
 import time
 import json
@@ -38,8 +39,21 @@ from rich.align import Align
 
 from fast_feed import get_feed
 from backtest.quant_engine import run_quant_today, QuantTrade
-from backtest.data_loader import load_nq, label_sessions
+from backtest.data_loader import load_nq, load_es, label_sessions
 from backtest.quant_engine import _load_vix
+
+# ── Engine selection ──────────────────────────────────────────────────────────
+# "quant"  (default) -> rule-only scanner, identical to the original monitor
+# "hybrid"           -> full institutional stack + meta-labeling ML gate
+#                       (gate behavior itself is controlled by ISOGENY_ML_GATE /
+#                       ISOGENY_ML_THRESHOLD inside hybrid_engine — e.g. run as
+#                       `ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live python3 monitor.py`)
+ISOGENY_ENGINE = os.environ.get("ISOGENY_ENGINE", "quant").lower()
+
+if ISOGENY_ENGINE == "hybrid":
+    from backtest.hybrid_engine import (
+        run_hybrid_today, HybridContext, load_hybrid_context,
+    )
 from notifications import (
     alert_signal, alert_session_start, alert_session_end, alert_risk_warning,
     alert_breakeven, alert_warning,
@@ -60,6 +74,7 @@ EST       = ZoneInfo("America/New_York")
 console   = Console(highlight=False)
 ACCT_PATH = Path(__file__).parent / "journal" / "account.json"
 TICKER    = yf.Ticker("NQ=F")
+ES_TICKER = yf.Ticker("MES=F")   # only polled when ISOGENY_ENGINE=hybrid (lead-lag features)
 
 # ── Color palette ─────────────────────────────────────────────────────────────
 C_LONG    = "bright_green"
@@ -128,7 +143,9 @@ def _status_bar(price: float, confirmed: int, buf: float, vix: float, atr: float
 
 
 def _signal_panel(strategy: str, direction: str, entry: float, stop: float,
-                  target: float, score: int = 0, n_contracts: int = 1) -> None:
+                  target: float, score: int = 0, n_contracts: int = 1,
+                  ml_proba: float | None = None, hmm_state: str | None = None,
+                  gex_bias: str | None = None) -> None:
     """Big bordered signal panel — impossible to miss."""
     # Round ALL prices to nearest 0.25 tick — Tradovate rejects non-tick prices
     entry  = _tick(entry)
@@ -159,6 +176,16 @@ def _signal_panel(strategy: str, direction: str, entry: float, stop: float,
     t.add_row("",          "",                                         "")
     t.add_row("Score",     f"[{C_SCORE}]{score}/21[/{C_SCORE}]  [{C_DIM}]{score_bar}[/{C_DIM}]", "")
     t.add_row("Size",      f"[{C_WARN}]{lots_txt}[/{C_WARN}]",        "")
+
+    if ml_proba is not None:
+        ml_col = C_GOOD if ml_proba >= 0.55 else (C_WARN if ml_proba >= 0.45 else C_BAD)
+        t.add_row("ML conf.", f"[{ml_col}]{ml_proba:.0%}[/{ml_col}]", "← P(win), meta-labeling gate")
+    if hmm_state or gex_bias:
+        ctx_bits = [b for b in (
+            f"HMM {hmm_state}" if hmm_state else "",
+            f"GEX {gex_bias}" if gex_bias else "",
+        ) if b]
+        t.add_row("Regime",   f"[{C_DIM}]{'   ·   '.join(ctx_bits)}[/{C_DIM}]", "")
 
     border = side_col
     console.print()
@@ -363,6 +390,29 @@ def _load_vix_cache() -> dict:
 
 def _append_latest(cache: pd.DataFrame) -> pd.DataFrame:
     latest = _fetch_latest_bars()
+    if latest.index.tz is not None and str(latest.index.tz) != "UTC":
+        latest = latest.copy()
+        latest.index = latest.index.tz_convert("UTC")
+    combined = pd.concat([cache, latest])
+    combined = combined[~combined.index.duplicated(keep="last")]
+    return combined.sort_index()
+
+
+# ── ES feed (hybrid engine only — lead-lag features need live ES bars) ───────
+
+def _fetch_latest_es_bars() -> pd.DataFrame:
+    df = ES_TICKER.history(period="2d", interval="5m", auto_adjust=True)
+    return df.tail(10)
+
+
+def _load_es_cache() -> pd.DataFrame:
+    df = load_es(interval="5m", period="10d")
+    console.print(f"[{C_GOOD}]✓  {len(df)} ES bars loaded[/{C_GOOD}]")
+    return df
+
+
+def _append_latest_es(cache: pd.DataFrame) -> pd.DataFrame:
+    latest = _fetch_latest_es_bars()
     if latest.index.tz is not None and str(latest.index.tz) != "UTC":
         latest = latest.copy()
         latest.index = latest.index.tz_convert("UTC")
@@ -601,6 +651,18 @@ def run_monitor():
     console.print("[dim]Loading VIX history...[/dim]", end=" ")
     vix_cache = _load_vix_cache()
 
+    hybrid_ctx: HybridContext | None = None
+    es_cache:   pd.DataFrame | None  = None
+    if ISOGENY_ENGINE == "hybrid":
+        console.print("[dim]Loading ES bar history (10d / 5m)...[/dim]", end=" ")
+        es_cache = _load_es_cache()
+
+        console.print("[dim]Loading institutional context "
+                      "(HMM/GEX/sector/macro/COT/breadth/SMH)...[/dim]", end=" ")
+        hybrid_ctx = load_hybrid_context()
+        gate_mode  = os.environ.get("ISOGENY_ML_GATE", "off").lower()
+        console.print(f"[{C_GOOD}]✓  hybrid engine — ML_GATE={gate_mode}[/{C_GOOD}]")
+
     console.print("[dim]Reading news + economic calendar...[/dim]", end=" ")
     session_news = fetch_session_news()
     console.print(f"[{C_GOOD}]✓[/{C_GOOD}]")
@@ -773,12 +835,17 @@ def run_monitor():
                 continue
 
             bar_cache = _append_latest(bar_cache)
+            if ISOGENY_ENGINE == "hybrid":
+                es_cache = _append_latest_es(es_cache)
             fetch_ms  = int((time.monotonic() - t0) * 1000)
             _bar_close_line(now, fetch_ms)
 
             t1 = time.monotonic()
             try:
-                today_trades = run_quant_today(bar_cache, vix_cache)
+                if ISOGENY_ENGINE == "hybrid":
+                    today_trades = run_hybrid_today(bar_cache, es_cache, hybrid_ctx)
+                else:
+                    today_trades = run_quant_today(bar_cache, vix_cache)
                 new_trades   = [t for t in today_trades
                                 if _signal_key(t) not in seen_signals]
                 check_ms     = int((time.monotonic() - t1) * 1000)
@@ -801,13 +868,17 @@ def run_monitor():
                         seen_signals.add(_signal_key(t))
                         _set_direction_lock(t.direction)
 
-                        # Score from trade attributes if available
+                        # Score / sizing / ML-gate context from trade attributes if available
                         score_val = getattr(t, "score", 0)
                         n_lots    = getattr(t, "n_contracts", 1)
+                        ml_proba  = getattr(t, "ml_proba", None)
+                        hmm_state = getattr(t, "hmm_state", None)
+                        gex_bias  = getattr(t, "gex_bias", None)
 
                         alert_signal(t.strategy, t.direction, t.entry, t.stop, t.target)
                         _signal_panel(t.strategy, t.direction, t.entry, t.stop, t.target,
-                                      score=score_val, n_contracts=n_lots)
+                                      score=score_val, n_contracts=n_lots,
+                                      ml_proba=ml_proba, hmm_state=hmm_state, gex_bias=gex_bias)
 
                         # Breakeven watcher
                         risk_pts   = abs(_tick(t.entry) - _tick(t.stop))

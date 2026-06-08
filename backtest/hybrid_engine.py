@@ -159,6 +159,71 @@ class HybridTrade:
     ml_proba:      Optional[float] = None   # meta-model P(win); None = no model / ML gate off
 
 
+@dataclass
+class HybridContext:
+    """
+    Pre-loaded institutional datasets shared by every day's scan.
+
+    These are daily/weekly-granularity series (sector, macro, COT, breadth,
+    SMH, vol-of-vol indices, ...) — loaded ONCE via `load_hybrid_context()`
+    rather than re-downloaded on every bar close (which is what a naive live
+    wiring would do). The live-updating intraday frames (`df` / `es_df`) stay
+    OUTSIDE this context and are passed alongside it to `_scan_hybrid_day` /
+    `run_hybrid_today`, since the monitor refreshes those every 5 minutes.
+    """
+    vix_cache:   dict
+    vix3m_cache: dict
+    vvix_cache:  dict
+    vxn_cache:   dict
+    xlk_closes:  pd.Series
+    spy_closes:  pd.Series
+    dxy_closes:  pd.Series
+    tnx_closes:  pd.Series
+    smh_closes:  pd.Series
+    cot_df:      Optional[pd.DataFrame]
+    qqq_closes:  pd.Series
+    iwm_closes:  pd.Series
+    addn_series: Optional[pd.Series]
+
+
+def load_hybrid_context() -> HybridContext:
+    """
+    Load every institutional dataset `_scan_hybrid_day` needs, exactly once.
+
+    Mirrors the one-time loading block that used to live at the top of
+    `run_hybrid_backtest` — periods are unchanged (90d for vol/sector/macro/
+    SMH, 60d for breadth) so behavior is identical to before this was split
+    out. Call this once at startup (backtest) or monitor launch (live); the
+    live monitor can re-call it on day rollover to pick up fresh daily bars.
+    """
+    print("[HYB] Loading VIX / VIX3M / VVIX / VXN ...")
+    vix_cache   = _load_vix(period="90d")
+    vix3m_cache = _load_extended_vix("^VIX3M", "90d")
+    vvix_cache  = _load_extended_vix("^VVIX",  "90d")
+    vxn_cache   = load_vxn(period="90d")
+    print(f"[HYB] VIX: {len(vix_cache)}d | VIX3M: {len(vix3m_cache)}d | VVIX: {len(vvix_cache)}d")
+
+    print("[HYB] Loading sector (XLK/SPY/SMH) and macro (DXY/TNX) data ...")
+    xlk_closes, spy_closes = load_sector_data(period="90d")
+    dxy_closes, tnx_closes = load_macro_data(period="90d")
+    smh_closes             = load_smh_data(period="90d")
+    print(f"[HYB] XLK:{len(xlk_closes)}d  DXY:{len(dxy_closes)}d  SMH:{len(smh_closes)}d")
+
+    print("[HYB] Loading COT + breadth data ...")
+    cot_df = load_cot_data()
+    qqq_closes, iwm_closes, addn_series = load_breadth_data(period="60d")
+    cot_available = cot_df is not None and not cot_df.empty
+    print(f"[HYB] COT: {'OK' if cot_available else 'UNAVAILABLE'}  "
+          f"QQQ:{len(qqq_closes)}d  ADDN:{len(addn_series) if addn_series is not None else 0}d")
+
+    return HybridContext(
+        vix_cache=vix_cache, vix3m_cache=vix3m_cache, vvix_cache=vvix_cache, vxn_cache=vxn_cache,
+        xlk_closes=xlk_closes, spy_closes=spy_closes, dxy_closes=dxy_closes, tnx_closes=tnx_closes,
+        smh_closes=smh_closes, cot_df=cot_df, qqq_closes=qqq_closes, iwm_closes=iwm_closes,
+        addn_series=addn_series,
+    )
+
+
 # ── VIX helpers ───────────────────────────────────────────────────────────────
 
 def _load_vix(period: str = "90d") -> dict[date, float]:
@@ -763,6 +828,306 @@ def _is_hard_blocked(
     return False, ""
 
 
+# ── Per-day hybrid scanner (shared by backtest and live monitor) ─────────────
+
+def _scan_hybrid_day(
+    df:        pd.DataFrame,
+    es_df:     pd.DataFrame,
+    today:     date,
+    ctx:       HybridContext,
+    trades:    list[HybridTrade],
+    day_names: list[str],
+    hard_block_counts: dict[str, int] | None = None,
+) -> None:
+    """
+    Scan one trading day and append any HybridTrades found to `trades`.
+
+    Shared by `run_hybrid_backtest` (loops every historical day) and
+    `run_hybrid_today` (live monitor — scans just `date.today()` against
+    cached bars, mirroring `quant_engine._scan_day` / `run_quant_today`).
+    """
+    if hard_block_counts is None:
+        hard_block_counts = {}
+
+    dow = today.weekday()
+    if dow >= 5:
+        return
+
+    vix   = _get_vix(ctx.vix_cache, today)
+    vix3m = _get_ext_vix(ctx.vix3m_cache, today)
+    vvix  = _get_ext_vix(ctx.vvix_cache, today)
+
+    est_idx    = df.index.tz_convert(EST)
+    today_mask = est_idx.date == today
+    today_df   = df[today_mask].copy()
+
+    market = classify_market_full(df, today, vix, vix3m=vix3m, vvix=vvix, today_df=today_df)
+    atr    = market["atr"]
+    trend  = market["ema_trend"]
+
+    if market["vvix_regime"]["skip_day"]:
+        return
+    if market["vix_term"]["structure"] == "deep_backwardation":
+        return
+
+    hmm    = get_hmm_gate(df, today)
+    gex    = compute_gex_proxy(ctx.vix_cache, ctx.vxn_cache, today)
+    tsmom  = get_session_tsmom(today_df)
+    sector = get_tech_sector_bias(today, ctx.xlk_closes, ctx.spy_closes)
+    macro  = get_macro_bias(today, ctx.dxy_closes, ctx.tnx_closes)
+    nq_es_spread = get_nq_es_spread_signal(df, es_df, today)
+
+    # Per-day pre-computed context (all cached — zero network calls during signal eval)
+    occ    = get_occ_signal(today_df)
+    cot    = get_cot_bias(today, _df=ctx.cot_df)
+    breadth = get_breadth_bias(today, ctx.qqq_closes, ctx.iwm_closes, ctx.addn_series)
+    smh_sig = get_smh_lead_signal(today, ctx.smh_closes, ctx.spy_closes, vxn=(vix or 20.0))
+
+    har = har_forecast(df, today)
+    if har["skip_day"]:
+        return
+    stop_mult = har["stop_mult"]
+
+    trades_today = 0
+    daily_pnl    = 0.0
+    used_strats: set[str] = set()
+
+    def _can_trade() -> bool:
+        return trades_today < MAX_TRADES_DAY and daily_pnl > -MAX_DAILY_LOSS
+
+    def _local_pos(sig) -> int:
+        try:
+            signal_ts = df.index[sig.signal_bar_idx]
+            diffs = [abs((ts - signal_ts).total_seconds()) for ts in today_df.index]
+            return int(np.argmin(diffs))
+        except Exception:
+            return min(sig.signal_bar_idx, len(today_df) - 1)
+
+    def _try_hybrid(strategy: str, sig, detail: str = "", max_hour: int = 12) -> bool:
+        nonlocal trades_today, daily_pnl
+
+        if sig is None or not _can_trade():
+            return False
+
+        risk_pts = abs(sig.entry - sig.stop)
+        if risk_pts < 1.0:
+            return False
+
+        local_pos = _local_pos(sig)
+
+        # HAR stop multiplier — va_rule is mean-reversion; the VA edge IS the stop,
+        # so never widen it further (widening a wide VA stop creates asymmetric losses)
+        effective_mult = 1.0 if strategy == "va_rule" else stop_mult
+        if sig.direction == "long":
+            adjusted_stop = sig.entry - (sig.entry - sig.stop) * effective_mult
+        else:
+            adjusted_stop = sig.entry + (sig.stop - sig.entry) * effective_mult
+
+        # Hard blocks
+        blocked, block_reason = _is_hard_blocked(
+            strategy, sig, today_df, local_pos, df, today, market, macro
+        )
+        if blocked:
+            hard_block_counts[block_reason] = hard_block_counts.get(block_reason, 0) + 1
+            return False
+
+        # Time window hard block (data releases + London close)
+        time_ok, time_reason = _time_window_ok(sig.signal_bar_idx, df, strategy)
+        if not time_ok:
+            hard_block_counts[time_reason] = hard_block_counts.get(time_reason, 0) + 1
+            return False
+
+        # 20-point confidence scoring
+        score, breakdown = _score_trade(
+            strategy, sig, today_df, local_pos,
+            df, es_df, hmm, gex, tsmom, market, sector, macro, nq_es_spread, occ,
+            cot=cot, breadth=breadth, smh_signal=smh_sig, smh_vxn=(vix or 20.0),
+        )
+
+        # Strategy-specific target extensions for T2 — computed BEFORE the
+        # score gate (not just before simulation) so the planned R:R fed to
+        # the ML meta-model exactly matches what `ml.generate_dataset`
+        # captured at training time (feature parity = no train/serve skew).
+        effective_target = sig.target
+        if strategy == "orb" and hasattr(sig, "orb_range") and sig.orb_range > 0:
+            ext = sig.entry + sig.orb_range * 3.0 if sig.direction == "long" \
+                  else sig.entry - sig.orb_range * 3.0
+            effective_target = max(sig.target, ext) if sig.direction == "long" \
+                               else min(sig.target, ext)
+        elif strategy == "ib_breakout" and hasattr(sig, "ib_range") and sig.ib_range > 0:
+            ext = sig.entry + sig.ib_range * 2.5 if sig.direction == "long" \
+                  else sig.entry - sig.ib_range * 2.5
+            effective_target = max(sig.target, ext) if sig.direction == "long" \
+                               else min(sig.target, ext)
+        reward_pts = abs(effective_target - sig.entry)
+        rr_planned = reward_pts / risk_pts if risk_pts > 0 else 0.0
+
+        # Meta-labeling ML gate — "off" costs nothing; "shadow" scores and
+        # logs P(win) without touching the decision; "live" additionally
+        # filters, but ONLY for strategies whose model proved real OOS edge.
+        ml_proba = None
+        if _ML_AVAILABLE and ML_GATE_MODE in ("shadow", "live"):
+            try:
+                ml_proba = _ml_score_candidate(
+                    strategy, sig, signal_bar_idx=sig.signal_bar_idx, local_pos=local_pos,
+                    df=df, today_df=today_df, today=today,
+                    vix=vix, vix3m=vix3m, vvix=vvix,
+                    market=market, hmm=hmm, gex=gex, tsmom=tsmom, sector=sector, macro=macro,
+                    nq_es_spread=nq_es_spread, occ=occ, cot=cot, breadth=breadth, smh_sig=smh_sig,
+                    har=har, stop_mult=stop_mult, score=score, breakdown=breakdown,
+                    risk_pts=risk_pts, reward_pts=reward_pts, rr_planned=rr_planned,
+                )
+            except Exception:
+                ml_proba = None
+
+        # Skip weak setups (threshold scaled with new 20-point max)
+        if score <= 5:
+            return False
+        # FVG needs stronger confirmation — the fill mechanism is fragile
+        if strategy == "fvg" and score < 17:
+            return False
+        # va_rule has a variable-width stop (the VA edge) — require more
+        # institutional backing than other strategies before taking the risk
+        if strategy == "va_rule" and score < 18:
+            return False
+        # Live ML gate: require the meta-model's confidence to clear the bar
+        # too — but only for strategies whose model demonstrated real OOS
+        # edge (`ml_gate_enabled`); everything else stays 100% rule-based.
+        if (ML_GATE_MODE == "live" and ml_proba is not None
+                and _ml_gate_enabled(strategy) and ml_proba < ML_GATE_THRESHOLD):
+            return False
+
+        # Score-based contract size (2-lot at score >= 19 out of 21 max)
+        n_contracts = 2 if score >= 19 else 1
+        # va_rule uses a variable-width stop (the VA edge); never double size
+        if strategy == "va_rule":
+            n_contracts = 1
+
+        # Kelly guard: only reduce size if we have 40+ trades and recent
+        # performance is genuinely poor (protects against drawdown streaks).
+        # Rarely activates in 60d backtest; mainly useful in live monitor.
+        if len(trades) >= 40:
+            kelly_size = kelly_contracts(trades)
+            n_contracts = min(n_contracts, kelly_size)
+
+        exit_p, pnl, outcome = _simulate_trade(
+            df, sig.signal_bar_idx,
+            sig.direction, sig.entry, adjusted_stop, effective_target,
+            n_contracts=n_contracts, max_hour=max_hour,
+        )
+        rr = rr_planned
+
+        trades.append(HybridTrade(
+            date=today, day_name=day_names[dow],
+            strategy=strategy, direction=sig.direction,
+            entry=sig.entry, stop=adjusted_stop, target=effective_target,
+            exit_price=exit_p, pnl=pnl, outcome=outcome,
+            risk_pts=risk_pts, reward_pts=reward_pts, rr=rr,
+            vix=vix, regime=market["vix_regime"],
+            trend_dir=trend["direction"],
+            n_contracts=n_contracts,
+            score=score,
+            score_breakdown=breakdown,
+            hmm_state=hmm["state"],
+            gex_bias=gex["bias"],
+            tsmom_bias=tsmom["bias"],
+            signal_detail=detail,
+            stop_mult=stop_mult,
+            ml_proba=ml_proba,
+        ))
+        trades_today += 1
+        daily_pnl    += pnl
+        used_strats.add(strategy)
+        return True
+
+    vix_ok = vix < 25
+
+    # ── Priority 1: Gap Fill ──────────────────────────────────────────────
+    if _can_trade():
+        gap = detect_gap(df, today, atr, dow=dow)
+        if gap and direction_allowed(gap.direction, trend, strict=True):
+            _try_hybrid("gap_fill", gap,
+                        f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
+
+    # ── Priority 2: FVG — REMOVED ─────────────────────────────────────────
+    # 10-yr data: 52.6% WR, +$51 on 97 trades (breakeven).
+    # 2-yr data: 40% WR, -$78 on 10 trades (losing).
+    # OHLCV-only FVG detection lacks the order-flow confirmation needed
+    # to reliably identify which gaps institutions will return to fill.
+
+    # ── Priority 3: ORB ───────────────────────────────────────────────────
+    if _can_trade() and vix_ok:
+        orb = detect_orb(df, today, atr, dow)
+        if orb:
+            if orb.direction == "short":
+                ok = trend["direction"] == "strong_bear"
+            else:
+                ok = trend["direction"] in ("strong_bull", "neutral")
+            if ok:
+                _try_hybrid("orb", orb,
+                            f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
+
+    # ── Priority 4: IB Breakout ───────────────────────────────────────────
+    if _can_trade() and vix_ok and dow != 0 and "orb" not in used_strats:
+        ib = detect_ib(df, today, atr)
+        if ib and direction_allowed(ib.direction, trend, strict=True):
+            _try_hybrid("ib_breakout", ib,
+                        f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR)")
+
+    # ── Priority 5: AM VWAP Reversion ────────────────────────────────────
+    # Require directional HMM — VWAP reversion only has edge when there is
+    # an established regime to revert to (not sideways / neutral HMM).
+    _rev_hmm = hmm.get("state", "unavailable")
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap(df, today, vix, atr, max_signals=MAX_TRADES_DAY - trades_today):
+            if not _can_trade():
+                break
+            if direction_allowed(vs.direction, trend, strict=True):
+                # Require confirmed directional regime — no bypass for unavailable.
+                # Without regime data we can't know if there's a trend to revert to.
+                _rev_ok = (
+                    (vs.direction == "long"  and _rev_hmm in ("bull", "strong_bull")) or
+                    (vs.direction == "short" and _rev_hmm in ("bear", "stress"))
+                )
+                if _rev_ok:
+                    _try_hybrid("vwap_rev", vs,
+                                f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
+
+    # ── Priority 6: PM VWAP Reversion — REMOVED ──────────────────────────
+    # 10-year data: 48.7% WR, -$105 P&L over 113 trades.
+    # PM session has lower institutional volume; VWAP loses its anchor.
+
+    # ── Priority 7: AM VWAP Bounce ────────────────────────────────────────
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
+                                     max_signals=MAX_TRADES_DAY - trades_today):
+            if not _can_trade():
+                break
+            if direction_allowed(vs.direction, trend, strict=True):
+                _try_hybrid("vwap_bounce", vs,
+                            f"VWAP bounce {trend['direction']} dev={vs.deviation_pts:.1f}pts")
+
+    # ── Priority 8: PM VWAP Bounce ────────────────────────────────────────
+    if _can_trade() and market["vwap_ok"]:
+        for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
+                                     max_signals=MAX_TRADES_DAY - trades_today,
+                                     start_min=13*60+30, end_min=15*60+30):
+            if not _can_trade():
+                break
+            if direction_allowed(vs.direction, trend, strict=True):
+                _try_hybrid("vwap_bounce_pm", vs,
+                            f"PM VWAP bounce {trend['direction']}",
+                            max_hour=16)
+
+    # ── Priority 9: 80% Value Area Rule ───────────────────────────────────
+    if _can_trade() and vix_ok:
+        va_sig = detect_va_rule_signal(df, today, atr)
+        if va_sig and direction_allowed(va_sig.direction, trend, strict=False):
+            _try_hybrid("va_rule", va_sig,
+                        f"VA rule type={va_sig.setup_type} "
+                        f"vah-val={abs(va_sig.va_target_edge - va_sig.va_entry_edge):.0f}pts")
+
+
 # ── Main hybrid backtest ──────────────────────────────────────────────────────
 
 def run_hybrid_backtest(
@@ -784,25 +1149,7 @@ def run_hybrid_backtest(
     es_df = load_es(interval=interval, period=period)
     print(f"[HYB] ES: {len(es_df)} bars" if not es_df.empty else "[HYB] ES unavailable")
 
-    print("[HYB] Loading VIX / VIX3M / VVIX / VXN ...")
-    vix_cache   = _load_vix(period="90d")
-    vix3m_cache = _load_extended_vix("^VIX3M", "90d")
-    vvix_cache  = _load_extended_vix("^VVIX",  "90d")
-    vxn_cache   = load_vxn(period="90d")
-    print(f"[HYB] VIX: {len(vix_cache)}d | VIX3M: {len(vix3m_cache)}d | VVIX: {len(vvix_cache)}d")
-
-    print("[HYB] Loading sector (XLK/SPY/SMH) and macro (DXY/TNX) data ...")
-    xlk_closes, spy_closes = load_sector_data(period="90d")
-    dxy_closes, tnx_closes = load_macro_data(period="90d")
-    smh_closes             = load_smh_data(period="90d")
-    print(f"[HYB] XLK:{len(xlk_closes)}d  DXY:{len(dxy_closes)}d  SMH:{len(smh_closes)}d")
-
-    print("[HYB] Loading COT + breadth data ...")
-    cot_df               = load_cot_data()
-    qqq_closes, iwm_closes, addn_series = load_breadth_data(period="60d")
-    cot_available = cot_df is not None and not cot_df.empty
-    print(f"[HYB] COT: {'OK' if cot_available else 'UNAVAILABLE'}  "
-          f"QQQ:{len(qqq_closes)}d  ADDN:{len(addn_series) if addn_series is not None else 0}d")
+    ctx = load_hybrid_context()
 
     est_idx   = df.index.tz_convert(EST)
     all_dates = sorted(set(est_idx.date))
@@ -830,285 +1177,24 @@ def run_hybrid_backtest(
     for today in all_dates:
         _progress.update(_task, advance=1, trades=len(trades),
                          description=f"{today}")
-        dow = today.weekday()
-        if dow >= 5:
-            continue
-
-        vix   = _get_vix(vix_cache, today)
-        vix3m = _get_ext_vix(vix3m_cache, today)
-        vvix  = _get_ext_vix(vvix_cache, today)
-
-        today_mask = est_idx.date == today
-        today_df   = df[today_mask].copy()
-
-        market = classify_market_full(df, today, vix, vix3m=vix3m, vvix=vvix, today_df=today_df)
-        atr    = market["atr"]
-        trend  = market["ema_trend"]
-
-        if market["vvix_regime"]["skip_day"]:
-            continue
-        if market["vix_term"]["structure"] == "deep_backwardation":
-            continue
-
-        hmm    = get_hmm_gate(df, today)
-        gex    = compute_gex_proxy(vix_cache, vxn_cache, today)
-        tsmom  = get_session_tsmom(today_df)
-        sector = get_tech_sector_bias(today, xlk_closes, spy_closes)
-        macro  = get_macro_bias(today, dxy_closes, tnx_closes)
-        nq_es_spread = get_nq_es_spread_signal(df, es_df, today)
-
-        # Per-day pre-computed context (all cached — zero network calls during signal eval)
-        occ    = get_occ_signal(today_df)
-        cot    = get_cot_bias(today, _df=cot_df)
-        breadth = get_breadth_bias(today, qqq_closes, iwm_closes, addn_series)
-        smh_sig = get_smh_lead_signal(today, smh_closes, spy_closes, vxn=(vix or 20.0))
-
-        har = har_forecast(df, today)
-        if har["skip_day"]:
-            continue
-        stop_mult = har["stop_mult"]
-
-        trades_today = 0
-        daily_pnl    = 0.0
-        used_strats: set[str] = set()
-
-        def _can_trade() -> bool:
-            return trades_today < MAX_TRADES_DAY and daily_pnl > -MAX_DAILY_LOSS
-
-        def _local_pos(sig) -> int:
-            try:
-                signal_ts = df.index[sig.signal_bar_idx]
-                diffs = [abs((ts - signal_ts).total_seconds()) for ts in today_df.index]
-                return int(np.argmin(diffs))
-            except Exception:
-                return min(sig.signal_bar_idx, len(today_df) - 1)
-
-        def _try_hybrid(strategy: str, sig, detail: str = "", max_hour: int = 12) -> bool:
-            nonlocal trades_today, daily_pnl
-
-            if sig is None or not _can_trade():
-                return False
-
-            risk_pts = abs(sig.entry - sig.stop)
-            if risk_pts < 1.0:
-                return False
-
-            local_pos = _local_pos(sig)
-
-            # HAR stop multiplier — va_rule is mean-reversion; the VA edge IS the stop,
-            # so never widen it further (widening a wide VA stop creates asymmetric losses)
-            effective_mult = 1.0 if strategy == "va_rule" else stop_mult
-            if sig.direction == "long":
-                adjusted_stop = sig.entry - (sig.entry - sig.stop) * effective_mult
-            else:
-                adjusted_stop = sig.entry + (sig.stop - sig.entry) * effective_mult
-
-            # Hard blocks
-            blocked, block_reason = _is_hard_blocked(
-                strategy, sig, today_df, local_pos, df, today, market, macro
-            )
-            if blocked:
-                hard_block_counts[block_reason] = hard_block_counts.get(block_reason, 0) + 1
-                return False
-
-            # Time window hard block (data releases + London close)
-            time_ok, time_reason = _time_window_ok(sig.signal_bar_idx, df, strategy)
-            if not time_ok:
-                hard_block_counts[time_reason] = hard_block_counts.get(time_reason, 0) + 1
-                return False
-
-            # 20-point confidence scoring
-            score, breakdown = _score_trade(
-                strategy, sig, today_df, local_pos,
-                df, es_df, hmm, gex, tsmom, market, sector, macro, nq_es_spread, occ,
-                cot=cot, breadth=breadth, smh_signal=smh_sig, smh_vxn=(vix or 20.0),
-            )
-
-            # Strategy-specific target extensions for T2 — computed BEFORE the
-            # score gate (not just before simulation) so the planned R:R fed to
-            # the ML meta-model exactly matches what `ml.generate_dataset`
-            # captured at training time (feature parity = no train/serve skew).
-            effective_target = sig.target
-            if strategy == "orb" and hasattr(sig, "orb_range") and sig.orb_range > 0:
-                ext = sig.entry + sig.orb_range * 3.0 if sig.direction == "long" \
-                      else sig.entry - sig.orb_range * 3.0
-                effective_target = max(sig.target, ext) if sig.direction == "long" \
-                                   else min(sig.target, ext)
-            elif strategy == "ib_breakout" and hasattr(sig, "ib_range") and sig.ib_range > 0:
-                ext = sig.entry + sig.ib_range * 2.5 if sig.direction == "long" \
-                      else sig.entry - sig.ib_range * 2.5
-                effective_target = max(sig.target, ext) if sig.direction == "long" \
-                                   else min(sig.target, ext)
-            reward_pts = abs(effective_target - sig.entry)
-            rr_planned = reward_pts / risk_pts if risk_pts > 0 else 0.0
-
-            # Meta-labeling ML gate — "off" costs nothing; "shadow" scores and
-            # logs P(win) without touching the decision; "live" additionally
-            # filters, but ONLY for strategies whose model proved real OOS edge.
-            ml_proba = None
-            if _ML_AVAILABLE and ML_GATE_MODE in ("shadow", "live"):
-                try:
-                    ml_proba = _ml_score_candidate(
-                        strategy, sig, signal_bar_idx=sig.signal_bar_idx, local_pos=local_pos,
-                        df=df, today_df=today_df, today=today,
-                        vix=vix, vix3m=vix3m, vvix=vvix,
-                        market=market, hmm=hmm, gex=gex, tsmom=tsmom, sector=sector, macro=macro,
-                        nq_es_spread=nq_es_spread, occ=occ, cot=cot, breadth=breadth, smh_sig=smh_sig,
-                        har=har, stop_mult=stop_mult, score=score, breakdown=breakdown,
-                        risk_pts=risk_pts, reward_pts=reward_pts, rr_planned=rr_planned,
-                    )
-                except Exception:
-                    ml_proba = None
-
-            # Skip weak setups (threshold scaled with new 20-point max)
-            if score <= 5:
-                return False
-            # FVG needs stronger confirmation — the fill mechanism is fragile
-            if strategy == "fvg" and score < 17:
-                return False
-            # va_rule has a variable-width stop (the VA edge) — require more
-            # institutional backing than other strategies before taking the risk
-            if strategy == "va_rule" and score < 18:
-                return False
-            # Live ML gate: require the meta-model's confidence to clear the bar
-            # too — but only for strategies whose model demonstrated real OOS
-            # edge (`ml_gate_enabled`); everything else stays 100% rule-based.
-            if (ML_GATE_MODE == "live" and ml_proba is not None
-                    and _ml_gate_enabled(strategy) and ml_proba < ML_GATE_THRESHOLD):
-                return False
-
-            # Score-based contract size (2-lot at score >= 19 out of 21 max)
-            n_contracts = 2 if score >= 19 else 1
-            # va_rule uses a variable-width stop (the VA edge); never double size
-            if strategy == "va_rule":
-                n_contracts = 1
-
-            # Kelly guard: only reduce size if we have 40+ trades and recent
-            # performance is genuinely poor (protects against drawdown streaks).
-            # Rarely activates in 60d backtest; mainly useful in live monitor.
-            if len(trades) >= 40:
-                kelly_size = kelly_contracts(trades)
-                n_contracts = min(n_contracts, kelly_size)
-
-            exit_p, pnl, outcome = _simulate_trade(
-                df, sig.signal_bar_idx,
-                sig.direction, sig.entry, adjusted_stop, effective_target,
-                n_contracts=n_contracts, max_hour=max_hour,
-            )
-            rr = rr_planned
-
-            trades.append(HybridTrade(
-                date=today, day_name=day_names[dow],
-                strategy=strategy, direction=sig.direction,
-                entry=sig.entry, stop=adjusted_stop, target=effective_target,
-                exit_price=exit_p, pnl=pnl, outcome=outcome,
-                risk_pts=risk_pts, reward_pts=reward_pts, rr=rr,
-                vix=vix, regime=market["vix_regime"],
-                trend_dir=trend["direction"],
-                n_contracts=n_contracts,
-                score=score,
-                score_breakdown=breakdown,
-                hmm_state=hmm["state"],
-                gex_bias=gex["bias"],
-                tsmom_bias=tsmom["bias"],
-                signal_detail=detail,
-                stop_mult=stop_mult,
-                ml_proba=ml_proba,
-            ))
-            trades_today += 1
-            daily_pnl    += pnl
-            used_strats.add(strategy)
-            return True
-
-        vix_ok = vix < 25
-
-        # ── Priority 1: Gap Fill ──────────────────────────────────────────────
-        if _can_trade():
-            gap = detect_gap(df, today, atr, dow=dow)
-            if gap and direction_allowed(gap.direction, trend, strict=True):
-                _try_hybrid("gap_fill", gap,
-                            f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
-
-        # ── Priority 2: FVG — REMOVED ─────────────────────────────────────────
-        # 10-yr data: 52.6% WR, +$51 on 97 trades (breakeven).
-        # 2-yr data: 40% WR, -$78 on 10 trades (losing).
-        # OHLCV-only FVG detection lacks the order-flow confirmation needed
-        # to reliably identify which gaps institutions will return to fill.
-
-        # ── Priority 3: ORB ───────────────────────────────────────────────────
-        if _can_trade() and vix_ok:
-            orb = detect_orb(df, today, atr, dow)
-            if orb:
-                if orb.direction == "short":
-                    ok = trend["direction"] == "strong_bear"
-                else:
-                    ok = trend["direction"] in ("strong_bull", "neutral")
-                if ok:
-                    _try_hybrid("orb", orb,
-                                f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
-
-        # ── Priority 4: IB Breakout ───────────────────────────────────────────
-        if _can_trade() and vix_ok and dow != 0 and "orb" not in used_strats:
-            ib = detect_ib(df, today, atr)
-            if ib and direction_allowed(ib.direction, trend, strict=True):
-                _try_hybrid("ib_breakout", ib,
-                            f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR)")
-
-        # ── Priority 5: AM VWAP Reversion ────────────────────────────────────
-        # Require directional HMM — VWAP reversion only has edge when there is
-        # an established regime to revert to (not sideways / neutral HMM).
-        _rev_hmm = hmm.get("state", "unavailable")
-        if _can_trade() and market["vwap_ok"]:
-            for vs in detect_vwap(df, today, vix, atr, max_signals=MAX_TRADES_DAY - trades_today):
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True):
-                    # Require confirmed directional regime — no bypass for unavailable.
-                    # Without regime data we can't know if there's a trend to revert to.
-                    _rev_ok = (
-                        (vs.direction == "long"  and _rev_hmm in ("bull", "strong_bull")) or
-                        (vs.direction == "short" and _rev_hmm in ("bear", "stress"))
-                    )
-                    if _rev_ok:
-                        _try_hybrid("vwap_rev", vs,
-                                    f"dev={vs.deviation_pts:.1f}pts ({vs.deviation_std:.1f}s)")
-
-        # ── Priority 6: PM VWAP Reversion — REMOVED ──────────────────────────
-        # 10-year data: 48.7% WR, -$105 P&L over 113 trades.
-        # PM session has lower institutional volume; VWAP loses its anchor.
-
-        # ── Priority 7: AM VWAP Bounce ────────────────────────────────────────
-        if _can_trade() and market["vwap_ok"]:
-            for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
-                                         max_signals=MAX_TRADES_DAY - trades_today):
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True):
-                    _try_hybrid("vwap_bounce", vs,
-                                f"VWAP bounce {trend['direction']} dev={vs.deviation_pts:.1f}pts")
-
-        # ── Priority 8: PM VWAP Bounce ────────────────────────────────────────
-        if _can_trade() and market["vwap_ok"]:
-            for vs in detect_vwap_bounce(df, today, vix, atr, trend["direction"],
-                                         max_signals=MAX_TRADES_DAY - trades_today,
-                                         start_min=13*60+30, end_min=15*60+30):
-                if not _can_trade():
-                    break
-                if direction_allowed(vs.direction, trend, strict=True):
-                    _try_hybrid("vwap_bounce_pm", vs,
-                                f"PM VWAP bounce {trend['direction']}",
-                                max_hour=16)
-
-        # ── Priority 9: 80% Value Area Rule ───────────────────────────────────
-        if _can_trade() and vix_ok:
-            va_sig = detect_va_rule_signal(df, today, atr)
-            if va_sig and direction_allowed(va_sig.direction, trend, strict=False):
-                _try_hybrid("va_rule", va_sig,
-                            f"VA rule type={va_sig.setup_type} "
-                            f"vah-val={abs(va_sig.va_target_edge - va_sig.va_entry_edge):.0f}pts")
+        _scan_hybrid_day(df, es_df, today, ctx, trades, day_names, hard_block_counts)
 
     _progress.stop()
     run_hybrid_backtest._hard_blocks = hard_block_counts
+    return trades
+
+
+def run_hybrid_today(df: pd.DataFrame, es_df: pd.DataFrame, ctx: HybridContext) -> list[HybridTrade]:
+    """
+    Scan only today using pre-loaded data — no downloads, runs in well under
+    a second. Mirrors `quant_engine.run_quant_today`; this is what the live
+    monitor calls when ISOGENY_ENGINE=hybrid so the exact same rule-based +
+    ML-gated logic that powers the validated backtest also drives live
+    signals (full train/serve feature parity via `ml.inference`).
+    """
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    trades: list[HybridTrade] = []
+    _scan_hybrid_day(df, es_df, date.today(), ctx, trades, day_names)
     return trades
 
 
