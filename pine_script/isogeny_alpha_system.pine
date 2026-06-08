@@ -1,0 +1,757 @@
+//@version=6
+indicator("Isogeny Alpha System - Kairos Capital Research", shorttitle="ISOGENY", overlay=true, max_lines_count=400, max_labels_count=400, max_boxes_count=200)
+
+// =============================================================================
+//  ISOGENY ALPHA SYSTEM  -  Kairos Capital Research
+//  Institutional-grade intraday signal suite for MNQ / NQ futures
+//
+//  Mirrors the core logic of the Python engine (hybrid_engine.py):
+//    Strategies : Gap Fill, ORB Pullback, IB Breakout, VWAP Bounce, VWAP Reversion
+//    Levels     : Session VWAP + bands, ORB / IB ranges, PDH/PDL, PMH/PML
+//    Regime     : EMA8/EMA21 trend, adaptive ATR, RVOL, VIX gate
+//    Exits      : Two-target system - T1 at 1R (50%), T2 trailed by Chandelier ATR
+//
+//  Session   : 9:30 AM - 12:00 PM America/New_York (CME RTH morning window)
+// =============================================================================
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+g_disp = "Display"
+showVWAP    = input.bool(true,  "Session VWAP + Bands",      group = g_disp)
+showORB     = input.bool(true,  "Opening Range Box (9:30)",  group = g_disp)
+showIB      = input.bool(true,  "Initial Balance Box",       group = g_disp)
+showLevels  = input.bool(true,  "PDH / PDL / PMH / PML",     group = g_disp)
+showPrevC   = input.bool(true,  "Prior Close Line",          group = g_disp)
+showSignals = input.bool(true,  "Strategy Signal Markers",   group = g_disp)
+showExits   = input.bool(true,  "Stop / T1 / T2 Lines",      group = g_disp)
+showDash    = input.bool(true,  "Confidence Dashboard",      group = g_disp)
+showHeatmap = input.bool(true,  "Heat-Mapped Regime Background", group = g_disp)
+showBarColor = input.bool(true, "Context Bar Coloring (VWAP/Trend)", group = g_disp)
+showCloud   = input.bool(true,  "VWAP Gradient Cloud",       group = g_disp)
+showDividers = input.bool(true, "Session Divider Markers",   group = g_disp)
+showStratPanel = input.bool(true, "Strategy Status Panel",   group = g_disp)
+
+g_str = "Strategy Filters"
+gapMaxATR   = input.float(0.20, "Gap Fill: max gap (x ATR)",      group = g_str, minval = 0.05, maxval = 0.50, step = 0.01)
+orbMinATR   = input.float(0.025,"ORB: min range (x ATR)",         group = g_str, minval = 0.01, maxval = 0.10, step = 0.005)
+orbMaxATR   = input.float(0.50, "ORB: max range (x ATR)",         group = g_str, minval = 0.10, maxval = 1.00, step = 0.05)
+ibMinATR    = input.float(0.05, "IB: min range (x ATR)",          group = g_str, minval = 0.02, maxval = 0.15, step = 0.01)
+ibMaxATR    = input.float(0.65, "IB: max range (x ATR)",          group = g_str, minval = 0.20, maxval = 1.00, step = 0.05)
+vwapStd     = input.float(1.5,  "VWAP Reversion: signal std-dev", group = g_str, minval = 1.0, maxval = 3.0,  step = 0.25)
+vixGate     = input.float(25.0, "VIX gate (mean-reversion off above)", group = g_str, minval = 15.0, maxval = 40.0)
+rvolLookback = input.int(20,    "RVOL lookback (bars)",           group = g_str, minval = 5,   maxval = 40)
+
+g_ex = "Exit Engine"
+chandMult   = input.float(3.0, "Chandelier ATR multiple (T2 trail)", group = g_ex, minval = 1.0, maxval = 6.0, step = 0.5)
+chandLen    = input.int(14,    "Chandelier ATR length",              group = g_ex, minval = 5,   maxval = 30)
+levelBars   = input.int(18,    "Level line length (bars ahead)",     group = g_ex, minval = 5,   maxval = 60)
+
+g_src = "Data Source"
+vixSym      = input.symbol("TVC:VIX", "VIX Symbol", group = g_src)
+
+// ── Palette (institutional / Bloomberg-style) ───────────────────────────────
+cLong      = #1B5E20
+cShort     = #B71C1C
+cVWAP      = #E65100
+cVWAPband  = color.new(#E65100, 70)
+cORBbg     = color.new(#1565C0, 92)
+cORBbd     = color.new(#1565C0, 35)
+cIBbg      = color.new(#6A1B9A, 92)
+cIBbd      = color.new(#6A1B9A, 35)
+cPDH       = #FF8F00
+cPMH       = #8D6E63
+cStop      = color.new(#B71C1C, 25)
+cT1        = #F9A825
+cT2long    = #2E7D32
+cT2short   = #C62828
+cBullWash  = color.new(#1B5E20, 90)
+cBearWash  = color.new(#B71C1C, 90)
+cNeutWash  = color.new(#37474F, 93)
+cBarBull   = #00E676
+cBarBear   = #FF5252
+cBarNeut   = color.new(#90A4AE, 35)
+cDivider   = color.new(#ECEFF1, 80)
+cGaugeOn   = #29B6F6
+cGaugeOff  = color.new(#455A64, 35)
+cHdrBg     = color.new(#0D1B2A, 0)
+cHdrTx     = color.white
+cRowBg1    = color.new(#1B263B, 0)
+cRowBg2    = color.new(#0D1B2A, 0)
+cPos       = #66BB6A
+cNeg       = #EF5350
+cNeu       = #B0BEC5
+
+// ── Session / time helpers (America/New_York) ───────────────────────────────
+nyHour   = hour(time,   "America/New_York")
+nyMinute = minute(time, "America/New_York")
+nyMins   = nyHour * 60 + nyMinute
+
+isORBbar   = nyHour == 9  and nyMinute == 30
+isIBwindow = nyMins >= 570 and nyMins <= 595          // 09:30 - 09:55
+isCperiod  = nyMins >= 600 and nyMins < 690           // 10:00 - 11:30
+isAMsess   = nyMins >= 570 and nyMins < 720           // 09:30 - 12:00
+isPreMkt   = (nyHour == 8) or (nyHour == 9 and nyMinute < 30)
+isFirstBar = nyHour == 9 and nyMinute == 30
+
+// ── Session divider markers (Open / IB-end / C-end / Session-close) ─────────
+isDivOpen  = nyHour == 9  and nyMinute == 30
+isDivIBend = nyHour == 10 and nyMinute == 0
+isDivCend  = nyHour == 11 and nyMinute == 30
+isDivClose = nyHour == 12 and nyMinute == 0
+divColor   = (isDivOpen or isDivIBend or isDivCend or isDivClose) ? cDivider : na
+bgcolor(showDividers ? divColor : na, title = "Session Divider Lines")
+
+// ── Adaptive ATR (max of 5-day / 20-day true range, daily timeframe) ────────
+atr5    = request.security(syminfo.tickerid, "D", ta.sma(high - low, 5),  lookahead = barmerge.lookahead_off)
+atr20   = request.security(syminfo.tickerid, "D", ta.sma(high - low, 20), lookahead = barmerge.lookahead_off)
+atrAdpt = math.max(nz(atr5, 200.0), nz(atr20, 200.0))
+
+// ── EMA trend regime (EMA8 / EMA21 on daily closes) ──────────────────────────
+emaFastD = request.security(syminfo.tickerid, "D", ta.ema(close, 8),  lookahead = barmerge.lookahead_off)
+emaSlowD = request.security(syminfo.tickerid, "D", ta.ema(close, 21), lookahead = barmerge.lookahead_off)
+trendStrength = emaSlowD != 0 ? (emaFastD - emaSlowD) / emaSlowD * 100.0 : 0.0
+
+trendDir = (trendStrength >  3.0 ? "STRONG BULL" : (trendStrength >  1.0 ? "BULL" : (trendStrength < -3.0 ? "STRONG BEAR" : (trendStrength < -1.0 ? "BEAR" : "NEUTRAL"))))
+
+trendColor = trendStrength >  1.0 ? cPos : trendStrength < -1.0 ? cNeg : cNeu
+
+// ── VIX regime ───────────────────────────────────────────────────────────────
+vixClose   = request.security(vixSym, "D", close, lookahead = barmerge.lookahead_off)
+vixRegime  = vixClose <= 0 ? "n/a" : vixClose < 15 ? "LOW" : vixClose < 22 ? "NORMAL" : vixClose < 30 ? "ELEVATED" : "HIGH"
+meanRevOK  = vixClose < vixGate
+
+// ── Session VWAP + std bands ─────────────────────────────────────────────────
+var float sessVwapSum   = 0.0
+var float sessVwapVol   = 0.0
+var float sessDevSqSum  = 0.0
+var int   sessBarCount  = 0
+
+if isFirstBar
+    sessVwapSum  := 0.0
+    sessVwapVol  := 0.0
+    sessDevSqSum := 0.0
+    sessBarCount := 0
+
+typicalPx = (high + low + close) / 3.0
+inRTH     = nyMins >= 570 and nyMins < 960   // 09:30 - 16:00, accumulate through the day
+
+if inRTH
+    sessVwapSum  += typicalPx * volume
+    sessVwapVol  += volume
+    sessBarCount += 1
+
+sessVwap = sessVwapVol > 0 ? sessVwapSum / sessVwapVol : typicalPx
+
+devNow = close - sessVwap
+if inRTH
+    sessDevSqSum += devNow * devNow
+
+vwapStdDev = sessBarCount > 1 ? math.sqrt(sessDevSqSum / sessBarCount) : 0.0
+vwapUpper  = sessVwap + vwapStd * vwapStdDev
+vwapLower  = sessVwap - vwapStd * vwapStdDev
+
+plot(showVWAP and inRTH ? sessVwap  : na, title = "Session VWAP",  color = cVWAP, linewidth = 2, style = plot.style_line)
+p1 = plot(showVWAP and inRTH ? vwapUpper : na, title = "VWAP +std", color = cVWAPband, style = plot.style_circles)
+p2 = plot(showVWAP and inRTH ? vwapLower : na, title = "VWAP -std", color = cVWAPband, style = plot.style_circles)
+fill(p1, p2, color = showVWAP ? cVWAPband : na, title = "VWAP Band Fill")
+
+// ── Soft gradient VWAP cloud (denser shading near the mean, fading outward) ──
+cloudU1 = sessVwap + 0.5 * vwapStdDev
+cloudL1 = sessVwap - 0.5 * vwapStdDev
+cloudU2 = sessVwap + 1.0 * vwapStdDev
+cloudL2 = sessVwap - 1.0 * vwapStdDev
+
+pc0  = plot(showVWAP and showCloud and inRTH ? sessVwap : na, title = "Cloud Center", color = na, display = display.none)
+pcU1 = plot(showVWAP and showCloud and inRTH ? cloudU1  : na, title = "Cloud +0.5σ",  color = na, display = display.none)
+pcL1 = plot(showVWAP and showCloud and inRTH ? cloudL1  : na, title = "Cloud -0.5σ",  color = na, display = display.none)
+pcU2 = plot(showVWAP and showCloud and inRTH ? cloudU2  : na, title = "Cloud +1.0σ",  color = na, display = display.none)
+pcL2 = plot(showVWAP and showCloud and inRTH ? cloudL2  : na, title = "Cloud -1.0σ",  color = na, display = display.none)
+
+fill(pc0,  pcU1, color = showCloud ? color.new(cVWAP, 80) : na, title = "Cloud Fill Inner Upper")
+fill(pc0,  pcL1, color = showCloud ? color.new(cVWAP, 80) : na, title = "Cloud Fill Inner Lower")
+fill(pcU1, pcU2, color = showCloud ? color.new(cVWAP, 88) : na, title = "Cloud Fill Outer Upper")
+fill(pcL1, pcL2, color = showCloud ? color.new(cVWAP, 88) : na, title = "Cloud Fill Outer Lower")
+
+// ── Context bar coloring: VWAP position + trend alignment ───────────────────
+barCtxColor = ((close > sessVwap and trendStrength >  1.0) ? cBarBull : (close < sessVwap and trendStrength < -1.0) ? cBarBear : cBarNeut)
+barcolor(showBarColor ? barCtxColor : na, title = "Context Bar Coloring")
+
+// ── Opening Range (9:30 bar) ─────────────────────────────────────────────────
+var float orbHigh = na
+var float orbLow  = na
+var int   orbBarIdx = na
+var box   orbBox  = na
+
+if isORBbar
+    orbHigh    := high
+    orbLow     := low
+    orbBarIdx  := bar_index
+    if showORB
+        if not na(orbBox)
+            box.delete(orbBox)
+        orbBox := box.new(bar_index, orbHigh, bar_index + 1, orbLow, border_color = cORBbd, bgcolor = cORBbg, extend = extend.right)
+
+if showORB and not na(orbBox) and not na(orbHigh)
+    box.set_right(orbBox, bar_index)
+    box.set_top(orbBox, orbHigh)
+    box.set_bottom(orbBox, orbLow)
+
+orbRange  = (not na(orbHigh) and not na(orbLow)) ? orbHigh - orbLow : na
+orbRatio  = (not na(orbRange) and atrAdpt > 0) ? orbRange / atrAdpt : na
+orbValid  = not na(orbRatio) and orbRatio >= orbMinATR and orbRatio <= orbMaxATR
+
+// ── Initial Balance (9:30 - 9:55, six 5m bars) ───────────────────────────────
+var float ibHigh = na
+var float ibLow  = na
+var float ibHighTime = na
+var float ibLowTime  = na
+var box   ibBox  = na
+
+if isFirstBar
+    ibHigh := na
+    ibLow  := na
+    ibHighTime := na
+    ibLowTime  := na
+
+if isIBwindow
+    if na(ibHigh) or high > ibHigh
+        ibHigh     := high
+        ibHighTime := bar_index
+    if na(ibLow) or low < ibLow
+        ibLow      := low
+        ibLowTime  := bar_index
+
+ibDone = nyMins == 595
+if ibDone and showIB and not na(ibHigh) and not na(ibLow)
+    if not na(ibBox)
+        box.delete(ibBox)
+    ibBox := box.new(bar_index - 5, ibHigh, bar_index + 1, ibLow, border_color = cIBbd, bgcolor = cIBbg, extend = extend.none)
+
+if showIB and not na(ibBox) and isCperiod
+    box.set_right(ibBox, bar_index)
+
+ibRange = (not na(ibHigh) and not na(ibLow)) ? ibHigh - ibLow : na
+ibRatio = (not na(ibRange) and atrAdpt > 0) ? ibRange / atrAdpt : na
+ibValid = not na(ibRatio) and ibRatio >= ibMinATR and ibRatio <= ibMaxATR
+ibBias  = (not na(ibHighTime) and not na(ibLowTime)) ? (ibHighTime <= ibLowTime ? "BEARISH (high first)" : "BULLISH (low first)") : "n/a"
+
+// ── Prior day RTH high/low/close, premarket high/low ─────────────────────────
+var float pdh = na
+var float pdl = na
+var float prevClose = na
+var float curRTHHigh = na
+var float curRTHLow  = na
+var float curRTHClose = na
+
+if isFirstBar
+    pdh := curRTHHigh
+    pdl := curRTHLow
+    prevClose := curRTHClose
+    curRTHHigh := high
+    curRTHLow  := low
+else if inRTH
+    curRTHHigh := na(curRTHHigh) ? high : math.max(curRTHHigh, high)
+    curRTHLow  := na(curRTHLow)  ? low  : math.min(curRTHLow, low)
+    curRTHClose := close
+
+var float pmh = na
+var float pml = na
+if isFirstBar
+    pmh := na
+    pml := na
+else if isPreMkt
+    pmh := na(pmh) ? high : math.max(pmh, high)
+    pml := na(pml) ? low  : math.min(pml, low)
+
+var line  pdhLine  = na
+var line  pdlLine  = na
+var line  pmhLine  = na
+var line  pmlLine  = na
+var line  pcLine   = na
+var label pdhLabel = na
+var label pdlLabel = na
+var label pmhLabel = na
+var label pmlLabel = na
+var label pcLabel  = na
+
+if showLevels and isFirstBar and not na(pdh)
+    if not na(pdhLine)
+        line.delete(pdhLine)
+        line.delete(pdlLine)
+        label.delete(pdhLabel)
+        label.delete(pdlLabel)
+    pdhLine  := line.new(bar_index, pdh, bar_index + levelBars, pdh, color = cPDH, width = 1, style = line.style_dashed, extend = extend.none)
+    pdlLine  := line.new(bar_index, pdl, bar_index + levelBars, pdl, color = cPDH, width = 1, style = line.style_dashed, extend = extend.none)
+    pdhLabel := label.new(bar_index + levelBars, pdh, "PDH " + str.tostring(pdh, format.mintick), style = label.style_label_left, color = color.new(cPDH, 100), textcolor = cPDH, size = size.small)
+    pdlLabel := label.new(bar_index + levelBars, pdl, "PDL " + str.tostring(pdl, format.mintick), style = label.style_label_left, color = color.new(cPDH, 100), textcolor = cPDH, size = size.small)
+
+if showLevels and isFirstBar and not na(pmh) and pmh > 0
+    if not na(pmhLine)
+        line.delete(pmhLine)
+        line.delete(pmlLine)
+        label.delete(pmhLabel)
+        label.delete(pmlLabel)
+    pmhLine  := line.new(bar_index, pmh, bar_index + levelBars, pmh, color = cPMH, width = 1, style = line.style_dotted, extend = extend.none)
+    pmlLine  := line.new(bar_index, pml, bar_index + levelBars, pml, color = cPMH, width = 1, style = line.style_dotted, extend = extend.none)
+    pmhLabel := label.new(bar_index + levelBars, pmh, "PMH " + str.tostring(pmh, format.mintick), style = label.style_label_left, color = color.new(cPMH, 100), textcolor = cPMH, size = size.small)
+    pmlLabel := label.new(bar_index + levelBars, pml, "PML " + str.tostring(pml, format.mintick), style = label.style_label_left, color = color.new(cPMH, 100), textcolor = cPMH, size = size.small)
+
+if showPrevC and isFirstBar and not na(prevClose)
+    if not na(pcLine)
+        line.delete(pcLine)
+        label.delete(pcLabel)
+    pcLine  := line.new(bar_index, prevClose, bar_index + levelBars, prevClose, color = color.gray, width = 1, style = line.style_solid, extend = extend.none)
+    pcLabel := label.new(bar_index + levelBars, prevClose, "Prior Close " + str.tostring(prevClose, format.mintick), style = label.style_label_left, color = color.new(color.gray, 100), textcolor = color.gray, size = size.small)
+
+// ── Gap classification (today open vs prior close) ──────────────────────────
+var float gapPts    = na
+var float gapRatio  = na
+var string gapDir   = "none"
+
+if isFirstBar
+    gapPts    := not na(prevClose) ? open - prevClose : na
+    gapRatio  := (not na(gapPts) and atrAdpt > 0) ? math.abs(gapPts) / atrAdpt : na
+    gapDir    := na(gapPts) ? "none" : (gapPts < 0 ? "GAP DOWN (fill = long)" : gapPts > 0 ? "GAP UP (fill = short)" : "none")
+
+gapTradeable = not na(gapRatio) and math.abs(nz(gapPts)) >= 2.0 and gapRatio <= gapMaxATR
+
+// ── RVOL: current bar volume vs its rolling average ──────────────────────────
+rvolAvg = ta.sma(volume, rvolLookback)
+rvol    = rvolAvg > 0 ? volume / rvolAvg : 1.0
+rvolRegime = rvol < 0.8 ? "THIN" : rvol > 2.5 ? "CLIMAX" : rvol > 1.3 ? "HIGH" : "NORMAL"
+
+// ── First-30-min TSMOM bias (session conviction) ────────────────────────────
+var float tsmomOpenPx = na
+var float tsmomBias   = 0.0
+var string tsmomDir   = "NEUTRAL"
+
+if isFirstBar
+    tsmomOpenPx := open
+if nyMins == 595          // 09:55 close = approx end of first 30 minutes
+    tsmomBias := tsmomOpenPx > 0 ? math.log(close / tsmomOpenPx) : 0.0
+    tsmomDir  := tsmomBias > 0.001 ? "LONG" : tsmomBias < -0.001 ? "SHORT" : "NEUTRAL"
+
+// =============================================================================
+//  STRATEGY SIGNAL DETECTION  (fires once per session per strategy)
+// =============================================================================
+
+var bool gapFired   = false
+var bool orbFired   = false
+var bool ibFired    = false
+var bool vbFired    = false
+var bool vrLongDone = false
+var bool vrShortDone = false
+
+// status strings for the "Strategies Today" panel - "waiting" until fired,
+// then "▲/▼ HH:MM" (direction icon + fire time, NY session clock)
+var string gapStatusTxt = "waiting"
+var string orbStatusTxt = "waiting"
+var string ibStatusTxt  = "waiting"
+var string vbStatusTxt  = "waiting"
+var string vrStatusTxt  = "waiting"
+
+var string sigStrategy = ""
+var string sigDir      = ""
+var float  sigEntry    = na
+var float  sigStop     = na
+var float  sigT1       = na
+var float  sigT2       = na
+var int    sigBarIdx   = na
+var bool   sigActive   = false
+
+if isFirstBar
+    gapFired    := false
+    orbFired    := false
+    ibFired     := false
+    vbFired     := false
+    vrLongDone  := false
+    vrShortDone := false
+    sigActive   := false
+    gapStatusTxt := "waiting"
+    orbStatusTxt := "waiting"
+    ibStatusTxt  := "waiting"
+    vbStatusTxt  := "waiting"
+    vrStatusTxt  := "waiting"
+
+// helper direction flags from EMA trend (mirrors direction_allowed())
+blockShort = trendStrength >  3.0   // strong_bull blocks shorts
+blockLong  = trendStrength < -3.0   // strong_bear blocks longs
+
+// ---- 1. Gap Fill --------------------------------------------------------
+// Long gap-down fills toward prior close; short gap-up fills toward prior close.
+gapBarN = bar_index - orbBarIdx
+gapSetupOK = gapTradeable and not gapFired and gapBarN == 1 and not na(gapDir)
+gapLongCond  = gapSetupOK and gapPts < 0 and close > open
+gapShortCond = gapSetupOK and gapPts > 0 and close < open
+
+if gapLongCond or gapShortCond
+    gapFired := true
+    dir = gapLongCond ? "long" : "short"
+    entryPx = open
+    stopPx  = gapLongCond ? low - 2.0 : high + 2.0
+    riskPts = math.abs(entryPx - stopPx)
+    // target = prior close +/- 50% of the gap size beyond it (matches python: prior_close +/- gap_size*0.5)
+    finalTarget = gapLongCond ? prevClose + math.abs(gapPts) * 0.5 : prevClose - math.abs(gapPts) * 0.5
+    if riskPts > 0 and riskPts <= 25.0
+        sigStrategy := "GAP FILL"
+        sigDir      := dir
+        sigEntry    := entryPx
+        sigStop     := stopPx
+        sigT1       := gapLongCond ? entryPx + riskPts : entryPx - riskPts
+        sigT2       := finalTarget
+        sigBarIdx   := bar_index
+        sigActive   := true
+        gapStatusTxt := (dir == "long" ? "▲ " : "▼ ") + str.format_time(time, "HH:mm", "America/New_York")
+
+// ---- 2. ORB Pullback (breakout + retrace into the ORB level) ------------
+var string orbBreakDir = na
+var float  orbExtreme  = na
+
+if isFirstBar
+    orbBreakDir := na
+    orbExtreme  := na
+
+if isAMsess and orbValid and not orbFired and bar_index > orbBarIdx
+    if na(orbBreakDir)
+        if close > orbHigh and close >= sessVwap and not (dayofweek == dayofweek.monday or dayofweek == dayofweek.tuesday)
+            orbBreakDir := "long"
+            orbExtreme  := high
+        else if close < orbLow and close <= sessVwap
+            orbBreakDir := "short"
+            orbExtreme  := low
+    else if orbBreakDir == "long"
+        orbExtreme := math.max(orbExtreme, high)
+        pullCeil   = orbHigh + orbRange * 0.25
+        retrace    = orbRange > 0 ? (close - orbLow) / orbRange : 0.0
+        if close >= orbHigh and close <= pullCeil and retrace >= 0.75 and close >= sessVwap
+            orbFired := true
+            entryPx  = close
+            stopPx   = math.min(orbHigh - 2.0, entryPx - 1.0)
+            riskPts  = entryPx - stopPx
+            if riskPts > 0 and riskPts <= 25.0
+                sigStrategy := "ORB PULLBACK"
+                sigDir      := "long"
+                sigEntry    := entryPx
+                sigStop     := stopPx
+                sigT1       := entryPx + riskPts
+                sigT2       := entryPx + math.min(orbRange * 1.0, riskPts * 3.0)
+                sigBarIdx   := bar_index
+                sigActive   := true
+                orbStatusTxt := "▲ " + str.format_time(time, "HH:mm", "America/New_York")
+        else if close < orbHigh
+            orbBreakDir := na
+    else if orbBreakDir == "short"
+        orbExtreme := math.min(orbExtreme, low)
+        pullFloor  = orbLow - orbRange * 0.25
+        retrace    = orbRange > 0 ? (orbHigh - close) / orbRange : 0.0
+        if close <= orbLow and close >= pullFloor and retrace >= 0.75 and close <= sessVwap
+            orbFired := true
+            entryPx  = close
+            stopPx   = math.max(orbLow + 2.0, entryPx + 1.0)
+            riskPts  = stopPx - entryPx
+            if riskPts > 0 and riskPts <= 25.0
+                sigStrategy := "ORB PULLBACK"
+                sigDir      := "short"
+                sigEntry    := entryPx
+                sigStop     := stopPx
+                sigT1       := entryPx - riskPts
+                sigT2       := entryPx - math.min(orbRange * 1.0, riskPts * 3.0)
+                sigBarIdx   := bar_index
+                sigActive   := true
+                orbStatusTxt := "▼ " + str.format_time(time, "HH:mm", "America/New_York")
+        else if close > orbLow
+            orbBreakDir := na
+
+// ---- 3. IB Breakout (C-period, shallow retracement continuation) --------
+var string ibBreakDir   = na
+var float  ibExtreme    = na
+var float  ibMaxExt     = na
+
+if isFirstBar
+    ibBreakDir := na
+    ibExtreme  := na
+    ibMaxExt   := na
+
+if isCperiod and ibValid and not ibFired
+    if na(ibBreakDir)
+        if close > ibHigh
+            ibBreakDir := "long"
+            ibExtreme  := high
+            ibMaxExt   := close - ibHigh
+        else if close < ibLow
+            ibBreakDir := "short"
+            ibExtreme  := low
+            ibMaxExt   := ibLow - close
+    else if ibBreakDir == "long"
+        if high > ibExtreme
+            ibExtreme := high
+            ibMaxExt  := ibExtreme - ibHigh
+        retPct = ibMaxExt > 0 ? (ibExtreme - close) / ibMaxExt : 1.0
+        if retPct < 0.25 and close > ibHigh and ibBias == "BULLISH (low first)" and (close - ibHigh) <= 30.0
+            ibFired := true
+            entryPx = close
+            stopPx  = math.min(ibHigh - 2.0, entryPx - 1.0)
+            riskPts = entryPx - stopPx
+            if riskPts > 0 and riskPts <= 25.0
+                sigStrategy := "IB BREAKOUT"
+                sigDir      := "long"
+                sigEntry    := entryPx
+                sigStop     := stopPx
+                sigT1       := entryPx + riskPts
+                sigT2       := ibHigh + ibRange * 1.5
+                sigBarIdx   := bar_index
+                sigActive   := true
+                ibStatusTxt := "▲ " + str.format_time(time, "HH:mm", "America/New_York")
+        else if close < ibHigh
+            ibBreakDir := na
+            ibMaxExt   := na
+    else if ibBreakDir == "short"
+        if low < ibExtreme
+            ibExtreme := low
+            ibMaxExt  := ibLow - ibExtreme
+        retPct = ibMaxExt > 0 ? (close - ibExtreme) / ibMaxExt : 1.0
+        if retPct < 0.25 and close < ibLow and ibBias == "BEARISH (high first)" and (ibLow - close) <= 30.0
+            ibFired := true
+            entryPx = close
+            stopPx  = math.max(ibLow + 2.0, entryPx + 1.0)
+            riskPts = stopPx - entryPx
+            if riskPts > 0 and riskPts <= 25.0
+                sigStrategy := "IB BREAKOUT"
+                sigDir      := "short"
+                sigEntry    := entryPx
+                sigStop     := stopPx
+                sigT1       := entryPx - riskPts
+                sigT2       := ibLow - ibRange * 1.5
+                sigBarIdx   := bar_index
+                sigActive   := true
+                ibStatusTxt := "▼ " + str.format_time(time, "HH:mm", "America/New_York")
+        else if close > ibLow
+            ibBreakDir := na
+            ibMaxExt   := na
+
+// ---- 4. VWAP Bounce (trend continuation off VWAP, 10:00-12:00) ----------
+vwapBounceWin = nyMins >= 600 and nyMins < 720
+nearVWAP = math.abs(close - sessVwap) <= 0.5 * vwapStdDev
+
+if vwapBounceWin and meanRevOK and not vbFired
+    if (trendDir == "BULL" or trendDir == "STRONG BULL") and nearVWAP
+        vbFired := true
+        entryPx = close
+        stopPx  = entryPx - math.max(5.0, atrAdpt * 0.03)
+        riskPts = entryPx - stopPx
+        sigStrategy := "VWAP BOUNCE"
+        sigDir      := "long"
+        sigEntry    := entryPx
+        sigStop     := stopPx
+        sigT1       := entryPx + riskPts
+        sigT2       := entryPx + math.max(12.0, atrAdpt * 0.08)
+        sigBarIdx   := bar_index
+        sigActive   := true
+        vbStatusTxt := "▲ " + str.format_time(time, "HH:mm", "America/New_York")
+    else if (trendDir == "BEAR" or trendDir == "STRONG BEAR") and nearVWAP
+        vbFired := true
+        entryPx = close
+        stopPx  = entryPx + math.max(5.0, atrAdpt * 0.03)
+        riskPts = stopPx - entryPx
+        sigStrategy := "VWAP BOUNCE"
+        sigDir      := "short"
+        sigEntry    := entryPx
+        sigStop     := stopPx
+        sigT1       := entryPx - riskPts
+        sigT2       := entryPx - math.max(12.0, atrAdpt * 0.08)
+        sigBarIdx   := bar_index
+        sigActive   := true
+        vbStatusTxt := "▼ " + str.format_time(time, "HH:mm", "America/New_York")
+
+// ---- 5. VWAP Reversion (mean-reversion, neutral regime, 9:45-11:30) -----
+vwapRevWin = nyMins >= 585 and nyMins < 690
+devPts     = math.abs(close - sessVwap)
+minDev     = math.max(15.0, atrAdpt * 0.05)
+maxDev     = math.min(30.0, atrAdpt * 0.12)
+stopDist   = math.max(8.0, atrAdpt * 0.06)
+devOK      = devPts >= minDev and devPts <= maxDev
+
+if vwapRevWin and meanRevOK and trendDir == "NEUTRAL"
+    if not vrLongDone and close < vwapLower and devOK
+        vrLongDone := true
+        entryPx = close
+        stopPx  = entryPx - stopDist
+        if (sessVwap - entryPx) >= 3.0
+            sigStrategy := "VWAP REVERSION"
+            sigDir      := "long"
+            sigEntry    := entryPx
+            sigStop     := stopPx
+            sigT1       := entryPx + (entryPx - stopPx)
+            sigT2       := sessVwap
+            sigBarIdx   := bar_index
+            sigActive   := true
+            vrStatusTxt := "▲ " + str.format_time(time, "HH:mm", "America/New_York")
+    else if not vrShortDone and close > vwapUpper and devOK
+        vrShortDone := true
+        entryPx = close
+        stopPx  = entryPx + stopDist
+        if (entryPx - sessVwap) >= 3.0
+            sigStrategy := "VWAP REVERSION"
+            sigDir      := "short"
+            sigEntry    := entryPx
+            sigStop     := stopPx
+            sigT1       := entryPx - (stopPx - entryPx)
+            sigT2       := sessVwap
+            sigBarIdx   := bar_index
+            sigActive   := true
+            vrStatusTxt := "▼ " + str.format_time(time, "HH:mm", "America/New_York")
+
+// =============================================================================
+//  SIGNAL MARKERS + TWO-TARGET EXIT LINES (T1 = 1R / 50%, T2 = Chandelier trail)
+// =============================================================================
+
+if showSignals and sigActive and bar_index == sigBarIdx
+    isLong = sigDir == "long"
+    lblColor = isLong ? cLong : cShort
+    lblText  = ((isLong ? "▲ LONG  " : "▼ SHORT  ") + sigStrategy + "\n" + "E " + str.tostring(sigEntry, format.mintick) + "  ·  S " + str.tostring(sigStop, format.mintick) + "  ·  T1 " + str.tostring(sigT1, format.mintick) + "  ·  T2 " + str.tostring(sigT2, format.mintick))
+    label.new(bar_index, isLong ? low - atrAdpt * 0.05 : high + atrAdpt * 0.05,
+         lblText,
+         style = isLong ? label.style_label_up : label.style_label_down,
+         color = lblColor, textcolor = color.white, size = size.small)
+    if showExits
+        line.new(bar_index, sigEntry, bar_index + levelBars, sigEntry, color = color.gray,  width = 1, style = line.style_solid)
+        line.new(bar_index, sigStop,  bar_index + levelBars, sigStop,  color = cStop,        width = 2, style = line.style_dashed)
+        line.new(bar_index, sigT1,    bar_index + levelBars, sigT1,    color = cT1,          width = 1, style = line.style_dotted)
+        line.new(bar_index, sigT2,    bar_index + levelBars, sigT2,    color = isLong ? cT2long : cT2short, width = 2, style = line.style_dotted)
+
+plotshape(showSignals and sigActive and bar_index == sigBarIdx and sigDir == "long",
+     title = "Long Signal", style = shape.triangleup, location = location.belowbar,
+     color = cLong, size = size.tiny)
+plotshape(showSignals and sigActive and bar_index == sigBarIdx and sigDir == "short",
+     title = "Short Signal", style = shape.triangledown, location = location.abovebar,
+     color = cShort, size = size.tiny)
+
+// Chandelier exit trail for visual reference on the active long/short signal
+chandATR  = ta.atr(chandLen)
+chandLong  = ta.highest(high, chandLen) - chandMult * chandATR
+chandShort = ta.lowest(low,  chandLen) + chandMult * chandATR
+plot(showExits and sigActive and sigDir == "long"  and bar_index >= sigBarIdx ? chandLong  : na,
+     title = "Chandelier Trail (Long)",  color = cT2long,  style = plot.style_stepline, linewidth = 1)
+plot(showExits and sigActive and sigDir == "short" and bar_index >= sigBarIdx ? chandShort : na,
+     title = "Chandelier Trail (Short)", color = cT2short, style = plot.style_stepline, linewidth = 1)
+
+// =============================================================================
+//  CONFIDENCE SCORE  (computable subset of the 20-point institutional scorer)
+//  Each factor below contributes 0 or 1; mirrors hybrid_engine._score_trade()
+//  for the signals derivable from price/volume/VIX alone.
+// =============================================================================
+
+scoreDir = sigActive ? sigDir : (trendStrength >= 0 ? "long" : "short")
+
+f_tsmom  = (tsmomDir == "NEUTRAL") or (tsmomDir == "LONG" and scoreDir == "long") or (tsmomDir == "SHORT" and scoreDir == "short") ? 1 : 0
+f_trend  = ((scoreDir == "long"  and not blockLong  and trendStrength > -3.0) or (scoreDir == "short" and not blockShort and trendStrength <  3.0)) ? 1 : 0
+f_vix    = vixRegime == "n/a" or vixRegime == "LOW" or vixRegime == "NORMAL" ? 1 : 0
+f_rvol   = rvolRegime == "NORMAL" or rvolRegime == "HIGH" ? 1 : 0
+f_vwap   = (scoreDir == "long" and close >= sessVwap) or (scoreDir == "short" and close <= sessVwap) ? 1 : 0
+f_gap    = gapDir == "none" or not gapTradeable or (gapDir == "GAP DOWN (fill = long)" and scoreDir == "long") or (gapDir == "GAP UP (fill = short)" and scoreDir == "short") ? 1 : 0
+f_session = isAMsess ? 1 : 0
+f_atr    = atrAdpt > 0 ? 1 : 0
+
+confScore = f_tsmom + f_trend + f_vix + f_rvol + f_vwap + f_gap + f_session + f_atr
+maxScore  = 8
+
+sizeLabel = confScore <= 3 ? "SKIP" : confScore <= 6 ? "1 CONTRACT" : "2 CONTRACTS"
+sizeColor = confScore <= 3 ? cNeg : confScore <= 6 ? cT1 : cPos
+
+// visual gauge bar for the dashboard, e.g. "███████░ "
+gaugeStr = ""
+for i = 0 to maxScore - 1
+    gaugeStr := gaugeStr + (i < confScore ? "█" : "░")
+
+// ── Hard-block flags (computable subset) ────────────────────────────────────
+hbThinRVOL  = rvolRegime == "THIN"
+hbVIXhigh   = vixRegime == "HIGH"
+hbWideGap   = not na(gapRatio) and gapRatio > 0.40
+
+// ── Heat-mapped regime background (AM session only) ─────────────────────────
+//   strong directional regime + high score -> colored wash; choppy/low score -> neutral gray
+heatColor = (not isAMsess ? na : (confScore >= 6 and scoreDir == "long" and trendStrength > 1.0 ? cBullWash : (confScore >= 6 and scoreDir == "short" and trendStrength < -1.0 ? cBearWash : (confScore <= 3 ? cNeutWash : na))))
+bgcolor(showHeatmap ? heatColor : na, title = "Regime Heat-Map")
+
+// =============================================================================
+//  CONFIDENCE DASHBOARD  (Bloomberg-terminal style table, top-right)
+// =============================================================================
+var table dash = table.new(position.top_right, 2, 13, border_width = 1, border_color = color.new(color.black, 50), frame_color = color.new(color.black, 50), frame_width = 1)
+
+if showDash and barstate.islast
+    sessionTxt = isAMsess ? "AM WINDOW (live)" : "closed"
+    hardBlockTxt = hbThinRVOL ? "RVOL THIN" : hbVIXhigh ? "VIX HIGH" : hbWideGap ? "GAP TOO WIDE" : "none"
+    gapCellTxt = gapDir == "none" ? "none" : (gapDir + (gapTradeable ? "  [tradeable]" : "  [too big]"))
+    orbCellTxt = na(orbRange) ? "n/a" : (str.tostring(orbRange, "#.#") + " pts  " + (orbValid ? "[valid]" : "[invalid]"))
+    ibCellTxt  = na(ibRange)  ? "n/a" : (str.tostring(ibRange, "#.#") + " pts  " + ibBias)
+
+    table.cell(dash, 0, 0, "ISOGENY ALPHA SYSTEM", text_color = cHdrTx, bgcolor = cHdrBg, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, 0, "Kairos Capital", text_color = cHdrTx, bgcolor = cHdrBg, text_size = size.small, text_halign = text.align_right)
+
+    table.cell(dash, 0, 1, "Session", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(dash, 1, 1, sessionTxt, text_color = isAMsess ? cPos : cNeu, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(dash, 0, 2, "Trend (EMA8/21)", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(dash, 1, 2, trendDir + "  " + str.tostring(trendStrength, "#.##") + "%", text_color = trendColor, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(dash, 0, 3, "VIX", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(dash, 1, 3, str.tostring(vixClose, "#.##") + "  (" + vixRegime + ")", text_color = (vixRegime == "HIGH" or vixRegime == "ELEVATED") ? cNeg : cPos, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(dash, 0, 4, "Adaptive ATR", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(dash, 1, 4, str.tostring(atrAdpt, "#.#") + " pts", text_color = cNeu, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(dash, 0, 5, "RVOL", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(dash, 1, 5, str.tostring(rvol, "#.##") + "x  (" + rvolRegime + ")", text_color = rvolRegime == "THIN" ? cNeg : (rvolRegime == "CLIMAX" ? cT1 : cPos), text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(dash, 0, 6, "TSMOM (30m)", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(dash, 1, 6, tsmomDir, text_color = tsmomDir == "NEUTRAL" ? cNeu : (tsmomDir == "LONG" ? cPos : cNeg), text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(dash, 0, 7, "Gap Today", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(dash, 1, 7, gapCellTxt, text_color = gapTradeable ? cPos : cNeu, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(dash, 0, 8, "ORB Range", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(dash, 1, 8, orbCellTxt, text_color = orbValid ? cPos : cNeu, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(dash, 0, 9, "IB Range / Bias", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(dash, 1, 9, ibCellTxt, text_color = ibValid ? cPos : cNeu, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(dash, 0, 10, "Confidence Score", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(dash, 1, 10, gaugeStr + "  " + str.tostring(confScore) + "/" + str.tostring(maxScore), text_color = (confScore >= 6 ? cGaugeOn : (confScore >= 4 ? cT1 : cNeg)), text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(dash, 0, 11, "Position Size", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(dash, 1, 11, sizeLabel, text_color = sizeColor, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(dash, 0, 12, "Hard Block", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(dash, 1, 12, hardBlockTxt, text_color = hardBlockTxt == "none" ? cPos : cNeg, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+// =============================================================================
+//  STRATEGIES-TODAY PANEL  (Bloomberg-style secondary status table, bottom-right)
+//  "waiting" = not yet armed/fired this session, "▲/▼ HH:MM" = fired + direction + time
+// =============================================================================
+var table stratPanel = table.new(position.bottom_right, 2, 6, border_width = 1, border_color = color.new(color.black, 50), frame_color = color.new(color.black, 50), frame_width = 1)
+
+if showStratPanel and barstate.islast
+    table.cell(stratPanel, 0, 0, "STRATEGIES TODAY", text_color = cHdrTx, bgcolor = cHdrBg, text_size = size.small, text_halign = text.align_left)
+    table.cell(stratPanel, 1, 0, "STATUS", text_color = cHdrTx, bgcolor = cHdrBg, text_size = size.small, text_halign = text.align_right)
+
+    table.cell(stratPanel, 0, 1, "Gap Fill", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(stratPanel, 1, 1, gapStatusTxt, text_color = (gapStatusTxt == "waiting" ? cNeu : (str.contains(gapStatusTxt, "▲") ? cPos : cNeg)), text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(stratPanel, 0, 2, "ORB Pullback", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(stratPanel, 1, 2, orbStatusTxt, text_color = (orbStatusTxt == "waiting" ? cNeu : (str.contains(orbStatusTxt, "▲") ? cPos : cNeg)), text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(stratPanel, 0, 3, "IB Breakout", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(stratPanel, 1, 3, ibStatusTxt, text_color = (ibStatusTxt == "waiting" ? cNeu : (str.contains(ibStatusTxt, "▲") ? cPos : cNeg)), text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+    table.cell(stratPanel, 0, 4, "VWAP Bounce", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
+    table.cell(stratPanel, 1, 4, vbStatusTxt, text_color = (vbStatusTxt == "waiting" ? cNeu : (str.contains(vbStatusTxt, "▲") ? cPos : cNeg)), text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+
+    table.cell(stratPanel, 0, 5, "VWAP Reversion", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
+    table.cell(stratPanel, 1, 5, vrStatusTxt, text_color = (vrStatusTxt == "waiting" ? cNeu : (str.contains(vrStatusTxt, "▲") ? cPos : cNeg)), text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
+
+// =============================================================================
+//  ALERTS
+// =============================================================================
+alertcondition(sigActive and bar_index == sigBarIdx and sigDir == "long",
+     title = "Isogeny Long Signal",  message = "Isogeny Alpha: LONG signal fired - check dashboard for entry/stop/targets")
+alertcondition(sigActive and bar_index == sigBarIdx and sigDir == "short",
+     title = "Isogeny Short Signal", message = "Isogeny Alpha: SHORT signal fired - check dashboard for entry/stop/targets")
