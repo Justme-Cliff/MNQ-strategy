@@ -376,7 +376,7 @@ def _fetch_latest_bars() -> pd.DataFrame:
 
 
 def _load_bar_cache() -> pd.DataFrame:
-    df = load_nq(interval="5m", period="10d")
+    df = load_nq(interval="5m")   # 60d default — needed for EMA21 trend classification
     df = label_sessions(df, interval="5m")
     console.print(f"[{C_GOOD}]✓  {len(df)} bars loaded[/{C_GOOD}]")
     return df
@@ -406,7 +406,7 @@ def _fetch_latest_es_bars() -> pd.DataFrame:
 
 
 def _load_es_cache() -> pd.DataFrame:
-    df = load_es(interval="5m", period="10d")
+    df = load_es(interval="5m")   # 60d default — matches NQ cache window
     console.print(f"[{C_GOOD}]✓  {len(df)} ES bars loaded[/{C_GOOD}]")
     return df
 
