@@ -118,8 +118,15 @@ EST = ZoneInfo("America/New_York")
 
 MNQ_PER_POINT  = 2.0
 MAX_RISK_PTS   = 25.0
-MAX_TRADES_DAY = 3
+MAX_TRADES_DAY = 6      # was 3 — allow VWAP re-entries / multi-strategy days.
+                       # Dollar risk is still bounded by MAX_DAILY_LOSS below.
 MAX_DAILY_LOSS = 150.0
+
+# Score at/above which a signal is sized to 2 contracts. The >=18 band wins ~79%
+# (above the ~76% overall WR) on the 60d AM backtest, so doubling only that band
+# speeds up P&L without lowering win rate. Buffer guard in monitor.py overrides
+# this down to 1 lot when the live drawdown buffer gets thin.
+TWO_LOT_SCORE = int(os.environ.get("ISOGENY_2LOT_SCORE", "18"))
 
 MEAN_REV_STRATS = {"vwap_rev", "vwap_pm", "fvg", "ib_breakout", "va_rule", "pd_level"}
 BREAKOUT_STRATS = {"orb", "gap_fill"}
@@ -158,6 +165,11 @@ class HybridTrade:
     signal_detail: str   = ""
     stop_mult:     float = 1.0
     ml_proba:      Optional[float] = None   # meta-model P(win); None = no model / ML gate off
+    # Pre-signal instrumentation (used by the level-fill / resting-order study;
+    # zero effect on live behavior — just recorded so we can re-simulate a
+    # resting-order fill at the trigger level vs the current next-bar-open entry).
+    signal_bar_idx: int   = -1
+    trigger_price:  float = 0.0
 
 
 @dataclass
@@ -777,13 +789,18 @@ def _is_hard_blocked(
             and strategy in MEAN_REV_STRATS):
         return True, "macro_headwind"
 
-    # RVOL thin — no institutional participation
-    try:
-        rvol_data = compute_rvol(df, today, local_bar_pos)
-        if rvol_data.get("regime") == "thin":
-            return True, "rvol_thin"
-    except Exception:
-        pass
+    # RVOL thin — no institutional participation.
+    # Only blocks BREAKOUT strategies: a breakout needs volume to sustain, so
+    # thin tape = likely fakeout. Mean-reversion is the opposite — it thrives in
+    # quiet, low-participation tape where price drifts back to VWAP/value, so
+    # blocking those on thin RVOL just deletes good signals (killed all vwap_rev).
+    if strategy in BREAKOUT_STRATS:
+        try:
+            rvol_data = compute_rvol(df, today, local_bar_pos)
+            if rvol_data.get("regime") == "thin":
+                return True, "rvol_thin"
+        except Exception:
+            pass
 
     # CVD climax opposing signal
     try:
@@ -924,9 +941,13 @@ def _scan_hybrid_day(
         else:
             adjusted_stop = sig.entry + (sig.stop - sig.entry) * effective_mult
 
-        # Enforce prop firm 25-pt stop cap after HAR expansion
+        # Enforce prop firm 25-pt stop cap. CLAMP rather than reject: a wide
+        # designed stop (e.g. VWAP reversion's atr*0.06 ≈ 27pts) was silently
+        # deleting whole strategies. A real prop trader takes the setup but caps
+        # risk at 25pts — so we move the stop to the cap instead of skipping.
         if abs(sig.entry - adjusted_stop) > MAX_RISK_PTS:
-            return False
+            adjusted_stop = (sig.entry - MAX_RISK_PTS) if sig.direction == "long" \
+                            else (sig.entry + MAX_RISK_PTS)
 
         # Hard blocks
         blocked, block_reason = _is_hard_blocked(
@@ -1003,8 +1024,13 @@ def _scan_hybrid_day(
                 and _ml_gate_enabled(strategy) and ml_proba < ML_GATE_THRESHOLD):
             return False
 
-        # Score-based contract size (2-lot at score >= 19 out of 21 max)
-        n_contracts = 2 if score >= 19 else 1
+        # Score-based contract size. 2-lot the high-conviction band — trades
+        # scoring >= TWO_LOT_SCORE win ~79% (above the ~76% overall WR), so
+        # doubling ONLY those accelerates P&L while win rate holds/rises. Lower
+        # than ~18 the WR flattens to baseline, so 18 is the safe aggressive line.
+        # Tunable via ISOGENY_2LOT_SCORE (default 18; set to 19 for the old, more
+        # conservative sizing, or higher to size up less often).
+        n_contracts = 2 if score >= TWO_LOT_SCORE else 1
         # va_rule uses a variable-width stop (the VA edge); never double size
         if strategy == "va_rule":
             n_contracts = 1
@@ -1023,6 +1049,16 @@ def _scan_hybrid_day(
         )
         rr = rr_planned
 
+        # Pre-signal study: the price a resting order would sit at (the level the
+        # setup is built around). For breakouts that's the OR/IB level; otherwise
+        # the planned entry. Recorded only — does not change the trade above.
+        if strategy == "orb":
+            trigger_px = getattr(sig, "orb_high" if sig.direction == "long" else "orb_low", sig.entry)
+        elif strategy == "ib_breakout":
+            trigger_px = getattr(sig, "ib_high" if sig.direction == "long" else "ib_low", sig.entry)
+        else:
+            trigger_px = sig.entry
+
         trades.append(HybridTrade(
             date=today, day_name=day_names[dow],
             strategy=strategy, direction=sig.direction,
@@ -1040,6 +1076,8 @@ def _scan_hybrid_day(
             signal_detail=detail,
             stop_mult=stop_mult,
             ml_proba=ml_proba,
+            signal_bar_idx=sig.signal_bar_idx,
+            trigger_price=trigger_px,
         ))
         trades_today += 1
         daily_pnl    += pnl
@@ -1087,10 +1125,14 @@ def _scan_hybrid_day(
     if _can_trade() and vix_ok:
         orb = detect_orb(df, today, atr, dow)
         if orb:
+            # Trend-aligned breakout: allow longs in any non-bearish regime and
+            # shorts in any non-bullish regime. Was restricted to strong_bull/
+            # neutral only, which blocked plain-bull ORB longs (trend-aligned,
+            # high WR) for no statistical reason — quant_engine already allows them.
             if orb.direction == "short":
-                ok = trend["direction"] == "strong_bear"
+                ok = trend["direction"] in ("strong_bear", "bear")
             else:
-                ok = trend["direction"] in ("strong_bull", "neutral")
+                ok = trend["direction"] in ("strong_bull", "bull", "neutral")
             if ok:
                 _try_hybrid("orb", orb,
                             f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")

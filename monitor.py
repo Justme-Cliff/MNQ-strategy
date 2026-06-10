@@ -54,14 +54,38 @@ ISOGENY_ENGINE = os.environ.get("ISOGENY_ENGINE", "hybrid").lower()
 if ISOGENY_ENGINE == "hybrid":
     from backtest.hybrid_engine import (
         run_hybrid_today, HybridContext, load_hybrid_context,
+        MAX_TRADES_DAY as _ENGINE_MAX_TRADES,
     )
+else:
+    from backtest.quant_engine import MAX_TRADES_DAY as _ENGINE_MAX_TRADES
+
+# Daily confirmed-trade limit — must track the engine's MAX_TRADES_DAY, otherwise
+# the monitor stops scanning at 3 while the engine is willing to surface more
+# (VWAP re-entries, multi-strategy days). MAX_DAILY_LOSS in the engine still caps
+# dollar risk regardless of count.
+DAILY_TRADE_LIMIT = _ENGINE_MAX_TRADES
+
+# Buffer guard: when the live drawdown buffer falls below this, force every signal
+# down to 1 contract regardless of its score. A 2-lot trade risks ~$100 vs ~$50;
+# with a thin buffer that's the difference between surviving a bad day and busting
+# the eval. Tunable via ISOGENY_BUFFER_GUARD (default $500).
+BUFFER_GUARD = float(os.environ.get("ISOGENY_BUFFER_GUARD", "500"))
+
+# Test mode: bypass the 9:30-12:00 session clock so you can run the monitor any
+# time to watch it work (live price, status bar, bar-close scans, ARMED/WATCH
+# alerts) on whatever bars are current. Signals only fire if the current tape
+# actually forms a setup, so this is for exercising the UI/flow, not trading.
+#   ISOGENY_TEST_MODE=1 python3 monitor.py
+TEST_MODE = os.environ.get("ISOGENY_TEST_MODE", "").lower() in ("1", "true", "yes", "on")
+def _in_session(h: int) -> bool:
+    return TEST_MODE or (9 <= h < 12)
 from notifications import (
     alert_signal, alert_session_start, alert_session_end, alert_risk_warning,
     alert_breakeven, alert_warning,
 )
 from strategy.quant_regime import (
     get_atr_adaptive, classify_market_full, get_overnight_range_type,
-    get_expiry_context,
+    get_expiry_context, get_ema_trend,
 )
 from strategy.inst_levels import get_key_levels, KeyLevels
 from strategy.inst_news   import fetch_session_news
@@ -122,9 +146,8 @@ def _status_bar(price: float, confirmed: int, buf: float, vix: float, atr: float
     src_col = C_GOOD if "WS" in src_tag or "LIVE" in src_tag else C_WARN
     stale   = "  [red]STALE[/red]" if age > 10 else ""
 
-    dots = ["●", "●", "●"]
     trade_cols = []
-    for i in range(3):
+    for i in range(DAILY_TRADE_LIMIT):
         if i < confirmed:
             trade_cols.append(f"[{C_GOOD}]●[/{C_GOOD}]")
         else:
@@ -231,6 +254,55 @@ def _level_alert(name: str, lvl: float, direction: str, entry: float,
         t,
         title=f"[{style}]{icon}  {name} {lvl:.1f}  {action}  →  [{side_col}]{side_txt}[/{side_col}][/{style}]",
         border_style="yellow" if crossing else "dim yellow",
+        padding=(0, 2),
+    ))
+
+
+def _armed_orb_bracket(orb_high: float, orb_low: float, direction: str) -> dict | None:
+    """
+    Estimated ORB breakout bracket, computed the moment the OR is known — BEFORE
+    the breakout — so you can rest a stop-bracket at the broker early instead of
+    chasing a late fill. Mirrors quant_orb's direct-entry math (stop = 0.5×OR,
+    target = min(OR, 3×risk), 25-pt risk cap). The engine's confirmed signal may
+    differ by a tick or two (pullback vs direct entry); this is the early estimate.
+    """
+    orb_range = orb_high - orb_low
+    if orb_range <= 0:
+        return None
+    if direction == "long":
+        entry = orb_high
+        stop  = orb_high - min(orb_range * 0.5, 25.0)
+        risk  = entry - stop
+        if risk <= 0:
+            return None
+        target = entry + min(orb_range, risk * 3.0)
+    else:
+        entry = orb_low
+        stop  = orb_low + min(orb_range * 0.5, 25.0)
+        risk  = stop - entry
+        if risk <= 0:
+            return None
+        target = entry - min(orb_range, risk * 3.0)
+    return {"entry": _tick(entry), "stop": _tick(stop), "target": _tick(target),
+            "risk_pts": abs(_tick(entry) - _tick(stop))}
+
+
+def _armed_panel(name: str, direction: str, br: dict) -> None:
+    """Early 'place a resting order' card — fires before the breakout."""
+    side_col = C_LONG if direction == "long" else C_SHORT
+    side_txt = "LONG ▲" if direction == "long" else "SHORT ▼"
+    order_kind = "BUY-STOP" if direction == "long" else "SELL-STOP"
+    t = Table.grid(padding=(0, 2))
+    t.add_column(style="dim", min_width=10); t.add_column(style="bold")
+    t.add_row("Resting",  f"[{C_ENTRY}]{order_kind} @ {br['entry']:,.2f}[/{C_ENTRY}]")
+    t.add_row("Stop",     f"[{C_STOP}]{br['stop']:,.2f}[/{C_STOP}]  [dim]({br['risk_pts']:.1f} pts  −${br['risk_pts']*2:.0f}/lot)[/dim]")
+    t.add_row("Target",   f"[{C_TARGET}]{br['target']:,.2f}[/{C_TARGET}]")
+    console.print()
+    console.print(Panel(
+        t,
+        title=f"[bold yellow]⏱  ARMED EARLY — {name}  →  [{side_col}]{side_txt}[/{side_col}][/bold yellow]",
+        subtitle="[dim]place this resting bracket now — fills at broker speed if it breaks. ESTIMATE; wait for engine SIGNAL CONFIRMED before trusting full size.[/dim]",
+        border_style="yellow",
         padding=(0, 2),
     ))
 
@@ -567,10 +639,10 @@ def _process_input(line: str) -> None:
 
         if taken:
             n_conf = get_confirmed_trades_today()
-            dots   = "".join(["[green]●[/green]" if i < n_conf else "[dim]○[/dim]" for i in range(3)])
+            dots   = "".join(["[green]●[/green]" if i < n_conf else "[dim]○[/dim]" for i in range(DAILY_TRADE_LIMIT)])
             console.print(
                 f"  [{C_GOOD}]✓  {strategy.upper()} confirmed[/{C_GOOD}]  "
-                f"{dots}  [dim]({n_conf}/3 today)[/dim]"
+                f"{dots}  [dim]({n_conf}/{DAILY_TRADE_LIMIT} today)[/dim]"
             )
             _pending_outcome   = _pending_confirm.copy()
             _pending_outcome["confirmed"] = True
@@ -582,7 +654,7 @@ def _process_input(line: str) -> None:
             )
         else:
             console.print(
-                f"  [dim]Skipped — slot open  ({get_confirmed_trades_today()}/3 confirmed today)[/dim]"
+                f"  [dim]Skipped — slot open  ({get_confirmed_trades_today()}/{DAILY_TRADE_LIMIT} confirmed today)[/dim]"
             )
         _pending_confirm = None
         return
@@ -704,6 +776,9 @@ def run_monitor():
     last_bar_min: int       = -1
     key_levels:   dict      = _compute_levels(bar_cache)
     level_alerts: set[str]  = set()
+    armed_alerts: set[str]  = set()   # ORB armed-bracket early alerts already fired
+    session_trend: str      = "neutral"   # set at session open; gates which side we arm
+    ARM_DISTANCE            = 15.0    # pts from the ORB level to fire the early "place resting order" card
 
     while True:
         now   = _now()
@@ -732,12 +807,16 @@ def run_monitor():
             )
 
         # ── 9:30 AM session open brief ────────────────────────────────────
-        if h == 9 and m >= 30 and not session_open_done:
+        if (TEST_MODE or (h == 9 and m >= 30)) and not session_open_done:
             session_open_done = True
             _print_session_open_summary(bar_cache, vix_cache, price, session_news)
+            try:
+                session_trend = get_ema_trend(bar_cache, date.today())["direction"]
+            except Exception:
+                session_trend = "neutral"
 
         # ── 12:00 PM session end ─────────────────────────────────────────
-        if h >= 12 and not warned_end:
+        if h >= 12 and not warned_end and not TEST_MODE:
             warned_end = True
             alert_session_end()
             console.print()
@@ -759,33 +838,62 @@ def run_monitor():
                     console.print()
                     _be_alert(watch["strategy"], watch["direction"], watch["entry"])
 
-        # ── Real-time level proximity — INFO ONLY, no trade instructions ────
-        # Only confirmed strategy signals (bar-close engine) generate trades.
-        # These just tell you which key level price is near so you stay aware.
-        _APPROACH = 8.0
-        if price and key_levels and 9 <= h < 12:
+        # ── ARMED early bracket — fire BEFORE the breakout so you can rest the
+        # order at the broker early (the pre-signal layer). ORB only for now,
+        # gated to the engine-allowed side so we don't arm counter-trend. This
+        # is additive/info — it does NOT create or change any confirmed signal.
+        if price and key_levels and _in_session(h) and session_open_done:
+            orb_hi = key_levels.get("orb_high")
+            orb_lo = key_levels.get("orb_low")
+            # Engine allows ORB long in strong_bull/bull/neutral, short in bear/strong_bear.
+            arm_checks = []
+            if orb_hi and session_trend in ("strong_bull", "bull", "neutral"):
+                arm_checks.append(("ORB HIGH", orb_hi, "long"))
+            if orb_lo and session_trend in ("bear", "strong_bear"):
+                arm_checks.append(("ORB LOW", orb_lo, "short"))
+            for name, lvl, direction in arm_checks:
+                akey = f"ARM_{name}_{lvl:.0f}"
+                # Arm only while still BELOW the long level / ABOVE the short level
+                # (i.e. before the break) and within ARM_DISTANCE.
+                approaching = (0 < (lvl - price) <= ARM_DISTANCE) if direction == "long" \
+                              else (0 < (price - lvl) <= ARM_DISTANCE)
+                if approaching and akey not in armed_alerts:
+                    armed_alerts.add(akey)
+                    br = _armed_orb_bracket(orb_hi, orb_lo, direction)
+                    if br:
+                        _armed_panel(name, direction, br)
+
+        # ── WATCH early heads-up — fires before the level, names the setup the
+        # engine may confirm there so you have lead time to get your order ready.
+        # These strategies' edge IS the confirmation (IB pullback, PDH/PDL
+        # rejection/retest, VWAP reversion), so — unlike ORB — we do NOT rest a
+        # blind order here: you enter on the engine's SIGNAL CONFIRMED panel.
+        # ORB is excluded (it has its own ARMED resting bracket above).
+        _APPROACH = 12.0   # widened from 8 → fires ~earlier so you can prepare
+        if price and key_levels and _in_session(h):
             checks = [
-                ("ORB HIGH", key_levels.get("orb_high"), "long",  "cyan"),
-                ("ORB LOW",  key_levels.get("orb_low"),  "short", "cyan"),
-                ("IB HIGH",  key_levels.get("ib_high"),  "long",  "blue"),
-                ("IB LOW",   key_levels.get("ib_low"),   "short", "blue"),
-                ("VWAP",     key_levels.get("vwap"),     None,    "orange1"),
-                ("PDH",      key_levels.get("pdh"),      "short", "orange1"),
-                ("PDL",      key_levels.get("pdl"),      "long",  "orange1"),
-                ("PMH",      key_levels.get("pmh"),      "short", "yellow"),
-                ("PML",      key_levels.get("pml"),      "long",  "yellow"),
+                ("IB HIGH",  key_levels.get("ib_high"),  "long",  "blue",    "ib_breakout"),
+                ("IB LOW",   key_levels.get("ib_low"),   "short", "blue",    "ib_breakout"),
+                ("PDH",      key_levels.get("pdh"),      "short", "orange1", "pd rejection"),
+                ("PDL",      key_levels.get("pdl"),      "long",  "orange1", "pd bounce"),
+                ("PMH",      key_levels.get("pmh"),      "short", "yellow",  "pm rejection"),
+                ("PML",      key_levels.get("pml"),      "long",  "yellow",  "pm bounce"),
+                ("VWAP",     key_levels.get("vwap"),     None,    "orange1", "vwap revert/bounce"),
             ]
-            for name, lvl, direction, col in checks:
+            for name, lvl, direction, col, setup in checks:
                 if not lvl:
                     continue
                 near = abs(price - lvl) <= _APPROACH
                 alert_key = f"NEAR_{name}_{lvl:.0f}"
                 if near and alert_key not in level_alerts:
                     level_alerts.add(alert_key)
+                    dir_txt = (f"  →  expect [{C_LONG if direction=='long' else C_SHORT}]"
+                               f"{direction.upper()}[/]" ) if direction else ""
                     console.print(
-                        f"\n  [dim]{now.strftime('%H:%M')}[/dim]  "
+                        f"\n  [{C_WARN}]⊙ WATCH[/{C_WARN}]  [dim]{now.strftime('%H:%M')}[/dim]  "
                         f"[{col}]{name} {lvl:,.2f}[/{col}]  "
-                        f"[dim]price within {abs(price-lvl):.1f}pts — watch for engine signal[/dim]"
+                        f"[dim]{abs(price-lvl):.1f}pts away · {setup}{dir_txt}[/dim]  "
+                        f"[dim]— get ready, enter on SIGNAL CONFIRMED[/dim]"
                     )
 
         # ── Live price ticker — suppressed while waiting for user input ──────
@@ -794,10 +902,11 @@ def run_monitor():
             time.sleep(0.5)
             continue
 
-        if 9 <= h < 12 and price:
+        if _in_session(h) and price:
             confirmed = get_confirmed_trades_today()
             age       = feed.age_seconds
-            src_tag   = "NQ"
+            # ⚡ = price is real-time ^NDX-tightened; plain NQ = raw 1-min bar (warming up / fallback)
+            src_tag   = "NQ⚡" if getattr(feed, "synced", False) else "NQ"
             vix_now   = vix_cache.get(date.today(), 0.0)
             atr_now   = key_levels.get("atr", 0.0)
             _status_bar(price, confirmed, buf, vix_now, atr_now, src_tag, age, now)
@@ -806,7 +915,7 @@ def run_monitor():
 
         # ── Bar close check ───────────────────────────────────────────────
         cur_bar = _bar_minute(now)
-        if cur_bar != last_bar_min and h >= 9 and h < 12:
+        if cur_bar != last_bar_min and _in_session(h):
             last_bar_min = cur_bar
             t0 = time.monotonic()
             console.print()
@@ -825,10 +934,10 @@ def run_monitor():
                 time.sleep(0.5)
                 continue
 
-            if confirmed_today >= 3:
+            if confirmed_today >= DAILY_TRADE_LIMIT:
                 console.print(
                     f"\n[dim]{now.strftime('%H:%M')}[/dim]  "
-                    f"[bold yellow]3 trades confirmed today — daily limit reached[/bold yellow]"
+                    f"[bold yellow]{DAILY_TRADE_LIMIT} trades confirmed today — daily limit reached[/bold yellow]"
                 )
                 bar_cache = _append_latest(bar_cache)
                 key_levels = _compute_levels(bar_cache)
@@ -875,6 +984,19 @@ def run_monitor():
                         ml_proba  = getattr(t, "ml_proba", None)
                         hmm_state = getattr(t, "hmm_state", None)
                         gex_bias  = getattr(t, "gex_bias", None)
+
+                        # ── Buffer guard ──────────────────────────────────────
+                        # Re-read the live buffer and force 1 lot when it's thin.
+                        # The engine sizes 2 lots on high-conviction setups; that
+                        # doubles risk, which is fine with room but reckless when
+                        # one bad day could end the eval.
+                        _, buf_now = _load_balance()
+                        if n_lots > 1 and buf_now < BUFFER_GUARD:
+                            n_lots = 1
+                            console.print(
+                                f"  [{C_WARN}]⚠  Buffer ${buf_now:.0f} < ${BUFFER_GUARD:.0f} "
+                                f"— sizing capped to 1 contract (guard active)[/{C_WARN}]"
+                            )
 
                         alert_signal(t.strategy, t.direction, t.entry, t.stop, t.target)
                         _signal_panel(t.strategy, t.direction, t.entry, t.stop, t.target,

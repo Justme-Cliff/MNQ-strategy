@@ -18,7 +18,8 @@ import struct
 import threading
 import time
 import logging
-from datetime import datetime
+from collections import deque
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import websockets
@@ -96,20 +97,44 @@ class YahooWsFeed:
         self._calibrated                = False
         self._last_cal: datetime        = datetime.now(tz=EST)
         self._updated:  datetime | None = None
+        # Timestamped history of raw ^NDX prints — lets a consumer look up what
+        # ^NDX was at the (1-2 min old) timestamp of an NQ bar, so it can bridge
+        # the lag: live_nq = anchor_nq + (ndx_now - ndx_at_anchor). ~5 min deep.
+        self._hist:     deque           = deque(maxlen=2000)
         self._lock      = threading.Lock()
         self._running   = True
         self.connected  = False
-        self.source     = "^NDX+basis"
+        self.source     = "^NDX"
 
         t = threading.Thread(target=self._run, daemon=True)
         t.start()
 
     @property
     def price(self) -> float | None:
+        """Legacy: ^NDX + cost-of-carry basis. Kept for back-compat; the delta
+        tracker uses `.ndx` (raw) instead and never touches the (unreliable) basis."""
         with self._lock:
             if self._ndx is None:
                 return None
             return self._ndx + self._basis
+
+    @property
+    def ndx(self) -> float | None:
+        """Raw real-time ^NDX index value (no basis)."""
+        with self._lock:
+            return self._ndx
+
+    def ndx_at(self, ts: datetime, tol_seconds: float = 150.0) -> float | None:
+        """Raw ^NDX closest to `ts`, or None if no sample within `tol_seconds`."""
+        with self._lock:
+            best = None
+            best_dt = tol_seconds
+            for t, v in self._hist:
+                d = abs((t - ts).total_seconds())
+                if d <= best_dt:
+                    best_dt = d
+                    best = v
+            return best
 
     @property
     def age_seconds(self) -> float:
@@ -160,6 +185,7 @@ class YahooWsFeed:
                 with self._lock:
                     self._ndx     = p
                     self._updated = now
+                    self._hist.append((now, p))
                     if not self._calibrated or (now - self._last_cal).total_seconds() > 300:
                         self._basis      = _theoretical_basis(p)
                         self._calibrated = True

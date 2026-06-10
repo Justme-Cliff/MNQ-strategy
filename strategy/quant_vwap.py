@@ -197,9 +197,18 @@ def detect_bounce(
     _start = start_min if start_min is not None else 10 * 60  # 10:00 AM
     _end   = end_min   if end_min   is not None else 12 * 60  # noon — full prop firm window
 
+    # Re-entry: a trending day can test VWAP as support/resistance several times.
+    # Each clean re-test is an independent high-WR continuation entry, so we allow
+    # up to RE_ENTRY_MAX per direction, separated by RE_ENTRY_GAP bars so we don't
+    # fire the same touch twice on consecutive bars.
+    RE_ENTRY_GAP = 5     # bars (25 min) minimum between two bounce entries
+    RE_ENTRY_MAX = 3     # max bounce entries per direction per session
+
     signals: list[VWAPSignal] = []
-    long_fired  = False
-    short_fired = False
+    long_count  = 0
+    short_count = 0
+    last_long_pos  = -10_000
+    last_short_pos = -10_000
 
     for pos, (ts, row) in enumerate(today_df.iterrows()):
         dt   = ts.astimezone(EST)
@@ -208,7 +217,7 @@ def detect_bounce(
             continue
         if mins >= _end:
             break
-        if long_fired and short_fired:
+        if long_count >= RE_ENTRY_MAX and short_count >= RE_ENTRY_MAX:
             break
 
         close     = float(row["Close"])
@@ -216,9 +225,9 @@ def detect_bounce(
         lower_val = float(lower.iloc[pos])  # VWAP − 0.5σ
         upper_val = float(upper.iloc[pos])  # VWAP + 0.5σ
 
-        if trend_dir in ("bull", "strong_bull") and not long_fired:
+        if (trend_dir in ("bull", "strong_bull")
+                and long_count < RE_ENTRY_MAX and pos - last_long_pos >= RE_ENTRY_GAP):
             if lower_val <= close <= upper_val:
-                long_fired = True
                 if pos + 1 >= len(today_df):
                     break
                 entry_bar = today_df.iloc[pos + 1]
@@ -226,7 +235,6 @@ def detect_bounce(
                 stop   = entry - stop_dist
                 target = entry + target_dist
                 if target - entry < 5.0 or entry <= stop:
-                    long_fired = False   # skip, keep looking
                     continue
                 global_idx = df.index.get_loc(entry_bar.name)
                 signals.append(VWAPSignal(
@@ -234,10 +242,12 @@ def detect_bounce(
                     vwap=vwap_val, deviation_pts=abs(close - vwap_val),
                     deviation_std=0.5, signal_bar_idx=global_idx,
                 ))
+                long_count += 1
+                last_long_pos = pos
 
-        elif trend_dir in ("bear", "strong_bear") and not short_fired:
+        elif (trend_dir in ("bear", "strong_bear")
+                and short_count < RE_ENTRY_MAX and pos - last_short_pos >= RE_ENTRY_GAP):
             if lower_val <= close <= upper_val:
-                short_fired = True
                 if pos + 1 >= len(today_df):
                     break
                 entry_bar = today_df.iloc[pos + 1]
@@ -245,7 +255,6 @@ def detect_bounce(
                 stop   = entry + stop_dist
                 target = entry - target_dist
                 if entry - target < 5.0 or entry >= stop:
-                    short_fired = False   # skip, keep looking
                     continue
                 global_idx = df.index.get_loc(entry_bar.name)
                 signals.append(VWAPSignal(
@@ -253,5 +262,7 @@ def detect_bounce(
                     vwap=vwap_val, deviation_pts=abs(close - vwap_val),
                     deviation_std=0.5, signal_bar_idx=global_idx,
                 ))
+                short_count += 1
+                last_short_pos = pos
 
     return signals[:max_signals]

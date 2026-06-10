@@ -24,6 +24,37 @@
 
 > **v8 is a 2-year backtest (2024–2026, 623 trading days).** Avg P&L/year: $+2,265. Full 10-year re-validation pending. Engaging the new ML meta-labeling gate (`ISOGENY_ML_GATE=live`, see below) lifts this to **220 trades, 80.9% WR, $+8,177 P&L, $375 max DD**.
 
+### v8.1 — Signal Density Update (June 2026)
+
+A live-session audit found three filters silently deleting valid morning signals. Fixed:
+
+- **25-pt stop cap now clamps instead of rejecting** — wide-but-legitimate stops (e.g. VWAP reversion at `atr×0.06` ≈ 27pts) were being thrown away, which had killed the entire `vwap_rev` strategy. Now capped at 25pts and taken.
+- **Thin-RVOL block now applies to breakouts only** — mean-reversion actually works best in quiet tape, so blocking it there just deleted good signals.
+- **ORB trend gate loosened** — now allows trend-aligned longs in plain `bull` (not just `strong_bull`/`neutral`) and shorts in `bear`.
+- **VWAP-bounce re-entry** — up to 3 trend-continuation entries per direction per session (was 1). This was the biggest lever; re-tests in a trend run ~81% WR.
+- **Daily trade cap 3 → 6** (dollar risk still bounded by the unchanged `−$150` daily-loss limit). Monitor's confirmed-trade limit now tracks the engine.
+- **Live ML gate defaults to `shadow`** (score shown, never vetoes) to maximize signal count while building trust.
+
+| Metric (60d, **AM-only** — the live-tradeable 9:30 AM–noon window) | Before | After |
+|:---|:---:|:---:|
+| Signals | 29 | **59** (~2×) |
+| Win rate | 75.9% | **76.3%** |
+| Net P&L | $+1,395 | **$+2,109** |
+
+> Stable across both halves of the window (75.0% / 77.4% WR). At this density **~64% of trading days produce at least one signal** — the rest are deliberately left flat (no setup = no trade). Validated on the trailing 60-day yfinance window; full multi-year Databento re-validation pending.
+
+### v8.2 — Conviction Sizing, Buffer Guard & Pre-Signal Layer (June 2026)
+
+- **2× sizing on the conviction band (`ISOGENY_2LOT_SCORE`, default 18).** Trades scoring ≥18 win ~79% (above the 76% baseline), so doubling *only* that band lifts PnL **+16% ($2,447 / 60d, ~$49/day)** with **win rate held at 76.3%**. Set to 19 for the old conservative sizing.
+- **Buffer guard (`ISOGENY_BUFFER_GUARD`, default $500).** When the live drawdown buffer drops below the threshold, every signal is forced to 1 contract — a thin buffer can't get doubled into a blow-up. The `−$150` daily-loss stop is unchanged.
+- **Pre-signal early-warning layer** (`monitor.py`): the level for a setup is usually known *before* the move, so the monitor now surfaces it early so you can rest the order at the broker instead of chasing a late Yahoo-delayed fill. Two tiers:
+  - **ARMED (resting bracket): ORB only.** Its edge *is* the level break, so a resting order is sound — validated **WR-neutral** (76.3% → 78.0% filling at the trigger vs next-bar-open, see `_presignal_test.py`). Fires within 15 pts, engine-allowed side only, with entry/SL/TP to place at the broker.
+  - **WATCH (early heads-up): IB / PDH / PDL / VWAP.** These strategies' edge *is* the confirmation (pullback, rejection/retest, reversion), so arming a blind resting order there would lower WR — instead the monitor flags the level early (within 12 pts) and names the expected setup, and you enter on the engine's **SIGNAL CONFIRMED** panel.
+
+- **Real-time price tightening (`ISOGENY_NDX_TRACK`, default on).** The NQ=F 1-min bar from yfinance is delivered 1–2 min late, so on a fast move the displayed price lagged the real market by 20–30+ pts. The feed now anchors to that accurate bar and adds the live move from the **`^NDX` index stream** (no CME embargo): `live_nq = anchor_nq + (ndx_now − ndx_at_anchor)`. Only the index *delta* is used, so the unreliable cost-of-carry basis never enters. Cuts the live-price lag to low single digits; falls back to the raw bar if the stream drops, `^NDX` is stale, or outside the 9:30–16:00 ET cash session. Status bar shows `NQ⚡` when tightening is active. Validate with `python3 _ndx_accuracy.py` (logs proxy vs raw vs `^NDX`). Display/alert-timing only — signals still come from completed bars, and the broker resting order remains the exact-fill authority.
+
+> The pre-signal layer is purely additive — it never creates, changes, or sizes a confirmed signal. It only gives you earlier lead time. The confirmed-signal panel remains the authority for the actual trade.
+
 ---
 
 ## Ten-Year Annual Breakdown (2016 – 2026)
@@ -174,20 +205,22 @@ Structural improvements applied after iterating over 2 years of Databento data �
 | `va_rule` stop multiplier capped at 1.0× | Never widen a mean-reversion stop — already at the VA edge | −Avg loss |
 | 2-lot threshold raised ≥19 → ≥19 | Score 16 had 38% WR at double size — require stronger consensus | +2-lot WR |
 
+> **v8.1 deltas (June 2026):** `fvg` was **re-enabled** (score ≥ 12 with the 20-pt institutional filter + order-flow hard blocks on top — the raw OHLCV detection that scored 40% is now gated). `vwap_rev` was revived (the 25-pt stop cap was rejecting it outright; it now clamps). `vwap_bounce` gained re-entry, the daily cap went 3 → 6, and the thin-RVOL block was narrowed to breakouts only. See the **Signal Density Update** section above for measured impact.
+
 ---
 
 ## Machine Learning — Meta-Labeling Layer
 
 A LightGBM **meta-labeling** system (López de Prado, *Advances in Financial Machine Learning*) sits on top of the rule-based engine. It does **not** replace any strategy or generate any trades — it only watches the rules' own candidates and learns to tell the strong setups from the weak ones.
 
-> **Architecture in one line:** the rules are always primary and untouched; ML is a thin, optional veto layer that can only say "skip," never "take." `ISOGENY_ML_GATE=off` (the default) is a byte-identical no-op — zero overhead, zero behavior change unless you explicitly turn it on.
+> **Architecture in one line:** the rules are always primary and untouched; ML is a thin, optional veto layer that can only say "skip," never "take." The live default is `ISOGENY_ML_GATE=shadow` — it scores every signal but **never** changes a decision, so you build trust in the model before letting it filter. `ISOGENY_ML_GATE=off` is available as a byte-identical no-op.
 
 ### Modes — `ISOGENY_ML_GATE`
 
 | Mode | Behavior |
 |:--|:--|
-| `off` *(default)* | ML never runs. Identical to the pre-ML engine. |
-| `shadow` | ML scores every candidate and logs `P(win)` for later analysis — **never** changes a take/skip/sizing decision. Used to validate the model's predictions against real outcomes for several weeks before trusting it. |
+| `off` | ML never runs. Identical to the pre-ML engine. |
+| `shadow` *(default)* | ML scores every candidate and logs `P(win)` for later analysis — **never** changes a take/skip/sizing decision. Used to validate the model's predictions against real outcomes for several weeks before trusting it. |
 | `live` | ML additionally **vetoes** a candidate if its `P(win)` falls below `ISOGENY_ML_THRESHOLD` (default `0.55`) — but *only* for strategies whose model earned live trust through the gate below. Everything else stays 100% rule-based. |
 
 ### The Two-Bar Deployability Gate
@@ -451,14 +484,17 @@ python3 -m ml.evaluation.compare_backtest --strategy vwap_bounce
 # Regenerate the 3 ML interpretability charts (decision surface, feature importance, validation gate)
 python3 -m ml.ml_charts
 
-# Start live monitor (run at 9:20 AM ET) — rule-only quant engine, default, unchanged
+# Start live monitor (run at 9:20 AM ET) — recommended launcher.
+# Defaults to the hybrid engine + ML shadow gate (most signals, nothing vetoed).
+./run_live.sh
+
+# Equivalent: plain monitor.py now defaults to ISOGENY_ENGINE=hybrid + shadow gate
 python3 monitor.py
 
-# Live monitor on the full institutional engine + meta-labeling ML gate
-# (ISOGENY_ENGINE=hybrid is the only thing that switches monitor.py's signal
-#  engine — default "quant" is byte-identical to the original monitor)
-ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=shadow python3 monitor.py   # ML scores + displays P(win), never vetoes
-ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live  python3 monitor.py   # ML actively vetoes low-confidence signals
+# Explicit gate control
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=shadow python3 monitor.py   # default — ML scores + displays P(win), never vetoes
+ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live   python3 monitor.py   # ML actively vetoes low-confidence signals
+ISOGENY_ENGINE=quant                         python3 monitor.py   # old rules-only quant engine
 
 # Post-session P&L check
 python3 daily_check.py
@@ -514,12 +550,12 @@ Works on **macOS**, **Windows**, and **Linux**.
 
 ### Engine switch — `ISOGENY_ENGINE`
 
-The monitor can run on either signal engine, controlled by one env var (default `quant` — byte-identical to the original monitor, zero behavior change):
+The monitor can run on either signal engine, controlled by one env var (default `hybrid`):
 
 | `ISOGENY_ENGINE` | Engine | What it does |
 |:--|:--|:--|
-| `quant` (default) | `backtest.quant_engine` | Rule-only scanner — exactly the original monitor, no ML involved |
-| `hybrid` | `backtest.hybrid_engine` | Full institutional stack (HMM/GEX/sector/macro/COT/breadth/SMH) — same engine that powers the validated 2-yr backtest above. Loads a live ES (`MES=F`) feed alongside NQ for lead-lag features. Combine with `ISOGENY_ML_GATE` to add the meta-labeling filter live |
+| `hybrid` (default) | `backtest.hybrid_engine` | Full institutional stack (HMM/GEX/sector/macro/COT/breadth/SMH) — same engine that powers the validated 2-yr backtest above. Loads a live ES (`MES=F`) feed alongside NQ for lead-lag features. Combine with `ISOGENY_ML_GATE` to add the meta-labeling filter live |
+| `quant` | `backtest.quant_engine` | Rule-only scanner — the original conservative monitor, no ML involved |
 
 ```bash
 ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=shadow python3 monitor.py   # rules + live ML opinion, nothing vetoed

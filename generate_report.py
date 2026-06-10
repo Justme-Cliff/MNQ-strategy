@@ -584,7 +584,7 @@ def build():
     story.append(p("Cliff Angers", COVER_AUTHOR))
     story.append(p("Quantitative Researcher", COVER_META))
     story.append(Spacer(1, 0.15*inch))
-    story.append(p(f"Research Paper v8.0  •  Published {REPORT_DATE}", COVER_META))
+    story.append(p(f"Research Paper v8.2  •  Published {REPORT_DATE}", COVER_META))
     story.append(p("Instrument: MNQ (Micro E-mini Nasdaq-100 Futures)  •  Session: 9:30 AM to 12:00 PM ET", COVER_META))
     story.append(p("Platform: Tradeify $25,000 Evaluation  •  Venue: CME Group", COVER_META))
     story.append(PageBreak())
@@ -595,7 +595,7 @@ def build():
     story.append(h1("Abstract"))
     story.append(hr())
     story.append(p(
-        "This paper presents the design, implementation, and empirical performance of the Isogeny Alpha System v8.0, "
+        "This paper presents the design, implementation, and empirical performance of the Isogeny Alpha System v8.2, "
         "an adaptive, multi-strategy algorithmic trading framework targeting the Micro E-mini Nasdaq-100 "
         "(MNQ) futures contract during the U.S. morning trading session (9:30 AM to 12:00 PM ET). "
         "The system integrates six complementary intraday strategies Gap Fill, Opening Range Breakout "
@@ -643,6 +643,41 @@ def build():
         "live, the ML-gated system produced 220 trades at an 80.9% win rate and $8,177 net P&L over "
         "the identical two-year window, a 23% reduction in trade count alongside a 25% increase in "
         "profit and a 15% reduction in maximum drawdown versus the rules-only baseline.",
+        ABSTRACT_STYLE,
+    ))
+    story.append(sp(0.1))
+    story.append(p(
+        "Version 8.1 (June 2026) is a signal-density revision targeting the live morning session. "
+        "An audit found three filters silently deleting valid candidates: the 25-point prop-firm "
+        "stop cap rejected wide-but-legitimate setups instead of clamping them to the cap (which had "
+        "eliminated the entire VWAP-reversion strategy), the thin-RVOL hard block was applied even to "
+        "mean-reversion strategies that in fact perform best in quiet, low-participation tape, and the "
+        "ORB trend gate excluded trend-aligned entries during ordinary (non-strong) trends. Re-entry "
+        "was added to the VWAP-bounce module (up to three trend-continuation entries per direction per "
+        "session) and the daily trade cap was raised from three to six, with dollar risk still bounded "
+        "by the unchanged $150 daily-loss limit, and the live ML gate default was set to shadow mode "
+        "(scores shown, never vetoing) to maximize signal count during trust-building. On the trailing "
+        "60-day window restricted to the live-tradeable 9:30 AM-to-noon session, these changes "
+        "approximately doubled signal frequency (29 to 59 trades) while holding the win rate at 76% "
+        "(stable across both halves of the window: 75.0% and 77.4%) and raising net P&L from $1,395 to "
+        "$2,109. At this density roughly 64% of trading days produce at least one signal; the "
+        "remaining days are deliberately left flat. Full multi-year Databento re-validation across the "
+        "2022 bear and 2025 tariff-shock regimes remains pending.",
+        ABSTRACT_STYLE,
+    ))
+    story.append(sp(0.1))
+    story.append(p(
+        "Version 8.2 adds conviction-based sizing, a live drawdown guard, and a pre-signal execution "
+        "layer. Trades in the high-conviction score band (>= 18 of 21) win approximately 79% — above "
+        "the 76% overall rate — so the position is doubled only on that band, raising net P&L a further "
+        "16% to $2,447 over the 60-day window with the win rate unchanged at 76.3%; a buffer guard "
+        "forces single-contract sizing whenever the live drawdown buffer falls below a configurable "
+        "floor. Separately, because most setups' trigger levels are known before price reaches them, "
+        "the monitor now emits the trade bracket early so a resting order can be placed at the broker "
+        "rather than chasing a data-delayed fill. A level-fill study confirmed that entering at the "
+        "trigger rather than the next-bar open preserves the win rate (76.3% to 78.0%) for the "
+        "breakout family; confirmation-dependent strategies (reversion, rejection, retest) retain "
+        "their bar-close confirmation and are surfaced only as early watch alerts.",
         ABSTRACT_STYLE,
     ))
     story.append(sp(0.2))
@@ -4667,7 +4702,7 @@ def build():
     story.append(sp(0.3))
     story.append(hr_light())
     story.append(p(
-        f"Isogeny Alpha System v8.0  •  Kairos Capital Research  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
+        f"Isogeny Alpha System v8.2  •  Kairos Capital Research  •  Generated {REPORT_DATE}  •  Proprietary and Confidential. Not investment advice.",
         CAPTION
     ))
 
