@@ -67,9 +67,13 @@ def detect_all(
     if not vwap_reversion_ok(vix):
         return []
 
-    # ATR-normalized deviation bounds — tightened to filter noise entries
-    min_dev = max(15.0, atr * 0.05)    # at least 5% of daily ATR (5pt = noise in 150pt session)
-    max_dev = min(30.0, atr * 0.12)    # at most 12% of daily ATR (>30pt = crash, not reversion)
+    # ATR-normalized deviation bounds.
+    # min_dev: must be a real deviation, not a 1-2 pt noise tick.
+    # max_dev: cap at 20% of ATR — beyond that the move is news/crash, not reversion.
+    # Previous code used min(30, atr*0.12) which, at ATR=150, gave a 15-18 pt valid
+    # window while the 1.5σ signal fires at ~20-30 pts — killing almost all signals.
+    min_dev = max(8.0, atr * 0.04)    # at least 4% of daily ATR
+    max_dev = min(50.0, atr * 0.20)   # at most 20% of daily ATR
     stop_dist = max(8.0, atr * 0.06)   # proportional stop
 
     est_idx = df.index.tz_convert(EST)
@@ -194,7 +198,8 @@ def detect_bounce(
     _end   = end_min   if end_min   is not None else 12 * 60  # noon — full prop firm window
 
     signals: list[VWAPSignal] = []
-    fired = False
+    long_fired  = False
+    short_fired = False
 
     for pos, (ts, row) in enumerate(today_df.iterrows()):
         dt   = ts.astimezone(EST)
@@ -203,7 +208,7 @@ def detect_bounce(
             continue
         if mins >= _end:
             break
-        if fired:
+        if long_fired and short_fired:
             break
 
         close     = float(row["Close"])
@@ -211,9 +216,9 @@ def detect_bounce(
         lower_val = float(lower.iloc[pos])  # VWAP − 0.5σ
         upper_val = float(upper.iloc[pos])  # VWAP + 0.5σ
 
-        if trend_dir in ("bull", "strong_bull"):
+        if trend_dir in ("bull", "strong_bull") and not long_fired:
             if lower_val <= close <= upper_val:
-                fired = True
+                long_fired = True
                 if pos + 1 >= len(today_df):
                     break
                 entry_bar = today_df.iloc[pos + 1]
@@ -221,6 +226,7 @@ def detect_bounce(
                 stop   = entry - stop_dist
                 target = entry + target_dist
                 if target - entry < 5.0 or entry <= stop:
+                    long_fired = False   # skip, keep looking
                     continue
                 global_idx = df.index.get_loc(entry_bar.name)
                 signals.append(VWAPSignal(
@@ -229,9 +235,9 @@ def detect_bounce(
                     deviation_std=0.5, signal_bar_idx=global_idx,
                 ))
 
-        elif trend_dir in ("bear", "strong_bear"):
+        elif trend_dir in ("bear", "strong_bear") and not short_fired:
             if lower_val <= close <= upper_val:
-                fired = True
+                short_fired = True
                 if pos + 1 >= len(today_df):
                     break
                 entry_bar = today_df.iloc[pos + 1]
@@ -239,6 +245,7 @@ def detect_bounce(
                 stop   = entry + stop_dist
                 target = entry - target_dist
                 if entry - target < 5.0 or entry >= stop:
+                    short_fired = False   # skip, keep looking
                     continue
                 global_idx = df.index.get_loc(entry_bar.name)
                 signals.append(VWAPSignal(

@@ -103,6 +103,10 @@ def detect_pd_level_signals(
     PDH Retest:    price broke above PDH on prior bar, pulls back to touch PDH → long
     PDL symmetric.
     PMH/PML: same logic.
+
+    Entry: open of the NEXT bar after the signal bar (consistent with all other strategies).
+    Stop/Target: sized to produce >= 3:1 R:R — rejection uses poke-high + buffer as stop,
+    and targets atr * 0.25 extension (comfortably 3:1 on a typical 8-10pt rejection stop).
     """
     if not levels or atr <= 0:
         return []
@@ -114,8 +118,11 @@ def detect_pd_level_signals(
     signals: list[PDLevelSignal] = []
     used_types: set[str] = set()
 
-    POKE_BUFFER = max(2.0, atr * 0.01)   # how far above PDH counts as a "poke"
+    POKE_BUFFER = max(2.0, atr * 0.01)    # how far above PDH counts as a "poke"
+    MAX_POKE    = min(20.0, atr * 0.025)  # poke larger than this = failed breakout, not rejection
     RETEST_TOL  = max(3.0, atr * 0.015)  # how close to PDH counts as a retest
+    STOP_BUF    = max(2.0, min(5.0, atr * 0.005))  # buffer above rejection high (small, ATR-aware)
+    MAX_RISK    = 25.0                    # prop firm stop cap
 
     check_levels = [
         ("pdh", levels.pdh, "pdh_reject", "pdh_retest"),
@@ -138,74 +145,107 @@ def detect_pd_level_signals(
         if mins >= 11 * 60 + 30:
             break
 
+        # Need a next bar for entry
+        if i + 1 >= len(today_df):
+            continue
+
         high  = float(row["High"])
         low   = float(row["Low"])
-        close = float(row["Close"])
-        open_ = float(row["Open"])
 
-        global_idx = df.index.get_loc(ts) if ts in df.index else i
+        next_row   = today_df.iloc[i + 1]
+        next_ts    = next_row["index"] if "index" in next_row else next_row.name
+        try:
+            entry_bar_global = df.index.get_loc(next_ts)
+        except Exception:
+            continue
+        entry_open = float(next_row["Open"])
 
         for name, lvl, reject_type, retest_type in check_levels:
             if lvl <= 0:
                 continue
 
-            # PDH / PMH rejection short: price pokes above then closes back below
+            # PDH / PMH rejection short: poke above level, closes back below
+            # Only valid when the poke is small — a 100-pt overshoot is a failed
+            # breakout, not a rejection, and requires a 100+ pt stop (untradeable).
             if name in ("pdh", "pmh") and reject_type not in used_types:
-                if high > lvl + POKE_BUFFER and close < lvl:
-                    stop   = high + max(2.0, atr * 0.02)
-                    target = lvl - atr * 0.08
-                    if stop - close < atr * 0.5 and close > target:
-                        used_types.add(reject_type)
-                        signals.append(PDLevelSignal(
-                            direction="short", entry=close,
-                            stop=stop, target=target,
-                            level_type=reject_type, level_price=lvl,
-                            signal_bar_idx=global_idx,
-                        ))
+                poke_size = high - lvl
+                if POKE_BUFFER <= poke_size <= MAX_POKE and float(row["Close"]) < lvl:
+                    stop   = high + STOP_BUF
+                    entry  = entry_open
+                    risk   = stop - entry
+                    if risk <= 0 or risk > MAX_RISK:
+                        continue
+                    # Target: at least 3× risk below entry
+                    target = entry - max(atr * 0.12, risk * 3.0)
+                    if entry <= target:  # already at or past target
+                        continue
+                    used_types.add(reject_type)
+                    signals.append(PDLevelSignal(
+                        direction="short", entry=entry,
+                        stop=stop, target=target,
+                        level_type=reject_type, level_price=lvl,
+                        signal_bar_idx=entry_bar_global,
+                    ))
 
-            # PDL / PML rejection long: price pokes below then closes back above
+            # PDL / PML rejection long: poke below level, closes back above
             if name in ("pdl", "pml") and reject_type not in used_types:
-                if low < lvl - POKE_BUFFER and close > lvl:
-                    stop   = low - max(2.0, atr * 0.02)
-                    target = lvl + atr * 0.08
-                    if close - stop < atr * 0.5 and close < target:
-                        used_types.add(reject_type)
-                        signals.append(PDLevelSignal(
-                            direction="long", entry=close,
-                            stop=stop, target=target,
-                            level_type=reject_type, level_price=lvl,
-                            signal_bar_idx=global_idx,
-                        ))
+                poke_size = lvl - low
+                if POKE_BUFFER <= poke_size <= MAX_POKE and float(row["Close"]) > lvl:
+                    stop   = low - STOP_BUF
+                    entry  = entry_open
+                    risk   = entry - stop
+                    if risk <= 0 or risk > MAX_RISK:
+                        continue
+                    target = entry + max(atr * 0.12, risk * 3.0)
+                    if entry >= target:
+                        continue
+                    used_types.add(reject_type)
+                    signals.append(PDLevelSignal(
+                        direction="long", entry=entry,
+                        stop=stop, target=target,
+                        level_type=reject_type, level_price=lvl,
+                        signal_bar_idx=entry_bar_global,
+                    ))
 
-            # PDH retest long: prior bar broke above PDH, now pulling back to test it
+            # PDH retest long: prior bar broke above PDH, now pulls back to test it
             if name == "pdh" and retest_type not in used_types and i > 0:
                 prev_close = float(today_df.iloc[i - 1]["Close"])
                 if prev_close > lvl and abs(low - lvl) <= RETEST_TOL:
-                    stop   = lvl - max(3.0, atr * 0.02)
-                    target = lvl + atr * 0.10
-                    if close - stop < atr * 0.5 and close < target:
-                        used_types.add(retest_type)
-                        signals.append(PDLevelSignal(
-                            direction="long", entry=close,
-                            stop=stop, target=target,
-                            level_type=retest_type, level_price=lvl,
-                            signal_bar_idx=global_idx,
-                        ))
+                    entry  = entry_open
+                    stop   = lvl - STOP_BUF
+                    risk   = entry - stop
+                    if risk <= 0 or risk > MAX_RISK:
+                        continue
+                    target = entry + max(atr * 0.10, risk * 3.0)
+                    if entry >= target:
+                        continue
+                    used_types.add(retest_type)
+                    signals.append(PDLevelSignal(
+                        direction="long", entry=entry,
+                        stop=stop, target=target,
+                        level_type=retest_type, level_price=lvl,
+                        signal_bar_idx=entry_bar_global,
+                    ))
 
-            # PDL retest short
+            # PDL retest short: prior bar broke below PDL, now pulls back to test it
             if name == "pdl" and retest_type not in used_types and i > 0:
                 prev_close = float(today_df.iloc[i - 1]["Close"])
                 if prev_close < lvl and abs(high - lvl) <= RETEST_TOL:
-                    stop   = lvl + max(3.0, atr * 0.02)
-                    target = lvl - atr * 0.10
-                    if stop - close < atr * 0.5 and close > target:
-                        used_types.add(retest_type)
-                        signals.append(PDLevelSignal(
-                            direction="short", entry=close,
-                            stop=stop, target=target,
-                            level_type=retest_type, level_price=lvl,
-                            signal_bar_idx=global_idx,
-                        ))
+                    entry  = entry_open
+                    stop   = lvl + STOP_BUF
+                    risk   = stop - entry
+                    if risk <= 0 or risk > MAX_RISK:
+                        continue
+                    target = entry - max(atr * 0.10, risk * 3.0)
+                    if entry <= target:
+                        continue
+                    used_types.add(retest_type)
+                    signals.append(PDLevelSignal(
+                        direction="short", entry=entry,
+                        stop=stop, target=target,
+                        level_type=retest_type, level_price=lvl,
+                        signal_bar_idx=entry_bar_global,
+                    ))
 
     return signals
 

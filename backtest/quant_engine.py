@@ -335,21 +335,18 @@ def _scan_day(
         if gap and direction_allowed(gap.direction, trend, strict=True):
             _try("gap_fill", gap, f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
 
-    fvg_ok_trend = trend["direction"] == "neutral"
-    if _can_trade() and vix_ok_breakout and fvg_ok_trend and dow != 0:
+    # FVG works in any regime — the detect() module handles trend direction internally
+    if _can_trade() and vix_ok_breakout and dow != 0:
         fvg = detect_fvg(df, today, atr, trend["direction"])
-        if fvg and direction_allowed(fvg.direction, trend, strict=True):
+        if fvg and direction_allowed(fvg.direction, trend, strict=False):
             _try("fvg", fvg, f"zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
 
     if _can_trade() and vix_ok_breakout:
         orb = detect_orb(df, today, atr, dow)
         if orb:
-            # ORB uses custom inline trend logic intentionally — stricter than direction_allowed():
-            # longs require strong_bull/neutral (not just "not strong_bear");
-            # shorts require strong_bear only (not general bear).
-            # This matches ORB's mean-reversion character: we need confirmed momentum, not any trend.
-            ok = (trend["direction"] == "strong_bear" if orb.direction == "short"
-                  else trend["direction"] in ("strong_bull", "neutral"))
+            # ORB inline trend logic: longs OK in bull/strong_bull/neutral; shorts OK in bear/strong_bear.
+            ok = (trend["direction"] in ("strong_bear", "bear") if orb.direction == "short"
+                  else trend["direction"] in ("strong_bull", "bull", "neutral"))
             if ok and _1h_bias_ok(orb):
                 _try("orb", orb, f"ORB={orb.orb_range:.0f}pts [{orb.entry_type}]")
 

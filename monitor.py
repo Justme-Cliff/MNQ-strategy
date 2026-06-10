@@ -43,12 +43,13 @@ from backtest.data_loader import load_nq, load_es, label_sessions
 from backtest.quant_engine import _load_vix
 
 # ── Engine selection ──────────────────────────────────────────────────────────
-# "quant"  (default) -> rule-only scanner, identical to the original monitor
-# "hybrid"           -> full institutional stack + meta-labeling ML gate
-#                       (gate behavior itself is controlled by ISOGENY_ML_GATE /
-#                       ISOGENY_ML_THRESHOLD inside hybrid_engine — e.g. run as
-#                       `ISOGENY_ENGINE=hybrid ISOGENY_ML_GATE=live python3 monitor.py`)
-ISOGENY_ENGINE = os.environ.get("ISOGENY_ENGINE", "quant").lower()
+# "hybrid" (default) -> full institutional stack + meta-labeling ML gate
+#                       (gate behavior controlled by ISOGENY_ML_GATE:
+#                       "shadow" = ML scores shown, never vetoes signals [default]
+#                       "live"   = ML actively filters low-confidence setups
+#                       "off"    = rules-only, no ML opinion)
+# "quant"            -> conservative rule-only scanner (~1 signal/2 weeks)
+ISOGENY_ENGINE = os.environ.get("ISOGENY_ENGINE", "hybrid").lower()
 
 if ISOGENY_ENGINE == "hybrid":
     from backtest.hybrid_engine import (
@@ -660,7 +661,7 @@ def run_monitor():
         console.print("[dim]Loading institutional context "
                       "(HMM/GEX/sector/macro/COT/breadth/SMH)...[/dim]", end=" ")
         hybrid_ctx = load_hybrid_context()
-        gate_mode  = os.environ.get("ISOGENY_ML_GATE", "off").lower()
+        gate_mode  = os.environ.get("ISOGENY_ML_GATE", "shadow").lower()
         console.print(f"[{C_GOOD}]✓  hybrid engine — ML_GATE={gate_mode}[/{C_GOOD}]")
 
     console.print("[dim]Reading news + economic calendar...[/dim]", end=" ")

@@ -92,6 +92,7 @@ from strategy.inst_breadth    import get_breadth_bias, load_breadth_data
 from strategy.inst_sectors    import get_smh_lead_signal, load_smh_data
 from strategy.inst_kelly      import kelly_contracts
 from strategy.bot_memory      import get_conf_adjustment
+from strategy.inst_levels     import get_key_levels, detect_pd_level_signals
 
 # ── Meta-labeling ML gate (optional — degrades to a complete no-op if the
 # `ml` package or its saved models aren't present, e.g. on a fresh checkout) ──
@@ -110,7 +111,7 @@ import os
 # "live"   -> additionally require P(win) >= ML_GATE_THRESHOLD for any
 #             strategy whose model demonstrated real OOS edge
 #             (`ml.inference.ml_gate_enabled` — others stay rule-only)
-ML_GATE_MODE      = os.environ.get("ISOGENY_ML_GATE", "off").lower()
+ML_GATE_MODE      = os.environ.get("ISOGENY_ML_GATE", "shadow").lower()
 ML_GATE_THRESHOLD = float(os.environ.get("ISOGENY_ML_THRESHOLD", "0.55"))
 
 EST = ZoneInfo("America/New_York")
@@ -120,7 +121,7 @@ MAX_RISK_PTS   = 25.0
 MAX_TRADES_DAY = 3
 MAX_DAILY_LOSS = 150.0
 
-MEAN_REV_STRATS = {"vwap_rev", "vwap_pm", "fvg", "ib_breakout", "va_rule"}
+MEAN_REV_STRATS = {"vwap_rev", "vwap_pm", "fvg", "ib_breakout", "va_rule", "pd_level"}
 BREAKOUT_STRATS = {"orb", "gap_fill"}
 
 OFI_HARD_BLOCK_Z        = 2.0
@@ -923,6 +924,10 @@ def _scan_hybrid_day(
         else:
             adjusted_stop = sig.entry + (sig.stop - sig.entry) * effective_mult
 
+        # Enforce prop firm 25-pt stop cap after HAR expansion
+        if abs(sig.entry - adjusted_stop) > MAX_RISK_PTS:
+            return False
+
         # Hard blocks
         blocked, block_reason = _is_hard_blocked(
             strategy, sig, today_df, local_pos, df, today, market, macro
@@ -983,12 +988,13 @@ def _scan_hybrid_day(
         # Skip weak setups (threshold scaled with new 20-point max)
         if score <= 5:
             return False
-        # FVG needs stronger confirmation — the fill mechanism is fragile
-        if strategy == "fvg" and score < 17:
+        # FVG needs solid institutional backing — raw WR is 52%; score 12+
+        # means the majority of the 20-point checks confirmed the fill.
+        if strategy == "fvg" and score < 12:
             return False
         # va_rule has a variable-width stop (the VA edge) — require more
         # institutional backing than other strategies before taking the risk
-        if strategy == "va_rule" and score < 18:
+        if strategy == "va_rule" and score < 14:
             return False
         # Live ML gate: require the meta-model's confidence to clear the bar
         # too — but only for strategies whose model demonstrated real OOS
@@ -1049,11 +1055,33 @@ def _scan_hybrid_day(
             _try_hybrid("gap_fill", gap,
                         f"gap={gap.gap_size:.1f}pts ({gap.gap_ratio:.2f}xATR)")
 
-    # ── Priority 2: FVG — REMOVED ─────────────────────────────────────────
-    # 10-yr data: 52.6% WR, +$51 on 97 trades (breakeven).
-    # 2-yr data: 40% WR, -$78 on 10 trades (losing).
-    # OHLCV-only FVG detection lacks the order-flow confirmation needed
-    # to reliably identify which gaps institutions will return to fill.
+    # ── Priority 1.5: PDH/PDL Level Reactions ────────────────────────────
+    # PDH/PDL rejection and retest are among the most reliable institutional
+    # setups: every Bloomberg terminal shows these levels, so when price
+    # probes above PDH and closes back below (rejection), or breaks PDH and
+    # retests it (continuation), the statistical edge is well-documented.
+    if _can_trade():
+        key_lvls = get_key_levels(df, today)
+        if key_lvls:
+            pd_sigs = detect_pd_level_signals(df, today, atr, key_lvls)
+            for pd_sig in pd_sigs:
+                if not _can_trade():
+                    break
+                if direction_allowed(pd_sig.direction, trend, strict=True):
+                    _try_hybrid("pd_level", pd_sig,
+                                f"{pd_sig.level_type} @ {pd_sig.level_price:.1f}")
+
+    # ── Priority 2: FVG ──────────────────────────────────────────────────
+    # Raw OHLCV-only FVG: 52.6% WR on 10yr data (breakeven without filters).
+    # With the 20-point institutional filter on top, order-flow hard blocks,
+    # and ML gate, the subset of FVGs that clear all bars is substantially
+    # higher quality.  Score threshold set at 12 (vs default 6) to require
+    # majority institutional backing before taking any FVG fill.
+    if _can_trade() and vix_ok and dow != 0:
+        fvg = detect_fvg(df, today, atr, trend["direction"])
+        if fvg and direction_allowed(fvg.direction, trend, strict=False):
+            _try_hybrid("fvg", fvg,
+                        f"FVG zone={fvg.zone_size:.1f}pts trend={trend['direction']}")
 
     # ── Priority 3: ORB ───────────────────────────────────────────────────
     if _can_trade() and vix_ok:
@@ -1068,26 +1096,30 @@ def _scan_hybrid_day(
                             f"ORB={orb.orb_range:.0f}pts ({orb.atr_ratio:.2f}xATR) [{orb.entry_type}]")
 
     # ── Priority 4: IB Breakout ───────────────────────────────────────────
-    if _can_trade() and vix_ok and dow != 0 and "orb" not in used_strats:
+    if _can_trade() and vix_ok and "orb" not in used_strats:
         ib = detect_ib(df, today, atr)
         if ib and direction_allowed(ib.direction, trend, strict=True):
             _try_hybrid("ib_breakout", ib,
                         f"IB={ib.ib_range:.0f}pts ({ib.atr_ratio:.2f}xATR)")
 
     # ── Priority 5: AM VWAP Reversion ────────────────────────────────────
-    # Require directional HMM — VWAP reversion only has edge when there is
-    # an established regime to revert to (not sideways / neutral HMM).
+    # Block only when HMM strongly contradicts the direction — neutral and
+    # unavailable are the ideal VWAP-reversion regime (price oscillates
+    # around VWAP without a dominant trend, making the mean-revert reliable).
+    # Requiring bull HMM for longs was backwards: it forced mean-rev trades
+    # in trending markets, which is where mean-rev fails most often.
     _rev_hmm = hmm.get("state", "unavailable")
     if _can_trade() and market["vwap_ok"]:
         for vs in detect_vwap(df, today, vix, atr, max_signals=MAX_TRADES_DAY - trades_today):
             if not _can_trade():
                 break
             if direction_allowed(vs.direction, trend, strict=True):
-                # Require confirmed directional regime — no bypass for unavailable.
-                # Without regime data we can't know if there's a trend to revert to.
+                # Block long reversion only when regime is actively falling (bear/stress).
+                # Block short reversion only when regime is actively rising (bull/strong_bull)
+                # — direction_allowed(strict=True) already handles this but be explicit.
                 _rev_ok = (
-                    (vs.direction == "long"  and _rev_hmm in ("bull", "strong_bull")) or
-                    (vs.direction == "short" and _rev_hmm in ("bear", "stress"))
+                    (vs.direction == "long"  and _rev_hmm not in ("bear", "stress")) or
+                    (vs.direction == "short" and _rev_hmm not in ("bull", "strong_bull"))
                 )
                 if _rev_ok:
                     _try_hybrid("vwap_rev", vs,

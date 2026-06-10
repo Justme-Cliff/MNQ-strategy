@@ -10,7 +10,7 @@ Research basis (2,791 NQ trading days, 2015-2025):
 Improvements over v1:
   - Monday skip: Monday gaps have lower fill rate (weekend positioning noise)
   - Pre-market bias: last 30 min of pre-market must trend toward the gap
-  - Tighter size filter: gap_ratio < 0.20 (was 0.30) — smaller gaps fill more reliably
+  - Size filter: gap_ratio < 0.30 — research-backed threshold (77.8% fill rate below this)
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -75,8 +75,10 @@ def detect(
         return None
     gap_ratio = gap_size / atr
 
-    # Improvement 2: Tighter ratio — gaps below 0.20× ATR fill most reliably
-    if gap_ratio > 0.20:
+    # Research basis: tiny gap (<0.30× ATR) fill rate = 77.8%; with first-bar
+    # confirmation (already checked below) fill rate rises to 93.1%.
+    # Using exactly the research-backed threshold.
+    if gap_ratio > 0.30:
         return None
 
     gap_pct = gap_size / prior_close

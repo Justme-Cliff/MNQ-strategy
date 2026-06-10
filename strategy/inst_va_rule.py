@@ -114,33 +114,43 @@ def detect_va_rule_signal(
             if consecutive_inside >= CONFIRM_BARS and not entry_fired:
                 entry_fired = True
 
+                # Need next bar for execution (consistent with all other strategies)
+                if pos + 1 >= len(today_df):
+                    return None
+                next_bar = today_df.iloc[pos + 1]
+                entry = float(next_bar["Open"])
+
                 if opened_above_va:
                     # Type A: came from above VA, now inside -> SHORT to VAL
-                    direction = "short"
-                    entry     = close
-                    stop      = vah + stop_buffer
-                    target    = val
-                    setup     = "A"
+                    direction      = "short"
+                    stop           = vah + stop_buffer
+                    target         = val
+                    setup          = "A"
+                    va_entry_edge  = vah
+                    va_target_edge = val
                 elif opened_below_va:
                     # Type B: came from below VA, now inside -> LONG to VAH
-                    direction = "long"
-                    entry     = close
-                    stop      = val - stop_buffer
-                    target    = vah
-                    setup     = "B"
+                    direction      = "long"
+                    stop           = val - stop_buffer
+                    target         = vah
+                    setup          = "B"
+                    va_entry_edge  = val
+                    va_target_edge = vah
                 else:
                     # Type C: mid-session VA reclaim
                     mid_va = (val + vah) / 2.0
                     if close < mid_va:
-                        direction = "long"
-                        entry     = close
-                        stop      = val - stop_buffer
-                        target    = vah
+                        direction      = "long"
+                        stop           = val - stop_buffer
+                        target         = vah
+                        va_entry_edge  = val
+                        va_target_edge = vah
                     else:
-                        direction = "short"
-                        entry     = close
-                        stop      = vah + stop_buffer
-                        target    = val
+                        direction      = "short"
+                        stop           = vah + stop_buffer
+                        target         = val
+                        va_entry_edge  = vah
+                        va_target_edge = val
                     setup = "C"
 
                 if abs(entry - target) < MIN_TARGET:
@@ -152,8 +162,12 @@ def detect_va_rule_signal(
                 if direction == "short" and stop <= entry:
                     return None
 
+                # Prop firm 25-pt stop cap
+                if abs(entry - stop) > 25.0:
+                    return None
+
                 try:
-                    global_idx = df.index.get_loc(ts)
+                    global_idx = df.index.get_loc(next_bar.name)
                 except Exception:
                     return None
 
@@ -163,8 +177,8 @@ def detect_va_rule_signal(
                     stop=stop,
                     target=target,
                     setup_type=setup,
-                    va_entry_edge=(vah if opened_above_va else val),
-                    va_target_edge=(val if opened_above_va else vah),
+                    va_entry_edge=va_entry_edge,
+                    va_target_edge=va_target_edge,
                     signal_bar_idx=global_idx,
                 )
 

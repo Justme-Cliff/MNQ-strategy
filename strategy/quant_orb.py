@@ -115,8 +115,9 @@ def detect(
         # ── Phase 1: detect initial breakout ──────────────────────────────────
         if breakout_dir is None:
             if close > orb_high and close >= vwap_val:
-                # Block Mon/Tue longs: weekend repositioning creates false gap-up setups
-                if day_of_week in (0, 1):
+                # Block Monday longs: weekend repositioning creates false breakout signals.
+                # Tuesday is a normal trading day — no structural reason to skip it.
+                if day_of_week == 0:
                     return None
                 breakout_dir = "long"
                 bars_since_breakout = 0
