@@ -688,7 +688,13 @@ def build():
         "not affect that fill. The confirmation-based strategies cannot be pre-positioned because the "
         "pattern completing is itself the move; they inherit the latency of the underlying five-minute "
         "bars. Eliminating that residual latency requires a real-time bar feed; the index-delta "
-        "tightening corrects the displayed price, not the freshness of the signal bars.",
+        "tightening corrects the displayed price, not the freshness of the signal bars. A resting-order "
+        "backtest of every strategy with the bar-close confirmation removed quantified this directly: "
+        "blind early entry collapses the win rate to 41-47% across ORB, IB, value-area and VWAP "
+        "reversion, confirming that the confirmation filter — not the price level — carries the edge. "
+        "Only the VWAP trend-bounce survived early arming (74%), because its filter, an established "
+        "trend, is known in advance; it and the opening-range breakout are therefore the only setups "
+        "exposed as resting early orders, with the remainder kept as confirmation-gated alerts.",
         ABSTRACT_STYLE,
     ))
     story.append(sp(0.2))

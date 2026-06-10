@@ -287,21 +287,44 @@ def _armed_orb_bracket(orb_high: float, orb_low: float, direction: str) -> dict 
             "risk_pts": abs(_tick(entry) - _tick(stop))}
 
 
-def _armed_panel(name: str, direction: str, br: dict) -> None:
-    """Early 'place a resting order' card — fires before the breakout."""
+def _armed_vwap_bounce(vwap: float, atr: float, direction: str) -> dict | None:
+    """
+    Early VWAP-bounce bracket — the ONE setup that holds win rate when armed early
+    (74% in the resting-order backtest, backtest/presignal_sim.py) because its
+    filter (an established trend) is known in advance and a dip to VWAP in a trend
+    is reliable support/resistance without needing bar-close confirmation. Mirrors
+    quant_vwap.detect_bounce: rest a limit AT VWAP, stop 0.5×(atr-scaled), target
+    an ATR extension. VWAP drifts slowly, so re-place the limit if it moves.
+    """
+    if vwap <= 0:
+        return None
+    sd  = max(8.0, atr * 0.06)
+    tgt = max(12.0, atr * 0.08)
+    if direction == "long":
+        entry, stop, target = vwap, vwap - sd * 0.5, vwap + tgt
+    else:
+        entry, stop, target = vwap, vwap + sd * 0.5, vwap - tgt
+    return {"entry": _tick(entry), "stop": _tick(stop), "target": _tick(target),
+            "risk_pts": abs(_tick(entry) - _tick(stop))}
+
+
+def _armed_panel(name: str, direction: str, br: dict, otype: str = "stop", note: str | None = None) -> None:
+    """Early 'place a resting order' card. otype: 'stop' (breakout) or 'limit' (bounce)."""
     side_col = C_LONG if direction == "long" else C_SHORT
     side_txt = "LONG ▲" if direction == "long" else "SHORT ▼"
-    order_kind = "BUY-STOP" if direction == "long" else "SELL-STOP"
+    kind = ("BUY" if direction == "long" else "SELL") + ("-STOP" if otype == "stop" else "-LIMIT")
+    sub  = note or ("place this resting bracket now — fills at broker speed if it breaks. "
+                    "ESTIMATE; wait for engine SIGNAL CONFIRMED before trusting full size.")
     t = Table.grid(padding=(0, 2))
     t.add_column(style="dim", min_width=10); t.add_column(style="bold")
-    t.add_row("Resting",  f"[{C_ENTRY}]{order_kind} @ {br['entry']:,.2f}[/{C_ENTRY}]")
+    t.add_row("Resting",  f"[{C_ENTRY}]{kind} @ {br['entry']:,.2f}[/{C_ENTRY}]")
     t.add_row("Stop",     f"[{C_STOP}]{br['stop']:,.2f}[/{C_STOP}]  [dim]({br['risk_pts']:.1f} pts  −${br['risk_pts']*2:.0f}/lot)[/dim]")
     t.add_row("Target",   f"[{C_TARGET}]{br['target']:,.2f}[/{C_TARGET}]")
     console.print()
     console.print(Panel(
         t,
         title=f"[bold yellow]⏱  ARMED EARLY — {name}  →  [{side_col}]{side_txt}[/{side_col}][/bold yellow]",
-        subtitle="[dim]place this resting bracket now — fills at broker speed if it breaks. ESTIMATE; wait for engine SIGNAL CONFIRMED before trusting full size.[/dim]",
+        subtitle=f"[dim]{sub}[/dim]",
         border_style="yellow",
         padding=(0, 2),
     ))
@@ -778,6 +801,7 @@ def run_monitor():
     level_alerts: set[str]  = set()
     armed_alerts: set[str]  = set()   # ORB armed-bracket early alerts already fired
     session_trend: str      = "neutral"   # set at session open; gates which side we arm
+    session_atr:   float    = 0.0          # daily adaptive ATR, set at open (vwap-bounce bracket scale)
     ARM_DISTANCE            = 15.0    # pts from the ORB level to fire the early "place resting order" card
 
     while True:
@@ -814,6 +838,14 @@ def run_monitor():
                 session_trend = get_ema_trend(bar_cache, date.today())["direction"]
             except Exception:
                 session_trend = "neutral"
+            try:
+                # Daily adaptive ATR (max of 5d/20d) — the SAME scale the engine and
+                # presignal_sim used for VWAP-bounce stops/targets. The intraday
+                # key_levels["atr"] (~80) is far too small and would make the bracket
+                # stops absurdly tight.
+                session_atr = get_atr_adaptive(bar_cache, date.today())
+            except Exception:
+                session_atr = 0.0
 
         # ── 12:00 PM session end ─────────────────────────────────────────
         if h >= 12 and not warned_end and not TEST_MODE:
@@ -863,6 +895,25 @@ def run_monitor():
                     if br:
                         _armed_panel(name, direction, br)
 
+            # ── VWAP bounce — the one confirmation-free setup that holds WR when
+            # armed early (74% in backtest/presignal_sim.py). In an established
+            # trend, rest a LIMIT at VWAP for the dip. VWAP drifts slowly so the
+            # level is stable enough to place ahead on Yahoo data.
+            vwap_lvl = key_levels.get("vwap")
+            atr_lvl  = session_atr   # daily adaptive ATR (matches engine/sim scale)
+            vb_dir   = ("long" if session_trend in ("bull", "strong_bull")
+                        else "short" if session_trend in ("bear", "strong_bear") else None)
+            if vwap_lvl and atr_lvl > 0 and vb_dir and abs(price - vwap_lvl) <= ARM_DISTANCE:
+                akey = f"ARM_VWAPB_{vb_dir}"
+                if akey not in armed_alerts:
+                    armed_alerts.add(akey)
+                    br = _armed_vwap_bounce(vwap_lvl, atr_lvl, vb_dir)
+                    if br:
+                        _armed_panel("VWAP BOUNCE", vb_dir, br, otype="limit",
+                                     note="rest a limit at VWAP for the trend pullback — "
+                                          "the one early-fire setup validated to hold ~74% WR. "
+                                          "VWAP drifts; nudge the limit if it moves.")
+
         # ── WATCH early heads-up — fires before the level, names the setup the
         # engine may confirm there so you have lead time to get your order ready.
         # These strategies' edge IS the confirmation (IB pullback, PDH/PDL
@@ -878,7 +929,7 @@ def run_monitor():
                 ("PDL",      key_levels.get("pdl"),      "long",  "orange1", "pd bounce"),
                 ("PMH",      key_levels.get("pmh"),      "short", "yellow",  "pm rejection"),
                 ("PML",      key_levels.get("pml"),      "long",  "yellow",  "pm bounce"),
-                ("VWAP",     key_levels.get("vwap"),     None,    "orange1", "vwap revert/bounce"),
+                ("VWAP",     key_levels.get("vwap"),     None,    "orange1", "vwap reversion (fade)"),
             ]
             for name, lvl, direction, col, setup in checks:
                 if not lvl:
