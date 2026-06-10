@@ -680,6 +680,17 @@ def build():
         "their bar-close confirmation and are surfaced only as early watch alerts.",
         ABSTRACT_STYLE,
     ))
+    story.append(sp(0.1))
+    story.append(p(
+        "A signal can be acted on ahead of the move only when its trigger is a price level known in "
+        "advance and rested as a broker order: the opening-range breakout qualifies and is filled in "
+        "real time at the exchange the instant price trades through it, so the delayed data feed does "
+        "not affect that fill. The confirmation-based strategies cannot be pre-positioned because the "
+        "pattern completing is itself the move; they inherit the latency of the underlying five-minute "
+        "bars. Eliminating that residual latency requires a real-time bar feed; the index-delta "
+        "tightening corrects the displayed price, not the freshness of the signal bars.",
+        ABSTRACT_STYLE,
+    ))
     story.append(sp(0.2))
     story.append(stat_block([
         ("Win Rate", "67.1%", "190W / 93L of 283"),

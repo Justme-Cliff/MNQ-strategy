@@ -55,6 +55,8 @@ A live-session audit found three filters silently deleting valid morning signals
 
 > The pre-signal layer is purely additive — it never creates, changes, or sizes a confirmed signal. It only gives you earlier lead time. The confirmed-signal panel remains the authority for the actual trade.
 
+> **Latency boundary — which signals actually beat the data delay:** A signal can only fire *before* the move if its trigger is a price level known in advance that you rest an order at. **ORB qualifies** — you rest a stop at the broker and it fills in real time the instant price breaks, so Yahoo's delay never touches the fill (you are *not* late). The **WATCH** strategies (IB pullback, PDH/PDL rejection/retest, VWAP reversion) are *confirmation* trades — the pattern completing *is* the move, so they can't be pre-positioned and they inherit whatever delay the 5-min Yahoo bars carry (a couple minutes on calm tape, more on fast moves). The only structural cure for that is a real-time bar feed (Tradovate); the `^NDX` tightening fixes the displayed price, not the freshness of the signal bars themselves.
+
 ---
 
 ## Ten-Year Annual Breakdown (2016 – 2026)
