@@ -5,11 +5,24 @@ indicator("Isogeny Alpha System - Kairos Capital Research", shorttitle="ISOGENY"
 //  ISOGENY ALPHA SYSTEM  -  Kairos Capital Research
 //  Institutional-grade intraday signal suite for MNQ / NQ futures
 //
-//  Mirrors the core logic of the Python engine (hybrid_engine.py):
-//    Strategies : Gap Fill, ORB Pullback, IB Breakout, VWAP Bounce, VWAP Reversion
+//  Mirrors the BASE strategy logic of the Python engine (v8.2), running on
+//  TradingView's real-time feed — fires signals live, with no Yahoo delay.
+//    Strategies : Gap Fill, ORB Pullback, IB Breakout, VWAP Bounce (3x re-entry),
+//                 VWAP Reversion
 //    Levels     : Session VWAP + bands, ORB / IB ranges, PDH/PDL, PMH/PML
 //    Regime     : EMA8/EMA21 trend, adaptive ATR, RVOL, VIX gate
 //    Exits      : Two-target system - T1 at 1R (50%), T2 trailed by Chandelier ATR
+//    Alerts     : alert() pushes a full tradeable signal (entry/stop/T1/T2/score)
+//                 at bar close — one TV alert, complete signal on your phone.
+//
+//  Score: ~15 of the 20 institutional points are reproduced here — the
+//  price/volume/VIX base plus the cross-asset reads (ES lead-lag, XLK/SPY
+//  sector, DXY macro, VIX/VIX3M term structure, VXN GEX proxy, QQQ/IWM breadth,
+//  SMH semis). NOT portable to Pine (terminal-only): the HMM regime, the
+//  LightGBM ML gate, COT positioning, and the order-flow internals
+//  (OFI/CVD/VPIN/absorption/lambda) — trained models / tick data Pine can't see.
+//  So Pine fires MORE signals than the ML-gated terminal; use the score to
+//  self-filter (A-grade ~ >= 73% of max + "clear") for terminal-like quality.
 //
 //  Session   : 9:30 AM - 12:00 PM America/New_York (CME RTH morning window)
 // =============================================================================
@@ -46,7 +59,17 @@ chandLen    = input.int(14,    "Chandelier ATR length",              group = g_e
 levelBars   = input.int(18,    "Level line length (bars ahead)",     group = g_ex, minval = 5,   maxval = 60)
 
 g_src = "Data Source"
-vixSym      = input.symbol("TVC:VIX", "VIX Symbol", group = g_src)
+vixSym      = input.symbol("TVC:VIX",   "VIX Symbol",        group = g_src)
+vix3mSym    = input.symbol("CBOE:VIX3M","VIX3M (term struct)",group = g_src)
+esSym       = input.symbol("CME_MINI:ES1!", "ES (lead-lag)", group = g_src)
+xlkSym      = input.symbol("AMEX:XLK",  "XLK (tech sector)", group = g_src)
+spySym      = input.symbol("AMEX:SPY",  "SPY (benchmark)",   group = g_src)
+dxySym      = input.symbol("TVC:DXY",   "DXY (dollar/macro)",group = g_src)
+vxnSym      = input.symbol("CBOE:VXN",  "VXN (NDX vol / GEX)",group = g_src)
+qqqSym      = input.symbol("NASDAQ:QQQ","QQQ (breadth)",     group = g_src)
+iwmSym      = input.symbol("AMEX:IWM",  "IWM (breadth)",     group = g_src)
+smhSym      = input.symbol("NASDAQ:SMH","SMH (semis lead)",  group = g_src)
+useInstFactors = input.bool(true, "Add institutional score factors (ES/sector/macro/VIX-term/GEX/breadth/SMH)", group = g_str)
 
 // ── Palette (institutional / Bloomberg-style) ───────────────────────────────
 cLong      = #1B5E20
@@ -118,6 +141,26 @@ trendColor = trendStrength >  1.0 ? cPos : trendStrength < -1.0 ? cNeg : cNeu
 vixClose   = request.security(vixSym, "D", close, lookahead = barmerge.lookahead_off)
 vixRegime  = vixClose <= 0 ? "n/a" : vixClose < 15 ? "LOW" : vixClose < 22 ? "NORMAL" : vixClose < 30 ? "ELEVATED" : "HIGH"
 meanRevOK  = vixClose < vixGate
+
+// ── Institutional cross-asset reads (portable subset of the 20-pt scorer) ────
+// Each pull is gated behind `useInstFactors` so it ONLY runs when you want the
+// extra factors — turning the toggle OFF drops 9 of the 14 cross-asset data
+// requests, which makes the indicator MUCH lighter and lets TradingView keep
+// recalculating it live (heavy indicators get throttled / stop auto-refreshing,
+// especially on a free plan). nz()-guarded so a missing symbol scores neutral.
+esROC    = useInstFactors ? nz(request.security(esSym,    timeframe.period, ta.roc(close, 3), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+xlkROC   = useInstFactors ? nz(request.security(xlkSym,   "D", ta.roc(close, 1), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+spyROC   = useInstFactors ? nz(request.security(spySym,   "D", ta.roc(close, 1), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+dxyROC   = useInstFactors ? nz(request.security(dxySym,   "D", ta.roc(close, 1), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+vix3m    = useInstFactors ? nz(request.security(vix3mSym, "D", close,            lookahead = barmerge.lookahead_off), 0.0) : 0.0
+vxnClose = useInstFactors ? nz(request.security(vxnSym,   "D", close,            lookahead = barmerge.lookahead_off), 0.0) : 0.0
+qqqROC   = useInstFactors ? nz(request.security(qqqSym,   "D", ta.roc(close, 1), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+iwmROC   = useInstFactors ? nz(request.security(iwmSym,   "D", ta.roc(close, 1), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+smhROC   = useInstFactors ? nz(request.security(smhSym,   "D", ta.roc(close, 1), lookahead = barmerge.lookahead_off), 0.0) : 0.0
+sectorBias  = xlkROC - spyROC                // tech outperforming benchmark = bullish for NQ
+vixContango = vix3m > 0 and vixClose > 0 ? (vix3m - vixClose) : 1.0   // >0 = contango = calm
+breadthBias = qqqROC - iwmROC                // large-cap tech leading small-caps = NQ tailwind
+smhBias     = smhROC - spyROC                // semiconductors leading = NQ tailwind
 
 // ── Session VWAP + std bands ─────────────────────────────────────────────────
 var float sessVwapSum   = 0.0
@@ -337,7 +380,8 @@ if nyMins == 595          // 09:55 close = approx end of first 30 minutes
 var bool gapFired   = false
 var bool orbFired   = false
 var bool ibFired    = false
-var bool vbFired    = false
+var int  vbCount    = 0      // VWAP-bounce re-entries today (engine allows up to 3)
+var int  vbLastBar  = -100   // bar_index of the last bounce entry (for spacing)
 var bool vrLongDone = false
 var bool vrShortDone = false
 
@@ -356,13 +400,15 @@ var float  sigStop     = na
 var float  sigT1       = na
 var float  sigT2       = na
 var int    sigBarIdx   = na
+var int    sigBarTime  = na
 var bool   sigActive   = false
 
 if isFirstBar
     gapFired    := false
     orbFired    := false
     ibFired     := false
-    vbFired     := false
+    vbCount     := 0
+    vbLastBar   := -100
     vrLongDone  := false
     vrShortDone := false
     sigActive   := false
@@ -405,19 +451,23 @@ if gapLongCond or gapShortCond
 // ---- 2. ORB Pullback (breakout + retrace into the ORB level) ------------
 var string orbBreakDir = na
 var float  orbExtreme  = na
+var int    orbBreakBar = na   // bar_index when the breakout was first seen (for the direct-entry fallback)
 
 if isFirstBar
     orbBreakDir := na
     orbExtreme  := na
+    orbBreakBar := na
 
 if isAMsess and orbValid and not orbFired and bar_index > orbBarIdx
     if na(orbBreakDir)
-        if close > orbHigh and close >= sessVwap and not (dayofweek == dayofweek.monday or dayofweek == dayofweek.tuesday)
+        if close > orbHigh and close >= sessVwap and not (dayofweek == dayofweek.monday)
             orbBreakDir := "long"
             orbExtreme  := high
+            orbBreakBar := bar_index
         else if close < orbLow and close <= sessVwap
             orbBreakDir := "short"
             orbExtreme  := low
+            orbBreakBar := bar_index
     else if orbBreakDir == "long"
         orbExtreme := math.max(orbExtreme, high)
         pullCeil   = orbHigh + orbRange * 0.25
@@ -429,6 +479,24 @@ if isAMsess and orbValid and not orbFired and bar_index > orbBarIdx
             riskPts  = entryPx - stopPx
             if riskPts > 0 and riskPts <= 25.0
                 sigStrategy := "ORB PULLBACK"
+                sigDir      := "long"
+                sigEntry    := entryPx
+                sigStop     := stopPx
+                sigT1       := entryPx + riskPts
+                sigT2       := entryPx + math.min(orbRange * 1.0, riskPts * 3.0)
+                sigBarIdx   := bar_index
+                sigActive   := true
+                orbStatusTxt := "▲ " + str.format_time(time, "HH:mm", "America/New_York")
+        else if (bar_index - orbBreakBar) >= 4 and close >= orbHigh
+            // Direct-entry fallback: breakout ran for 4 bars without a pullback
+            // (matches quant_orb's direct fallback so a runaway move still fires).
+            orbFired := true
+            entryPx  = close
+            stopPx   = orbHigh - orbRange * 0.5
+            stopPx   := (entryPx - stopPx) > 25.0 ? entryPx - 25.0 : stopPx
+            riskPts  = entryPx - stopPx
+            if riskPts > 0
+                sigStrategy := "ORB BREAKOUT"
                 sigDir      := "long"
                 sigEntry    := entryPx
                 sigStop     := stopPx
@@ -450,6 +518,22 @@ if isAMsess and orbValid and not orbFired and bar_index > orbBarIdx
             riskPts  = stopPx - entryPx
             if riskPts > 0 and riskPts <= 25.0
                 sigStrategy := "ORB PULLBACK"
+                sigDir      := "short"
+                sigEntry    := entryPx
+                sigStop     := stopPx
+                sigT1       := entryPx - riskPts
+                sigT2       := entryPx - math.min(orbRange * 1.0, riskPts * 3.0)
+                sigBarIdx   := bar_index
+                sigActive   := true
+                orbStatusTxt := "▼ " + str.format_time(time, "HH:mm", "America/New_York")
+        else if (bar_index - orbBreakBar) >= 4 and close <= orbLow
+            orbFired := true
+            entryPx  = close
+            stopPx   = orbLow + orbRange * 0.5
+            stopPx   := (stopPx - entryPx) > 25.0 ? entryPx + 25.0 : stopPx
+            riskPts  = stopPx - entryPx
+            if riskPts > 0
+                sigStrategy := "ORB BREAKOUT"
                 sigDir      := "short"
                 sigEntry    := entryPx
                 sigStop     := stopPx
@@ -532,9 +616,12 @@ if isCperiod and ibValid and not ibFired
 vwapBounceWin = nyMins >= 600 and nyMins < 720
 nearVWAP = math.abs(close - sessVwap) <= 0.5 * vwapStdDev
 
-if vwapBounceWin and meanRevOK and not vbFired
+// Re-entry: a trending day re-tests VWAP several times — up to 3 entries/session,
+// spaced >= 5 bars apart (matches quant_vwap.detect_bounce v8.2).
+if vwapBounceWin and meanRevOK and vbCount < 3 and (bar_index - vbLastBar) >= 5
     if (trendDir == "BULL" or trendDir == "STRONG BULL") and nearVWAP
-        vbFired := true
+        vbCount   += 1
+        vbLastBar := bar_index
         entryPx = close
         stopPx  = entryPx - math.max(5.0, atrAdpt * 0.03)
         riskPts = entryPx - stopPx
@@ -548,7 +635,8 @@ if vwapBounceWin and meanRevOK and not vbFired
         sigActive   := true
         vbStatusTxt := "▲ " + str.format_time(time, "HH:mm", "America/New_York")
     else if (trendDir == "BEAR" or trendDir == "STRONG BEAR") and nearVWAP
-        vbFired := true
+        vbCount   += 1
+        vbLastBar := bar_index
         entryPx = close
         stopPx  = entryPx + math.max(5.0, atrAdpt * 0.03)
         riskPts = stopPx - entryPx
@@ -565,8 +653,8 @@ if vwapBounceWin and meanRevOK and not vbFired
 // ---- 5. VWAP Reversion (mean-reversion, neutral regime, 9:45-11:30) -----
 vwapRevWin = nyMins >= 585 and nyMins < 690
 devPts     = math.abs(close - sessVwap)
-minDev     = math.max(15.0, atrAdpt * 0.05)
-maxDev     = math.min(30.0, atrAdpt * 0.12)
+minDev     = math.max(8.0,  atrAdpt * 0.04)
+maxDev     = math.min(50.0, atrAdpt * 0.20)
 stopDist   = math.max(8.0, atrAdpt * 0.06)
 devOK      = devPts >= minDev and devPts <= maxDev
 
@@ -651,11 +739,22 @@ f_gap    = gapDir == "none" or not gapTradeable or (gapDir == "GAP DOWN (fill = 
 f_session = isAMsess ? 1 : 0
 f_atr    = atrAdpt > 0 ? 1 : 0
 
-confScore = f_tsmom + f_trend + f_vix + f_rvol + f_vwap + f_gap + f_session + f_atr
-maxScore  = 8
+// ── Institutional factors (info, not hard filters — they enrich the score so
+//    you can self-select; every signal still fires). Score 1 = aligned/neutral.
+f_es      = not useInstFactors or math.abs(esROC) < 0.02 or (scoreDir == "long" and esROC > 0) or (scoreDir == "short" and esROC < 0) ? 1 : 0
+f_sector  = not useInstFactors or math.abs(sectorBias) < 0.05 or (scoreDir == "long" and sectorBias > 0) or (scoreDir == "short" and sectorBias < 0) ? 1 : 0
+f_macro   = not useInstFactors or math.abs(dxyROC) < 0.1 or (scoreDir == "long" and dxyROC < 0) or (scoreDir == "short" and dxyROC > 0) ? 1 : 0
+f_vixterm = not useInstFactors or vixContango >= 0 ? 1 : 0
+f_gex     = not useInstFactors or vxnClose <= 0 or vxnClose < 28 ? 1 : 0                  // GEX proxy: NDX vol-of-vol not stressed
+f_breadth = not useInstFactors or math.abs(breadthBias) < 0.05 or (scoreDir == "long" and breadthBias > 0) or (scoreDir == "short" and breadthBias < 0) ? 1 : 0
+f_smh     = not useInstFactors or math.abs(smhBias) < 0.1 or (scoreDir == "long" and smhBias > 0) or (scoreDir == "short" and smhBias < 0) ? 1 : 0
 
-sizeLabel = confScore <= 3 ? "SKIP" : confScore <= 6 ? "1 CONTRACT" : "2 CONTRACTS"
-sizeColor = confScore <= 3 ? cNeg : confScore <= 6 ? cT1 : cPos
+instScore = useInstFactors ? (f_es + f_sector + f_macro + f_vixterm + f_gex + f_breadth + f_smh) : 0
+confScore = f_tsmom + f_trend + f_vix + f_rvol + f_vwap + f_gap + f_session + f_atr + instScore
+maxScore  = useInstFactors ? 15 : 8
+
+sizeLabel = confScore <= maxScore * 0.4 ? "SKIP" : confScore <= maxScore * 0.75 ? "1 CONTRACT" : "2 CONTRACTS"
+sizeColor = confScore <= maxScore * 0.4 ? cNeg : confScore <= maxScore * 0.75 ? cT1 : cPos
 
 // visual gauge bar for the dashboard, e.g. "███████░ "
 gaugeStr = ""
@@ -667,9 +766,70 @@ hbThinRVOL  = rvolRegime == "THIN"
 hbVIXhigh   = vixRegime == "HIGH"
 hbWideGap   = not na(gapRatio) and gapRatio > 0.40
 
+// =============================================================================
+//  REAL-TIME SIGNAL ALERT — the whole point of the Pine port: a complete,
+//  tradeable signal pushed at bar close on TradingView's LIVE feed (no Yahoo
+//  delay). Add ONE alert in TV: "Condition = Isogeny Alpha · Any alert() call".
+//  The message carries strategy / direction / entry / stop / T1 / T2 / score,
+//  so the phone notification alone is enough to place the order.
+// =============================================================================
+if sigActive and bar_index == sigBarIdx
+    sigBarTime := time
+    _arrow = sigDir == "long" ? "🟢 LONG  ▲" : "🔴 SHORT ▼"
+    alert(
+         _arrow + "  " + sigStrategy +
+         "\nEntry " + str.tostring(sigEntry, format.mintick) +
+         "  |  Stop " + str.tostring(sigStop, format.mintick) +
+         "\nT1 " + str.tostring(sigT1, format.mintick) +
+         "  |  T2 " + str.tostring(sigT2, format.mintick) +
+         "\nScore " + str.tostring(confScore) + "/" + str.tostring(maxScore) +
+         (hbThinRVOL or hbVIXhigh or hbWideGap ? "  ⚠ caution" : ""),
+         alert.freq_once_per_bar_close)
+
+// =============================================================================
+//  LIVE SIGNAL BOX (top-left) — the active trade's exact levels, big and clear,
+//  so you can read/enter them at a glance without digging through the alert.
+//  Persists showing the last signal of the session until a new one fires.
+// =============================================================================
+var table sigBox = table.new(position.middle_left, 2, 7, border_width = 1,
+     border_color = color.new(color.black, 40), frame_color = color.new(color.black, 40), frame_width = 1)
+
+// Only show a signal that is LIVE this session (AM window + fired today). Outside
+// the window, or before today's first signal, show a clean status — never a
+// leftover from a prior session.
+if showSignals and barstate.islast and isAMsess and sigActive
+    _isL    = sigDir == "long"
+    _dirTxt = _isL ? "▲ LONG" : "▼ SHORT"
+    _dirCol = _isL ? cPos : cNeg
+    _cautTx = (hbThinRVOL or hbVIXhigh or hbWideGap) ? "⚠ caution" : "clear"
+    _sigTime = str.format_time(sigBarTime, "HH:mm", "America/New_York")
+    table.cell(sigBox, 0, 0, "LIVE SIGNAL", text_color = cHdrTx, bgcolor = _dirCol, text_size = size.normal, text_halign = text.align_left)
+    table.cell(sigBox, 1, 0, _sigTime,      text_color = cHdrTx, bgcolor = _dirCol, text_size = size.small,  text_halign = text.align_right)
+    table.cell(sigBox, 0, 1, sigStrategy,   text_color = color.white, bgcolor = cRowBg1, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 1, _dirTxt,       text_color = _dirCol,     bgcolor = cRowBg1, text_size = size.normal, text_halign = text.align_right)
+    table.cell(sigBox, 0, 2, "Entry", text_color = color.silver, bgcolor = cRowBg2, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 2, str.tostring(sigEntry, format.mintick), text_color = color.white, bgcolor = cRowBg2, text_size = size.normal, text_halign = text.align_right)
+    table.cell(sigBox, 0, 3, "Stop",  text_color = color.silver, bgcolor = cRowBg1, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 3, str.tostring(sigStop, format.mintick),  text_color = cNeg, bgcolor = cRowBg1, text_size = size.normal, text_halign = text.align_right)
+    table.cell(sigBox, 0, 4, "T1 (1R)", text_color = color.silver, bgcolor = cRowBg2, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 4, str.tostring(sigT1, format.mintick), text_color = cPos, bgcolor = cRowBg2, text_size = size.normal, text_halign = text.align_right)
+    table.cell(sigBox, 0, 5, "T2", text_color = color.silver, bgcolor = cRowBg1, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 5, str.tostring(sigT2, format.mintick), text_color = cPos, bgcolor = cRowBg1, text_size = size.normal, text_halign = text.align_right)
+    table.cell(sigBox, 0, 6, "Score", text_color = color.silver, bgcolor = cRowBg2, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 6, str.tostring(confScore) + "/" + str.tostring(maxScore) + "  " + _cautTx, text_color = confScore >= maxScore * 0.73 ? cPos : confScore >= maxScore * 0.55 ? cT1 : cNeg, bgcolor = cRowBg2, text_size = size.small, text_halign = text.align_right)
+
+// No live setup right now → status only (clears any prior-session signal)
+if showSignals and barstate.islast and not (isAMsess and sigActive)
+    table.clear(sigBox, 0, 0, 1, 6)
+    _st = isAMsess ? "⏳ scanning — no live setup yet" : "session closed · opens 9:30 ET"
+    table.cell(sigBox, 0, 0, "LIVE SIGNAL", text_color = cHdrTx, bgcolor = cNeu, text_size = size.normal, text_halign = text.align_left)
+    table.cell(sigBox, 1, 0, str.format_time(time, "HH:mm", "America/New_York"), text_color = cHdrTx, bgcolor = cNeu, text_size = size.small, text_halign = text.align_right)
+    table.cell(sigBox, 0, 1, _st, text_color = color.silver, bgcolor = cRowBg1, text_size = size.small, text_halign = text.align_left)
+    table.cell(sigBox, 1, 1, "", text_color = color.silver, bgcolor = cRowBg1, text_size = size.small, text_halign = text.align_right)
+
 // ── Heat-mapped regime background (AM session only) ─────────────────────────
 //   strong directional regime + high score -> colored wash; choppy/low score -> neutral gray
-heatColor = (not isAMsess ? na : (confScore >= 6 and scoreDir == "long" and trendStrength > 1.0 ? cBullWash : (confScore >= 6 and scoreDir == "short" and trendStrength < -1.0 ? cBearWash : (confScore <= 3 ? cNeutWash : na))))
+heatColor = (not isAMsess ? na : (confScore >= maxScore * 0.6 and scoreDir == "long" and trendStrength > 1.0 ? cBullWash : (confScore >= maxScore * 0.6 and scoreDir == "short" and trendStrength < -1.0 ? cBearWash : (confScore <= maxScore * 0.35 ? cNeutWash : na))))
 bgcolor(showHeatmap ? heatColor : na, title = "Regime Heat-Map")
 
 // =============================================================================
@@ -715,7 +875,7 @@ if showDash and barstate.islast
     table.cell(dash, 1, 9, ibCellTxt, text_color = ibValid ? cPos : cNeu, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)
 
     table.cell(dash, 0, 10, "Confidence Score", text_color = color.silver, text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_left)
-    table.cell(dash, 1, 10, gaugeStr + "  " + str.tostring(confScore) + "/" + str.tostring(maxScore), text_color = (confScore >= 6 ? cGaugeOn : (confScore >= 4 ? cT1 : cNeg)), text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
+    table.cell(dash, 1, 10, gaugeStr + "  " + str.tostring(confScore) + "/" + str.tostring(maxScore), text_color = (confScore >= maxScore * 0.6 ? cGaugeOn : (confScore >= maxScore * 0.4 ? cT1 : cNeg)), text_size = size.small, bgcolor = cRowBg1, text_halign = text.align_right)
 
     table.cell(dash, 0, 11, "Position Size", text_color = color.silver, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_left)
     table.cell(dash, 1, 11, sizeLabel, text_color = sizeColor, text_size = size.small, bgcolor = cRowBg2, text_halign = text.align_right)

@@ -193,10 +193,10 @@ def _signal_panel(strategy: str, direction: str, entry: float, stop: float,
     t.add_row("Strategy",  f"[{C_HEADER}]{strategy.upper().replace('_', ' ')}[/{C_HEADER}]", "")
     t.add_row("Direction", f"[{side_col}]{side_txt}[/{side_col}]",  "")
     t.add_row("",          "",                                         "")
-    t.add_row("Entry",     f"[{C_ENTRY}]{entry:,.2f}[/{C_ENTRY}]",   "← enter at next bar open")
-    t.add_row("Stop (SL)", f"[{C_STOP}]{stop:,.2f}[/{C_STOP}]",      f"← {risk_pts:.1f} pts  max −${risk_usd:.0f}")
-    t.add_row("T1 (50%)",  f"[{C_TARGET}]{t1_level:,.2f}[/{C_TARGET}]",  f"← 1R  lock +${t1_usd:.0f}")
-    t.add_row("T2 (50%)",  f"[{C_TARGET}]{target:,.2f}[/{C_TARGET}]",    "← Chandelier trail")
+    t.add_row("Entry",     f"[{C_ENTRY}]{entry:.2f}[/{C_ENTRY}]",   "← enter at next bar open")
+    t.add_row("Stop (SL)", f"[{C_STOP}]{stop:.2f}[/{C_STOP}]",      f"← {risk_pts:.1f} pts  max −${risk_usd:.0f}")
+    t.add_row("T1 (50%)",  f"[{C_TARGET}]{t1_level:.2f}[/{C_TARGET}]",  f"← 1R  lock +${t1_usd:.0f}")
+    t.add_row("T2 (50%)",  f"[{C_TARGET}]{target:.2f}[/{C_TARGET}]",    "← Chandelier trail")
     t.add_row("",          "",                                         "")
     t.add_row("Score",     f"[{C_SCORE}]{score}/21[/{C_SCORE}]  [{C_DIM}]{score_bar}[/{C_DIM}]", "")
     t.add_row("Size",      f"[{C_WARN}]{lots_txt}[/{C_WARN}]",        "")
@@ -245,9 +245,9 @@ def _level_alert(name: str, lvl: float, direction: str, entry: float,
     t = Table.grid(padding=(0, 3))
     t.add_column(style="dim", min_width=8)
     t.add_column()
-    t.add_row("Entry",  f"[{C_ENTRY}]{entry:,.1f}[/{C_ENTRY}]")
-    t.add_row("SL",     f"[{C_STOP}]{sl:,.1f}[/{C_STOP}]   ({risk_pts:.0f} pts)")
-    t.add_row("Target", f"[{C_TARGET}]{tp:,.1f}[/{C_TARGET}]")
+    t.add_row("Entry",  f"[{C_ENTRY}]{entry:.2f}[/{C_ENTRY}]")
+    t.add_row("SL",     f"[{C_STOP}]{sl:.2f}[/{C_STOP}]   ({risk_pts:.0f} pts)")
+    t.add_row("Target", f"[{C_TARGET}]{tp:.2f}[/{C_TARGET}]")
 
     console.print()
     console.print(Panel(
@@ -317,9 +317,9 @@ def _armed_panel(name: str, direction: str, br: dict, otype: str = "stop", note:
                     "ESTIMATE; wait for engine SIGNAL CONFIRMED before trusting full size.")
     t = Table.grid(padding=(0, 2))
     t.add_column(style="dim", min_width=10); t.add_column(style="bold")
-    t.add_row("Resting",  f"[{C_ENTRY}]{kind} @ {br['entry']:,.2f}[/{C_ENTRY}]")
-    t.add_row("Stop",     f"[{C_STOP}]{br['stop']:,.2f}[/{C_STOP}]  [dim]({br['risk_pts']:.1f} pts  −${br['risk_pts']*2:.0f}/lot)[/dim]")
-    t.add_row("Target",   f"[{C_TARGET}]{br['target']:,.2f}[/{C_TARGET}]")
+    t.add_row("Resting",  f"[{C_ENTRY}]{kind} @ {br['entry']:.2f}[/{C_ENTRY}]")
+    t.add_row("Stop",     f"[{C_STOP}]{br['stop']:.2f}[/{C_STOP}]  [dim]({br['risk_pts']:.1f} pts  −${br['risk_pts']*2:.0f}/lot)[/dim]")
+    t.add_row("Target",   f"[{C_TARGET}]{br['target']:.2f}[/{C_TARGET}]")
     console.print()
     console.print(Panel(
         t,
@@ -334,7 +334,7 @@ def _be_alert(strategy: str, direction: str, entry: float) -> None:
     entry = _tick(entry)
     side = "LONG" if direction == "long" else "SHORT"
     console.print(Panel(
-        f"  [{C_WARN}]Move your stop loss to  [{C_ENTRY}]{entry:,.2f}[/{C_ENTRY}]  (your entry price)[/{C_WARN}]\n"
+        f"  [{C_WARN}]Move your stop loss to  [{C_ENTRY}]{entry:.2f}[/{C_ENTRY}]  (your entry price)[/{C_WARN}]\n"
         f"  [dim]You are now risk-free on this {strategy.upper()} {side} trade.[/dim]",
         title="[bold cyan]🔒  T1 HIT — MOVE SL TO ENTRY[/bold cyan]",
         border_style="cyan",
@@ -942,7 +942,7 @@ def run_monitor():
                                f"{direction.upper()}[/]" ) if direction else ""
                     console.print(
                         f"\n  [{C_WARN}]⊙ WATCH[/{C_WARN}]  [dim]{now.strftime('%H:%M')}[/dim]  "
-                        f"[{col}]{name} {lvl:,.2f}[/{col}]  "
+                        f"[{col}]{name} {lvl:.2f}[/{col}]  "
                         f"[dim]{abs(price-lvl):.1f}pts away · {setup}{dir_txt}[/dim]  "
                         f"[dim]— get ready, enter on SIGNAL CONFIRMED[/dim]"
                     )
